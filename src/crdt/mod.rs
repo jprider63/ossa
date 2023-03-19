@@ -21,5 +21,5 @@ pub trait CRDT<M:OpMetadata> {
     // Mut or return Self?
     fn apply<'a>(&'a mut self, op: &'a AnnotatedOp<M,Self::Op>); // -> &'a Self;
 
-    // lawCommutativity :: concurrent op1 op2 => x.apply(op1).apply(op2) == x.apply(op2).apply(op1)
+    // lawCommutativity :: concurrent op1.time() op2.time() => x.apply(op1).apply(op2) == x.apply(op2).apply(op1)
 }
