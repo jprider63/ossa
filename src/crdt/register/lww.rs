@@ -1,7 +1,7 @@
 
 use std::cmp::PartialOrd;
 
-use crate::crdt::CRDT;
+use crate::crdt::{AnnotatedOp, CRDT, OpMetadata};
 
 #[derive(Clone)]
 /// Last writer wins (LWW) register.
@@ -10,13 +10,16 @@ pub struct LWW<T, A> {
     value: A,
 }
 
-impl<T:PartialOrd, A> CRDT for LWW<T, A> where LWW<T, A>:Clone {
-    type Op = LWW<T, A>;
+impl<M:OpMetadata + OpMetadata<Time = T>, T:PartialOrd, A:Clone> CRDT<M> for LWW<T, A> {
+    type Op = A;
 
-    fn apply<'a>(&'a mut self, op: &'a Self::Op) { // -> &'a Self {
-        if op.time > self.time {
-            *self = op.clone()
+    fn apply<'a>(&'a mut self, op: &'a AnnotatedOp<M, Self::Op>) {
+        let op_time = op.metadata.time();
+        if op_time > self.time {
+            *self = LWW {
+                time: op_time,
+                value: op.operation.clone(),
+            }
         }
-        // &self
     }
 }
