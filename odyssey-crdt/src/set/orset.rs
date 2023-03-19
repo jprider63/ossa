@@ -2,7 +2,7 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
-use crate::crdt::CRDT;
+use crate::CRDT;
 
 pub struct ORSet<T, A> {
     set: BTreeMap<A, BTreeSet<T>>,

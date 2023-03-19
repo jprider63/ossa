@@ -1,7 +1,7 @@
 
 use std::cmp::PartialOrd;
 
-use crate::crdt::{AnnotatedOp, CRDT, OpMetadata};
+use crate::{AnnotatedOp, CRDT, OpMetadata};
 
 #[derive(Clone)]
 /// Last writer wins (LWW) register.
