@@ -1,3 +1,4 @@
+
 pub mod register;
 pub mod set;
 
@@ -10,6 +11,7 @@ pub struct AnnotatedOp<M:OpMetadata, Op> {
 pub trait OpMetadata {
     type Time;
 
+    /// Logical time, serving as a unique identifier for this operation.
     fn time(&self) -> Self::Time;
 }
 
@@ -27,6 +29,8 @@ pub trait CRDT<M:OpMetadata> {
 
 
 
+// TODO: Need to connect the history causal ordering w/ the operation causal ordering/invariants
+// and whether or not an operation is enabled/valid
 
 pub trait CausalOrder {
     fn happens_before(op1: &Self, op2: &Self) -> bool;
