@@ -1,7 +1,6 @@
 
-use sha2::{Digest, Sha256};
-
 use crate::protocol;
+use crate::util::Hash;
 
 // pub struct Store<Id, T> {
 //     id: Id,
@@ -33,7 +32,7 @@ use crate::protocol;
 // }
 
 /// A store's Metadata header.
-pub struct MetadataHeader {
+pub struct MetadataHeader<TypeId, Hash> {
     /// A random nonce to distinguish the store.
     nonce: Nonce,
 
@@ -55,17 +54,19 @@ pub struct MetadataHeader {
     body_hash: Hash,
 }
 
-impl MetadataHeader {
-    /// Compute the `StoreId` for the `MetadataHeader`.
-    /// This fucntion must be updated any time `MetadataHeader` is updated.
-    fn store_id(&self) -> StoreId {
-        let h = Sha256::new();
-        h.update(self.nonce);
-        h.update([self.protocol_version.as_byte()]);
-        h.update(self.store_type);
-        h.update(self.body_size.to_be_bytes());
-        h.update(self.body_hash);
-        h.finalize().into()
+// TODO: Signature of MetadataHeader by `owner`.
+
+impl<TypeId:AsRef<[u8]>, H: Hash>  MetadataHeader<TypeId, H> {
+    /// Compute the store id for the `MetadataHeader`.
+    /// This function must be updated any time `MetadataHeader` is updated.
+    fn store_id(&self) -> H {
+        let h = H::new();
+        H::update(&mut h, self.nonce);
+        H::update(&mut h, [self.protocol_version.as_byte()]);
+        H::update(&mut h, self.store_type);
+        H::update(&mut h, self.body_size.to_be_bytes());
+        H::update(&mut h, self.body_hash);
+        H::finalize(h)
     }
 }
 
@@ -76,21 +77,20 @@ pub struct MetadataBody {
 }
 
 impl MetadataBody {
-    pub fn hash(&self) -> Hash {
-        let h = Sha256::new();
-        h.update(self.initial_state);
-        h.finalize().into()
+    pub fn hash<H:Hash>(&self) -> H {
+        let h = H::new();
+        H::update(&mut h, self.initial_state);
+        H::finalize(h)
     }
 
     /// Validate a `MetadataBody` given its header.
-    pub fn validate(&self, header: &MetadataHeader) -> bool {
+    pub fn validate<TypeId, H:Hash>(&self, header: &MetadataHeader<TypeId, H>) -> bool {
            self.initial_state.len() == header.body_size
-        && self.hash() == header.body_hash
+        && self.hash::<H>() == header.body_hash
     }
 }
 
-pub type StoreId = [u8; 32];
-pub type TypeId = [u8; 32];
-pub type Hash = [u8; 32];
+// pub type StoreId = [u8; 32];
+// pub type TypeId = [u8; 32];
+// pub type Hash = [u8; 32];
 pub type Nonce = [u8; 32];
-
