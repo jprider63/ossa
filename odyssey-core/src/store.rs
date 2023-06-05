@@ -60,12 +60,12 @@ impl<TypeId:AsRef<[u8]>, H: Hash>  MetadataHeader<TypeId, H> {
     /// Compute the store id for the `MetadataHeader`.
     /// This function must be updated any time `MetadataHeader` is updated.
     fn store_id(&self) -> H {
-        let h = H::new();
+        let mut h = H::new();
         H::update(&mut h, self.nonce);
         H::update(&mut h, [self.protocol_version.as_byte()]);
-        H::update(&mut h, self.store_type);
+        H::update(&mut h, &self.store_type);
         H::update(&mut h, self.body_size.to_be_bytes());
-        H::update(&mut h, self.body_hash);
+        H::update(&mut h, &self.body_hash);
         H::finalize(h)
     }
 }
@@ -78,8 +78,8 @@ pub struct MetadataBody {
 
 impl MetadataBody {
     pub fn hash<H:Hash>(&self) -> H {
-        let h = H::new();
-        H::update(&mut h, self.initial_state);
+        let mut h = H::new();
+        H::update(&mut h, &self.initial_state);
         H::finalize(h)
     }
 
