@@ -1,3 +1,6 @@
+
+pub mod v0;
+
 /// The protocol version.
 #[derive(Clone, Copy)]
 pub enum Version {
