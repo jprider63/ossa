@@ -1,3 +1,4 @@
+mod p2p;
 
 use crate::store;
 
@@ -6,20 +7,22 @@ pub struct ManagerSettings {
 
 /// Network manager.
 pub struct Manager {
+    settings: ManagerSettings,
     // Store peer info and store metadata/raw data?
 }
 
 impl Manager {
     pub fn initialize(settings: ManagerSettings) -> Manager {
         // Start listening on port.
-        // Store settings.
+        // Start DHT.
 
         Manager {
+            settings
         }
     }
 
     // 
-    pub fn connectToStore<TypeId, H>(store_metadata: store::MetadataHeader<TypeId, H>) -> Result<(), String> { // TODO: async API that pushes errors, applied operations, connection/peer info, etc to a queue?
+    pub fn createAndConnectToStore<TypeId, H>(store_metadata: store::MetadataHeader<TypeId, H>) -> Result<(), String> { // TODO: async API that pushes errors, applied operations, connection/peer info, etc to a queue?
         unimplemented!{}
     }
 

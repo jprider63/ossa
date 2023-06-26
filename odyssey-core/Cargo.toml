@@ -7,5 +7,13 @@ edition = "2021"
 
 [dependencies]
 async-session-types = "*"
+log = "*"
 rand = "*"
+serde = {version="*", features=["derive"]}
+serde_cbor = {version="*", features=[]}
 sha2 = "*"
+tokio = {version="*", features=["rt","rt-multi-thread","net"]}
+tokio-tower = "*"
+tokio-util = {version="*", features=["codec"]}
+tokio-serde = {version="*", features=["cbor"]}
+tower-service = "*"
