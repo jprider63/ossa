@@ -1,4 +1,5 @@
 mod p2p;
+mod protocol;
 
 use crate::store;
 

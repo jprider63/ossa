@@ -9,6 +9,7 @@ use tokio_util::codec::{self, LengthDelimitedCodec};
 use tokio_serde::formats;
 use tokio_tower::multiplex;
 
+use crate::network::protocol::run_handshake_server;
 
 pub struct P2PManager {
     p2p_thread: thread::JoinHandle<()>,
@@ -57,13 +58,16 @@ impl P2PManager {
                     tokio::spawn(async {
                         // let (read_stream, write_stream) = tcpstream.split();
                         let stream = codec::Framed::new(tcpstream, LengthDelimitedCodec::new()); 
-                        let stream = tokio_serde::Framed::new(stream, formats::Cbor::default());
 
-                        // Handshake.
                         // TODO XXX
+                        // Handshake.
+                        // Diffie Hellman?
+                        // Authenticate peer's public key?
+                        let protocol_version = run_handshake_server(&stream);
 
                         // Handle peer requests.
                         let service = Echo;
+                        let stream = tokio_serde::Framed::new(stream, formats::Cbor::default());
                         multiplex::Server::new(stream, service)
                     });
                 }
@@ -109,11 +113,12 @@ impl tower_service::Service<MyMessage> for Echo {
     }
 
     fn call(&mut self, req: MyMessage) -> Self::Future {
+        println!("Received: {:?}", req);
         // ready(Ok(req))
         let fut = async {
-            // Ok(req); // vec![0,1,2,3,4,5,6,7])
+            Ok(req)
             // Ok(vec![0,1,2,3,4,5,6,7])
-            Ok(MyMessage{field: vec![0,1,2,3,4,5,6,7]})
+            // Ok(MyMessage{field: vec![0,1,2,3,4,5,6,7]})
         };
         Box::pin(fut)
     }
