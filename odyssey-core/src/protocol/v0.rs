@@ -1,5 +1,6 @@
 
 use async_session_types::{Eps, Send, Recv};
+use serde::{Deserialize, Serialize};
 
 use crate::store;
 
@@ -15,6 +16,7 @@ pub type StoreMetadataBody = Send<StoreMetadataBodyRequest,Recv<ProtocolResult<S
 
 // # Messages sent by protocols.
 
+#[derive(Deserialize, Serialize)]
 pub struct StoreMetadataHeaderRequest<StoreId> {
     store_id: StoreId,
     body_request: Option<StoreMetadataBodyRequest>,

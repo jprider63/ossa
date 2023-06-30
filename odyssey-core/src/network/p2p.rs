@@ -9,7 +9,7 @@ use tokio_util::codec::{self, LengthDelimitedCodec};
 use tokio_serde::formats;
 use tokio_tower::multiplex;
 
-use crate::network::protocol::run_handshake_server;
+use crate::network::protocol::{ProtocolVersion, run_handshake_server, run_store_metadata_server};
 
 pub struct P2PManager {
     p2p_thread: thread::JoinHandle<()>,
@@ -22,14 +22,17 @@ pub struct P2PSettings {
 }
 
 impl P2PManager {
-    pub(crate) fn initialize(settings: P2PSettings) -> P2PManager {
+    pub(crate) fn initialize<StoreId>(settings: P2PSettings) -> P2PManager
+    where
+        StoreId:for<'a> Deserialize<'a>
+    {
         // Spawn thread.
         let p2p_thread = thread::spawn(move || {
             // Start async runtime.
             let runtime = match tokio::runtime::Runtime::new() {
                 Ok(r) => r,
                 Err(err) => {
-                    log::error!("Failed to initialized tokio runtime for P2P connections: {}", err);
+                    log::error!("Failed to initialize tokio runtime for P2P connections: {}", err);
                     return
                 }
             };
@@ -57,18 +60,20 @@ impl P2PManager {
                     // Spawn async.
                     tokio::spawn(async {
                         // let (read_stream, write_stream) = tcpstream.split();
-                        let stream = codec::Framed::new(tcpstream, LengthDelimitedCodec::new()); 
+                        let mut stream = codec::Framed::new(tcpstream, LengthDelimitedCodec::new()); 
 
                         // TODO XXX
                         // Handshake.
                         // Diffie Hellman?
                         // Authenticate peer's public key?
-                        let protocol_version = run_handshake_server(&stream);
+                        let ProtocolVersion::V0 = run_handshake_server(&stream);
 
-                        // Handle peer requests.
-                        let service = Echo;
-                        let stream = tokio_serde::Framed::new(stream, formats::Cbor::default());
-                        multiplex::Server::new(stream, service)
+                        run_store_metadata_server::<StoreId>(&mut stream).await;
+
+                        // // Handle peer requests.
+                        // let service = Echo;
+                        // let stream = tokio_serde::Framed::new(stream, formats::Cbor::default());
+                        // multiplex::Server::new(stream, service)
                     });
                 }
             });
