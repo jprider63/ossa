@@ -1,4 +1,6 @@
 
+use serde::{Deserialize, Serialize};
+
 use crate::protocol;
 use crate::util::Hash;
 
@@ -32,15 +34,16 @@ use crate::util::Hash;
 // }
 
 /// A store's Metadata header.
+#[derive(Deserialize, Serialize)]
 pub struct MetadataHeader<TypeId, Hash> {
     /// A random nonce to distinguish the store.
-    nonce: Nonce,
+    pub nonce: Nonce,
 
     /// The protocol version of this store.
-    protocol_version: protocol::Version,
+    pub protocol_version: protocol::Version,
 
     /// Type of state that the store holds.
-    store_type: TypeId,
+    pub store_type: TypeId,
 
     // TODO:
     // Owner?
@@ -48,10 +51,10 @@ pub struct MetadataHeader<TypeId, Hash> {
     // Access control options?
 
     /// Size in bytes of the metadata body.
-    body_size: usize,
+    pub body_size: usize,
 
     /// Hash of the metadata body.
-    body_hash: Hash,
+    pub body_hash: Hash,
 }
 
 // TODO: Signature of MetadataHeader by `owner`.
@@ -70,6 +73,7 @@ impl<TypeId:AsRef<[u8]>, H: Hash>  MetadataHeader<TypeId, H> {
     }
 }
 
+#[derive(Deserialize, Serialize)]
 pub struct MetadataBody {
     /// Serialized (and encrypted) initial state of the store.
     //  TODO: Eventually merkelize the initial state in chunks.

@@ -2,14 +2,16 @@
 /// Manage p2p network connections.
 
 use log;
-use std::thread;
+use std::marker::Send;
 use std::net::{SocketAddrV4};
+use std::thread;
 use tokio::net::TcpListener;
 use tokio_util::codec::{self, LengthDelimitedCodec};
 use tokio_serde::formats;
 use tokio_tower::multiplex;
 
-use crate::network::protocol::{ProtocolVersion, run_handshake_server, run_store_metadata_server};
+use crate::protocol::Version;
+use crate::network::protocol::{run_handshake_server, run_store_metadata_server};
 
 pub struct P2PManager {
     p2p_thread: thread::JoinHandle<()>,
@@ -24,7 +26,7 @@ pub struct P2PSettings {
 impl P2PManager {
     pub(crate) fn initialize<StoreId>(settings: P2PSettings) -> P2PManager
     where
-        StoreId:for<'a> Deserialize<'a>
+        StoreId:for<'a> Deserialize<'a> + Send
     {
         // Spawn thread.
         let p2p_thread = thread::spawn(move || {
@@ -66,7 +68,7 @@ impl P2PManager {
                         // Handshake.
                         // Diffie Hellman?
                         // Authenticate peer's public key?
-                        let ProtocolVersion::V0 = run_handshake_server(&stream);
+                        let Version::V0 = run_handshake_server(&stream);
 
                         run_store_metadata_server::<StoreId>(&mut stream).await;
 

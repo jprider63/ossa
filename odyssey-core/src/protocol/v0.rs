@@ -18,13 +18,14 @@ pub type StoreMetadataBody = Send<StoreMetadataBodyRequest,Recv<ProtocolResult<S
 
 #[derive(Deserialize, Serialize)]
 pub struct StoreMetadataHeaderRequest<StoreId> {
-    store_id: StoreId,
-    body_request: Option<StoreMetadataBodyRequest>,
+    pub store_id: StoreId,
+    pub body_request: Option<StoreMetadataBodyRequest>,
 }
 
+#[derive(Deserialize, Serialize)]
 pub struct StoreMetadataHeaderResponse<TypeId, StoreId> {
-    header: store::v0::MetadataHeader<TypeId, StoreId>,
-    body: Option<StoreMetadataBodyResponse>,
+    pub header: store::v0::MetadataHeader<TypeId, StoreId>,
+    pub body: Option<StoreMetadataBodyResponse>,
 }
 
 pub type StoreMetadataBodyRequest = (); // TODO: Eventually request certain chunks.
