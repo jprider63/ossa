@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 pub mod v0;
 
 /// The protocol version.
-#[derive(Clone, Copy, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum Version {
     V0 = 0,
 }

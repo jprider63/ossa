@@ -3,6 +3,7 @@ use futures::{SinkExt,StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_cbor::to_vec;
 use std::any::type_name;
+use std::fmt::Debug;
 use std::marker::Send;
 use tokio::net::TcpStream;
 use tokio_util::codec::{self, LengthDelimitedCodec};
@@ -31,7 +32,7 @@ pub(crate) fn run_handshake_client<Transport>(stream: &Transport) -> Version {
 // pub(crate) async fn run_store_metadata_server<'a, StoreId:Deserialize<'a>>(stream: &mut codec::Framed<TcpStream, LengthDelimitedCodec>) -> () {
 pub(crate) async fn run_store_metadata_server<StoreId>(stream: &mut codec::Framed<TcpStream, LengthDelimitedCodec>) -> ()
 where
-  StoreId:for<'a> Deserialize<'a> + Send
+  StoreId:for<'a> Deserialize<'a> + Send + Debug
 {
     let received = match stream.next().await {
         None => {
@@ -53,6 +54,8 @@ where
         }
         Ok(r) => r,
     };
+
+    log::info!("Received request: {:?}", req);
 
     // TODO: Proper response.
     let response = StoreMetadataHeaderResponse {
@@ -86,7 +89,7 @@ where
     ()
 }
 
-pub(crate) async fn run_store_metadata_client<TypeId, StoreId>(stream: &mut codec::Framed<TcpStream, LengthDelimitedCodec>, request: &StoreMetadataHeaderRequest<StoreId>) -> Result<StoreMetadataHeaderResponse<TypeId, StoreId>, ProtocolError>
+pub async fn run_store_metadata_client<TypeId, StoreId>(stream: &mut codec::Framed<TcpStream, LengthDelimitedCodec>, request: &StoreMetadataHeaderRequest<StoreId>) -> Result<StoreMetadataHeaderResponse<TypeId, StoreId>, ProtocolError>
 where
     StoreId: Serialize + for<'a> Deserialize<'a>,
     TypeId: for<'a> Deserialize<'a>,
@@ -96,6 +99,7 @@ where
     receive(stream).await
 }
 
+#[derive(Debug)]
 pub enum ProtocolError {
     SerializationError(serde_cbor::Error),
     DeserializationError(serde_cbor::Error),
@@ -131,7 +135,7 @@ where
     }
 }
 
-/// Receive a message as CBOR over the given stream.
+/// Receive a message as CBOR from the given stream.
 async fn receive<T>(stream: &mut codec::Framed<TcpStream, LengthDelimitedCodec>) -> Result<T, ProtocolError>
 where
     T: for<'a> Deserialize<'a>,

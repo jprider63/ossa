@@ -34,7 +34,7 @@ use crate::util::Hash;
 // }
 
 /// A store's Metadata header.
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct MetadataHeader<TypeId, Hash> {
     /// A random nonce to distinguish the store.
     pub nonce: Nonce,
@@ -73,7 +73,7 @@ impl<TypeId:AsRef<[u8]>, H: Hash>  MetadataHeader<TypeId, H> {
     }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct MetadataBody {
     /// Serialized (and encrypted) initial state of the store.
     //  TODO: Eventually merkelize the initial state in chunks.

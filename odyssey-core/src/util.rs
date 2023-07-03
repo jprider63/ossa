@@ -1,6 +1,8 @@
 
 use rand::{RngCore, rngs::OsRng};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::fmt::Debug;
 
 use crate::store::Nonce;
 
@@ -28,7 +30,8 @@ pub trait Hash: PartialEq + AsRef<[u8]> {
     fn finalize(state: Self::HashState) -> Self;
 }
 
-struct Sha256Hash([u8; 32]);
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Sha256Hash(pub [u8; 32]);
 
 impl AsRef<[u8]> for Sha256Hash {
     fn as_ref(&self) -> &[u8] {

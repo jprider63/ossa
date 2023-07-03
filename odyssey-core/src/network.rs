@@ -1,5 +1,5 @@
-mod p2p;
-mod protocol;
+pub mod p2p;
+pub mod protocol;
 
 use crate::store;
 
