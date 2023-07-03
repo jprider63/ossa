@@ -6,7 +6,7 @@ use std::fmt::Debug;
 use std::marker::Send;
 use std::net::{SocketAddrV4};
 use std::thread;
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener,TcpStream};
 use tokio_util::codec::{self, LengthDelimitedCodec};
 use tokio_serde::formats;
 use tokio_tower::multiplex;
@@ -27,7 +27,7 @@ pub struct P2PSettings {
 impl P2PManager {
     pub fn initialize<StoreId>(settings: P2PSettings) -> P2PManager
     where
-        StoreId:for<'a> Deserialize<'a> + Send + Debug
+        StoreId:for<'a> Deserialize<'a> + Send + Debug,
     {
         // Spawn thread.
         let p2p_thread = thread::spawn(move || {
@@ -71,7 +71,7 @@ impl P2PManager {
                         // Authenticate peer's public key?
                         let Version::V0 = run_handshake_server(&stream);
 
-                        run_store_metadata_server::<StoreId>(&mut stream).await;
+                        run_store_metadata_server::<StoreId, codec::Framed<TcpStream, LengthDelimitedCodec>>(&mut stream).await;
 
                         // // Handle peer requests.
                         // let service = Echo;

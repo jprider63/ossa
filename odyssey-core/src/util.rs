@@ -1,4 +1,6 @@
 
+use bytes::{Bytes,BytesMut};
+use futures;
 use rand::{RngCore, rngs::OsRng};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -60,3 +62,15 @@ impl Hash for Sha256Hash {
         Sha256Hash(state.finalize().into())
     }
 }
+
+// TODO: Generalize the error and stream.
+pub trait Stream: futures::Stream<Item=Result<BytesMut,std::io::Error>>
+    + futures::Sink<Bytes, Error=std::io::Error>
+    + Unpin
+{}
+impl<T> Stream for T
+where
+    T:futures::Stream<Item=Result<BytesMut,std::io::Error>>,
+    T:futures::Sink<Bytes, Error=std::io::Error>,
+    T:Unpin,
+{}

@@ -1,5 +1,5 @@
 
-use futures::{SinkExt,StreamExt};
+use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_cbor::to_vec;
 use std::any::type_name;
@@ -11,18 +11,19 @@ use tokio_util::codec::{self, LengthDelimitedCodec};
 use crate::protocol::Version;
 use crate::protocol::v0::{StoreMetadataHeaderRequest, StoreMetadataHeaderResponse};
 use crate::store::v0::MetadataHeader;
+use crate::util::Stream;
 
 // pub enum ProtocolVersion {
 //     V0,
 // }
 
-pub(crate) fn run_handshake_server<Transport>(stream: &Transport) -> Version {
+pub(crate) fn run_handshake_server<S:Stream>(stream: &S) -> Version {
     // TODO: Implement this and make it abstract.
 
     Version::V0
 }
 
-pub(crate) fn run_handshake_client<Transport>(stream: &Transport) -> Version {
+pub(crate) fn run_handshake_client<S:Stream>(stream: &S) -> Version {
     // TODO: Implement this and make it abstract.
 
     Version::V0
@@ -30,7 +31,7 @@ pub(crate) fn run_handshake_client<Transport>(stream: &Transport) -> Version {
 
 // TODO: Generalize the argument.
 // pub(crate) async fn run_store_metadata_server<'a, StoreId:Deserialize<'a>>(stream: &mut codec::Framed<TcpStream, LengthDelimitedCodec>) -> () {
-pub(crate) async fn run_store_metadata_server<StoreId>(stream: &mut codec::Framed<TcpStream, LengthDelimitedCodec>) -> ()
+pub(crate) async fn run_store_metadata_server<StoreId, S:Stream>(stream: &mut S) -> ()
 where
   StoreId:for<'a> Deserialize<'a> + Send + Debug
 {
@@ -89,7 +90,7 @@ where
     ()
 }
 
-pub async fn run_store_metadata_client<TypeId, StoreId>(stream: &mut codec::Framed<TcpStream, LengthDelimitedCodec>, request: &StoreMetadataHeaderRequest<StoreId>) -> Result<StoreMetadataHeaderResponse<TypeId, StoreId>, ProtocolError>
+pub async fn run_store_metadata_client<TypeId, StoreId, S:Stream>(stream: &mut codec::Framed<TcpStream, LengthDelimitedCodec>, request: &StoreMetadataHeaderRequest<StoreId>) -> Result<StoreMetadataHeaderResponse<TypeId, StoreId>, ProtocolError>
 where
     StoreId: Serialize + for<'a> Deserialize<'a>,
     TypeId: for<'a> Deserialize<'a>,
@@ -109,8 +110,9 @@ pub enum ProtocolError {
 }
 
 /// Send a message as CBOR over the given stream.
-async fn send<T>(stream: &mut codec::Framed<TcpStream, LengthDelimitedCodec>, message: &T) -> Result<(), ProtocolError>
+async fn send<T, S>(stream: &mut S, message: &T) -> Result<(), ProtocolError>
 where
+    S: Stream,
     T: Serialize,
 {
     // TODO: to_writer instead?
@@ -136,13 +138,14 @@ where
 }
 
 /// Receive a message as CBOR from the given stream.
-async fn receive<T>(stream: &mut codec::Framed<TcpStream, LengthDelimitedCodec>) -> Result<T, ProtocolError>
+async fn receive<S, T>(stream: &mut S) -> Result<T, ProtocolError>
 where
+    S: Stream,
     T: for<'a> Deserialize<'a>,
 {
     match stream.next().await {
         None => {
-            log::error!("Failed to receive data from peer");
+            log::error!("Failed to receive data from peer"); // Closed connection?
             Err(ProtocolError::ReceivedNoData)
         }
         Some(Err(err)) => {
