@@ -31,31 +31,11 @@ pub(crate) fn run_handshake_client<S:Stream>(stream: &S) -> Version {
 
 // TODO: Generalize the argument.
 // pub(crate) async fn run_store_metadata_server<'a, StoreId:Deserialize<'a>>(stream: &mut codec::Framed<TcpStream, LengthDelimitedCodec>) -> () {
-pub(crate) async fn run_store_metadata_server<StoreId, S:Stream>(stream: &mut S) -> ()
+pub(crate) async fn run_store_metadata_server<StoreId, S:Stream>(stream: &mut S) -> Result<(), ProtocolError>
 where
   StoreId:for<'a> Deserialize<'a> + Send + Debug
 {
-    let received = match stream.next().await {
-        None => {
-            log::error!("Failed to receive data from peer");
-            return
-        }
-        Some(Err(err)) => {
-            log::error!("Failed to receive data from peer: {}", err);
-            return
-        }
-        Some(Ok(bytes)) => bytes,
-    };
-
-    let req : StoreMetadataHeaderRequest<StoreId> = match serde_cbor::from_slice(&received) {
-        Err(err) => {
-            log::error!("Failed to parse StoreMetadataHeaderRequest: {}", err);
-            // TODO: Respond with failure message.
-            return
-        }
-        Ok(r) => r,
-    };
-
+    let req : StoreMetadataHeaderRequest<StoreId> = receive(stream).await?;
     log::info!("Received request: {:?}", req);
 
     // TODO: Proper response.
@@ -69,25 +49,8 @@ where
         },
         body: None,
     };
-    // TODO: to_writer instead?
-    // serde_cbor::to_writer(&stream, &response);
-    let cbor = match serde_cbor::to_vec(&response) {
-        Err(err) => {
-            log::error!("Failed to serialize StoreMetadataHeaderResponse: {}", err);
-            // TODO: Respond with failure message.
-            return
-        }
-        Ok(res) => res,
-    };
-    match stream.send(cbor.into()).await {
-        Err(err) => {
-            log::error!("Failed to send StoreMetadataHeaderResponse: {}", err);
-            return
-        }
-        Ok(()) => (),
-    };
 
-    ()
+    send(stream, &response).await
 }
 
 pub async fn run_store_metadata_client<TypeId, StoreId, S:Stream>(stream: &mut codec::Framed<TcpStream, LengthDelimitedCodec>, request: &StoreMetadataHeaderRequest<StoreId>) -> Result<StoreMetadataHeaderResponse<TypeId, StoreId>, ProtocolError>

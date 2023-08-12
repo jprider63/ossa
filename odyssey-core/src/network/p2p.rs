@@ -71,7 +71,7 @@ impl P2PManager {
                         // Authenticate peer's public key?
                         let Version::V0 = run_handshake_server(&stream);
 
-                        run_store_metadata_server::<StoreId, codec::Framed<TcpStream, LengthDelimitedCodec>>(&mut stream).await;
+                        run_store_metadata_server::<StoreId, codec::Framed<TcpStream, LengthDelimitedCodec>>(&mut stream).await.expect("TODO");
 
                         // // Handle peer requests.
                         // let service = Echo;
