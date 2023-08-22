@@ -6,6 +6,7 @@ use std::fmt::Debug;
 use std::marker::Send;
 use std::net::{SocketAddrV4};
 use std::thread;
+use serde::Deserialize;
 use tokio::net::{TcpListener,TcpStream};
 use tokio_util::codec::{self, LengthDelimitedCodec};
 use tokio_serde::formats;
@@ -95,40 +96,40 @@ impl P2PManager {
 
 
 
-// TMP:
-use std::task::{Context, Poll};
-use std::pin::Pin;
-use std::future::Future;
-use serde::{Deserialize, Serialize};
-
-/// A service that tokio-tower should serve over the transport.
-/// This one just echoes whatever it gets.
-struct Echo;
-
-#[derive(Serialize, Deserialize, Debug)]
-struct MyMessage {
-    field: Vec<u8>,
-}
-
-impl tower_service::Service<MyMessage> for Echo {
-    type Response = MyMessage; // T;
-    type Error = ();
-    // type Future = Ready<Result<Self::Response, Self::Error>>;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
-
-    fn poll_ready(&mut self, cx: &mut Context) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
-    }
-
-    fn call(&mut self, req: MyMessage) -> Self::Future {
-        println!("Received: {:?}", req);
-        // ready(Ok(req))
-        let fut = async {
-            Ok(req)
-            // Ok(vec![0,1,2,3,4,5,6,7])
-            // Ok(MyMessage{field: vec![0,1,2,3,4,5,6,7]})
-        };
-        Box::pin(fut)
-    }
-}
-
+// // TMP:
+// use std::task::{Context, Poll};
+// use std::pin::Pin;
+// use std::future::Future;
+// use serde::{Deserialize, Serialize};
+// 
+// /// A service that tokio-tower should serve over the transport.
+// /// This one just echoes whatever it gets.
+// struct Echo;
+// 
+// #[derive(Serialize, Deserialize, Debug)]
+// struct MyMessage {
+//     field: Vec<u8>,
+// }
+// 
+// impl tower_service::Service<MyMessage> for Echo {
+//     type Response = MyMessage; // T;
+//     type Error = ();
+//     // type Future = Ready<Result<Self::Response, Self::Error>>;
+//     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+// 
+//     fn poll_ready(&mut self, cx: &mut Context) -> Poll<Result<(), Self::Error>> {
+//         Poll::Ready(Ok(()))
+//     }
+// 
+//     fn call(&mut self, req: MyMessage) -> Self::Future {
+//         println!("Received: {:?}", req);
+//         // ready(Ok(req))
+//         let fut = async {
+//             Ok(req)
+//             // Ok(vec![0,1,2,3,4,5,6,7])
+//             // Ok(MyMessage{field: vec![0,1,2,3,4,5,6,7]})
+//         };
+//         Box::pin(fut)
+//     }
+// }
+// 
