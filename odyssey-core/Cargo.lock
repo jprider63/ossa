@@ -3,6 +3,17 @@
 version = 3
 
 [[package]]
+name = "async-recursion"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e97ce7de6cf12de5d7226c73f5ba9811622f4db3a5b91b55c53e987e5f91cba"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.18",
+]
+
+[[package]]
 name = "async-session-types"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -367,6 +378,7 @@ dependencies = [
 name = "odyssey-core"
 version = "0.1.0"
 dependencies = [
+ "async-recursion",
  "async-session-types",
  "bytes",
  "futures",

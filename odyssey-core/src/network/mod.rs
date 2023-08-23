@@ -40,4 +40,27 @@ impl Manager {
     }
 }
 
+// Manage a connection with a peer.
+pub struct ConnectionManager {}
+
+impl ConnectionManager {
+    /// Retrieve the connection status.
+    pub async fn connection_status(&self) -> ConnectionStatus {
+        ConnectionStatus::Active
+    }
+
+    pub async fn send<T>(&self, val: T) {
+        println!("TODO: send");
+    }
+
+    pub async fn receive<T>(&self) -> T {
+        unimplemented!();
+    }
+}
+
+#[derive(PartialEq)]
+pub enum ConnectionStatus {
+    Active,
+    Done,
+}
 
