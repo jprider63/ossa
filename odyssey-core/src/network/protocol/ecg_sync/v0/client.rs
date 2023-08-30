@@ -1,6 +1,7 @@
 
 use crate::network::{ConnectionManager};
-use crate::network::protocol::ecg_sync::v0::{ECGSyncError, MsgECGSyncRequest};
+use crate::network::protocol::ecg_sync::v0::{ECGSyncError, MAX_HAVE_HEADERS, MsgECGSyncRequest};
+// use std::collections::BTreeMap;
 
 
 // TODO: Move this somewhere else. store::state::ecg?
@@ -29,14 +30,30 @@ where HeaderId:Clone
     // - Retrieve snapshot of store's state.
 
     let our_tips = state.tips();
-    let tips_c = u16::try_from(our_tips.len()).map_err(|e| ECGSyncError::TooManyTips(e))?;
+    let our_tips_c = u16::try_from(our_tips.len()).map_err(|e| ECGSyncError::TooManyTips(e))?;
+    // JP: Set a max value for our_tips_c?
+
+    let mut our_tips_c_remaining = usize::from(our_tips_c);
+    // let mut sent_haves = BTreeSet::new();
+
+    // Loop:
 
     // let mut sync_state = ECGSyncState::new(our_tips);
     // let haves = sync_state.initial_request();
-    let haves = our_tips.to_vec();
+    let mut haves = Vec::with_capacity(MAX_HAVE_HEADERS);
+
+    // Send any remaining tips. This is a no-op when our_tips_c_remaining is 0;
+    let i = usize::from(our_tips_c) - our_tips_c_remaining;
+    haves.extend_from_slice(&our_tips[i..i+MAX_HAVE_HEADERS]);
+    our_tips_c_remaining = our_tips_c_remaining - haves.len();
+    
+    // TODO: Fill remaining slots in `haves` with ancestors.
+    // - Order tips by depth (priority queue?).
+    // - BFS to send ancestors (at exponential depths, ex: 0, 1, 2, 4, 8) until slots are
+    // - full or we reach the root. If a header is already sent/proposed, skip it.
 
     conn.send(MsgECGSyncRequest{
-        tip_count: tips_c,
+        tip_count: our_tips_c,
         have: haves,
     }).await;
 
