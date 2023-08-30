@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 async-recursion = "*"
 async-session-types = "*"
+bitvec = "*"
 bytes = "*"
 futures = "*"
 log = "*"

@@ -25,6 +25,7 @@ pub(crate) async fn keep_alive_client(conn: &ConnectionManager) -> Result<(), Ke
     conn.send(MsgKeepAliveRequest {heartbeat}).await;
 
     // Wait for and check the keep-alive response.
+    // TODO: Or connection terminated
     let response:MsgKeepAliveResponse = conn.receive().await;
     if heartbeat != response.heartbeat {
         // TODO

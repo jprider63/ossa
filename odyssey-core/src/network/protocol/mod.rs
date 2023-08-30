@@ -13,6 +13,7 @@ use crate::protocol::v0::{StoreMetadataHeaderRequest, StoreMetadataHeaderRespons
 use crate::store::v0::MetadataHeader;
 use crate::util::Stream;
 
+pub mod ecg_sync;
 pub mod keep_alive;
 
 // pub enum ProtocolVersion {
