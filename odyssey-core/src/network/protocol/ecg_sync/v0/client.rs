@@ -4,7 +4,7 @@ use crate::network::protocol::ecg_sync::v0::{ECGSyncError, MsgECGSyncRequest};
 
 
 // TODO: Move this somewhere else. store::state::ecg?
-mod ecg {
+pub mod ecg {
     pub struct State<HeaderId> {
         // Tips of the ECG (hashes of their headers).
         tips: Vec<HeaderId>,
@@ -28,13 +28,31 @@ where HeaderId:Clone
     // - Get cached peer state.
     // - Retrieve snapshot of store's state.
 
-    let our_tips = state.tips().to_vec();
-    let sent_have = vec![]; // TODO
-    
+    let our_tips = state.tips();
+    let tips_c = u16::try_from(our_tips.len()).map_err(|e| ECGSyncError::TooManyTips(e))?;
+
+    // let mut sync_state = ECGSyncState::new(our_tips);
+    // let haves = sync_state.initial_request();
+    let haves = our_tips.to_vec();
+
     conn.send(MsgECGSyncRequest{
-        tips: our_tips,
-        have: sent_have,
+        tip_count: tips_c,
+        have: haves,
     }).await;
+
+    // let response = conn.receive().await;
+    // if let Some() = sync_state.initial_response();
+
+
+    // while let Some()
+
+
+    // let sent_have = vec![]; // TODO
+    
+    // conn.send(MsgECGSyncRequest{
+    //     tips: our_tips,
+    //     have: sent_have,
+    // }).await;
 
 
     Ok(())
