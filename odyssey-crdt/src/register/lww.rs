@@ -1,6 +1,4 @@
 
-use std::cmp::PartialOrd;
-
 use crate::{AnnotatedOp, CRDT, OpMetadata};
 
 #[derive(Clone)]
@@ -10,7 +8,7 @@ pub struct LWW<T, A> {
     value: A,
 }
 
-impl<M:OpMetadata + OpMetadata<Time = T>, T:PartialOrd, A:Clone> CRDT<M> for LWW<T, A> {
+impl<M:OpMetadata + OpMetadata<Time = T>, T:Ord, A:Clone> CRDT<M> for LWW<T, A> {
     type Op = A;
 
     fn apply<'a>(&'a mut self, op: &'a AnnotatedOp<M, Self::Op>) {
