@@ -33,6 +33,11 @@ where HeaderId:Clone
     let our_tips_c = u16::try_from(our_tips.len()).map_err(|e| ECGSyncError::TooManyTips(e))?;
     // JP: Set a max value for our_tips_c?
 
+    // TODO:
+    // sort tips by depth
+    // zip tips with \x -> (x,0)
+    // Add tips to BFS queue
+
     let mut our_tips_c_remaining = usize::from(our_tips_c);
     // let mut sent_haves = BTreeSet::new();
 
@@ -51,6 +56,7 @@ where HeaderId:Clone
     // - Order tips by depth (priority queue?).
     // - BFS to send ancestors (at exponential depths, ex: 0, 1, 2, 4, 8) until slots are
     // - full or we reach the root. If a header is already sent/proposed, skip it.
+    // JP: Could just use the BFS instead of keeping track of tips remaining if we don't reorder.
 
     conn.send(MsgECGSyncRequest{
         tip_count: our_tips_c,
