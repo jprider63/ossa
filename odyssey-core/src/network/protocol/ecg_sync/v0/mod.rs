@@ -46,9 +46,9 @@ pub type ECGSync = Send<(), Eps>; // TODO
 // 
 
 /// The maximum number of `have` hashes that can be sent in each message.
-pub const MAX_HAVE_HEADERS : usize = 32;
+pub const MAX_HAVE_HEADERS : u16 = 32;
 /// The maximum number of headers that can be sent in each message.
-pub const MAX_DELIVER_HEADERS : usize = 32;
+pub const MAX_DELIVER_HEADERS : u16 = 32;
 
 pub enum ECGSyncError {
     // We have too many tips to run the sync protocol.
@@ -72,13 +72,14 @@ pub struct MsgECGSyncResponse<HeaderId> {
     sync: MsgECGSync<HeaderId>,
 }
 
+pub type HeaderBitmap = BitArr!(for MAX_HAVE_HEADERS as usize, in u8, Msb0);
 pub struct MsgECGSync<HeaderId> {
     /// Hashes of headers the server has.
     /// The first `tip_count` hashes (potentially split across multiple messages) are tip headers.
     /// The maximum length is `MAX_HAVE_HEADERS`.
     have: Vec<HeaderId>,
     /// Bitmap of the hashes that the server knows from the previously sent headers `prev.have`.
-    known: BitArr!(for MAX_HAVE_HEADERS, in u8, Msb0),
+    known: HeaderBitmap,
     /// Headers being delivered to the other party.
     /// The maximum length is `MAX_DELIVER_HEADERS`.
     headers: Vec<Header>,
@@ -95,3 +96,67 @@ pub struct MsgECGSync<HeaderId> {
 //         }
 //     }
 // }
+
+
+
+
+
+
+// TODO: Move this somewhere else. store::state::ecg?
+pub mod ecg {
+    pub struct State<HeaderId> {
+        // Tips of the ECG (hashes of their headers).
+        tips: Vec<HeaderId>,
+    }
+
+    impl<HeaderId> State<HeaderId> {
+        pub fn tips(&self) -> &[HeaderId] {
+            &self.tips
+        }
+
+        pub fn get_parents(&self, n:&HeaderId) -> Vec<HeaderId> {
+            unimplemented!{}
+        }
+
+        pub fn contains(&self, h:&HeaderId) -> bool {
+            unimplemented!{}
+        }
+    }
+}
+
+use std::collections::VecDeque;
+fn prepare_haves<HeaderId:Copy>(state: &ecg::State<HeaderId>, queue: &mut VecDeque<(HeaderId, u64)>, haves: &mut Vec<(HeaderId, u64)>) {
+    fn go<HeaderId:Copy>(state: &ecg::State<HeaderId>, queue: &mut VecDeque<(HeaderId, u64)>, haves: &mut Vec<(HeaderId, u64)>) {
+        if haves.len() == MAX_HAVE_HEADERS.into() {
+            return;
+        }
+
+        if let Some(tup) = queue.pop_front() {
+            let (header_id, distance) = tup;
+            // If header is at an exponential distance, send it with `haves`.
+            if is_power_of_two(distance) {
+                haves.push(tup);
+            } else {
+                // JP: How can we always send exponential ancestors (ie, move this
+                // outside of the else)?
+
+                // Add parents to queue.
+                let parents = state.get_parents(&header_id);
+                for parent_id in parents {
+                    queue.push_back((parent_id, distance + 1));
+                }
+            }
+
+            go(state, queue, haves)
+        }
+    }
+
+    haves.clear();
+    go(state, queue, haves)
+}
+
+/// Check if the input is a power of two (inclusive of 0).
+fn is_power_of_two(x:u64) -> bool {
+    0 == (x & (x-1))
+}
+

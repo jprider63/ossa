@@ -1,20 +1,68 @@
 
 use crate::network::{ConnectionManager};
-use crate::network::protocol::ecg_sync::v0::{ECGSyncError, MsgECGSyncRequest};
-use crate::network::protocol::ecg_sync::v0::client::ecg;
+use crate::network::protocol::ecg_sync::v0::{ECGSyncError, HeaderBitmap, MAX_HAVE_HEADERS, MsgECGSync, MsgECGSyncRequest, MsgECGSyncResponse, prepare_haves, ecg};
+use std::cmp::min;
+use std::collections::{BTreeSet, VecDeque};
 
 pub(crate) async fn ecg_sync_server<StoreId, HeaderId>(conn: &ConnectionManager, store_id: &StoreId, state: &ecg::State<HeaderId>) -> Result<(), ECGSyncError>
+where HeaderId:Copy + Ord
 {
-    let request:MsgECGSyncRequest<HeaderId> = conn.receive().await;
-    // TODO: 
+    let request: MsgECGSyncRequest<HeaderId> = conn.receive().await;
+    // JP: Set (and check) max value for tips?
 
     let their_tips_c = request.tip_count;
-    let their_tips:Vec<HeaderId> = Vec::with_capacity(usize::from(their_tips_c));
+    let mut their_tips:Vec<HeaderId> = Vec::with_capacity(usize::from(their_tips_c));
+    let mut their_tips_remaining = usize::from(their_tips_c);
+
+    let mut their_known = BTreeSet::new();
+
+    // TODO: Check for no headers? their_tips_c == 0
+
+    // TODO:
+    // Accumulate their_tips.
+    let provided_tip_c = min(their_tips_remaining, request.have.len());
+    their_tips.extend(&request.have[0..provided_tip_c]);
+    their_tips_remaining = their_tips_remaining - provided_tip_c;
+    // TODO: if their_tips is done, update peer_state.
+
+    let mut known = HeaderBitmap::new([0;4]);
+    let headers = unimplemented!();
+    for (i, header_id) in request.have.iter().enumerate() {
+        // Record their known headers.
+        their_known.insert(header_id);
+
+        // Build known.
+        if state.contains(header_id) {
+            known[i] = true;
+
+            // TODO: If we know the header, potentially send children of that header.
+            unimplemented!{};
+        }
+    }
 
     let our_tips = state.tips();
     let our_tips_c = u16::try_from(our_tips.len()).map_err(|e| ECGSyncError::TooManyTips(e))?;
 
-    let mut our_tips_c_remaining = usize::from(our_tips_c);
+    // Initialize the queue with our tips, zipped with distance 0.
+    let mut queue = VecDeque::new();
+    queue.extend(our_tips.iter().map(|x| (*x,0)));
+    // JP: Use a priority queue based on descending depth instead?
+
+    let mut haves = Vec::with_capacity(MAX_HAVE_HEADERS.into());
+    prepare_haves(state, &mut queue, &mut haves);
+
+    // TODO: Check if we're done.
+
+    let response: MsgECGSyncResponse<HeaderId> = MsgECGSyncResponse {
+        tip_count: our_tips_c,
+        sync: MsgECGSync {
+            have: haves.iter().map(|x| x.0).collect(),
+            known: known,
+            headers: headers,
+        },
+    };
+
+    conn.send(response).await;
 
     unimplemented!{}
 }
