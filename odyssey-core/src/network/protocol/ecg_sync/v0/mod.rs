@@ -163,6 +163,26 @@ fn prepare_haves<HeaderId:Copy>(state: &ecg::State<HeaderId>, queue: &mut VecDeq
     go(state, queue, haves)
 }
 
+// JP: Should maintain the invariant that if a header is in `their_known`, all their ancestors
+// should be in `their_known`.
+fn mark_as_known<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, their_known: &mut BTreeSet<HeaderId>, header_id: HeaderId) {
+    fn go<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, their_known: &mut BTreeSet<HeaderId>, mut queue: VecDeque<HeaderId>) {
+        if let Some(header_id) = queue.pop_front() {
+            let contains = their_known.insert(header_id);
+            if !contains {
+                let parents = state.get_parents(&header_id);
+                queue.extend(parents);
+            }
+            
+            go(state, their_known, queue);
+        }
+    }
+
+    let mut queue = VecDeque::new();
+    queue.push_back(header_id);
+    go(state, their_known, queue);
+}
+
 fn prepare_headers<HeaderId:Copy + Ord, Header>(state: &ecg::State<HeaderId>, send_queue: &mut VecDeque<HeaderId>, their_known: &mut BTreeSet<HeaderId>, headers: &mut Vec<Header>) {
     headers.clear();
     fn go<HeaderId:Copy + Ord, Header>(state: &ecg::State<HeaderId>, send_queue: &mut VecDeque<HeaderId>, their_known: &mut BTreeSet<HeaderId>, headers: &mut Vec<Header>) {
@@ -179,8 +199,7 @@ fn prepare_headers<HeaderId:Copy + Ord, Header>(state: &ecg::State<HeaderId>, se
                 headers.push(header);
 
                 // Mark header as known to peer.
-                // JP: Mark all ancestors as known as well?
-                their_known.insert(header_id);
+                mark_as_known(state, their_known, header_id);
             }
 
             // Add children to queue.
@@ -190,6 +209,7 @@ fn prepare_headers<HeaderId:Copy + Ord, Header>(state: &ecg::State<HeaderId>, se
             go(state, send_queue, their_known, headers)
         }
     }
+
     go(state, send_queue, their_known, headers)
 }
 

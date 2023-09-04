@@ -1,6 +1,6 @@
 
 use crate::network::{ConnectionManager};
-use crate::network::protocol::ecg_sync::v0::{ECGSyncError, HeaderBitmap, MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS, MsgECGSync, MsgECGSyncRequest, MsgECGSyncResponse, prepare_haves, prepare_headers, ecg};
+use crate::network::protocol::ecg_sync::v0::{ECGSyncError, HeaderBitmap, MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS, MsgECGSync, MsgECGSyncRequest, MsgECGSyncResponse, mark_as_known, prepare_haves, prepare_headers, ecg};
 use std::cmp::min;
 use std::collections::{BTreeSet, VecDeque};
 
@@ -29,17 +29,16 @@ where HeaderId:Copy + Ord
     their_tips_remaining = their_tips_remaining - provided_tip_c;
     // TODO: if their_tips is done, update peer_state.
 
-    // Record their known headers.
-    // JP: Mark all ancestors as known as well?
-    their_known.extend(&request.have);
-
     let mut known = HeaderBitmap::new([0;4]);
     for (i, header_id) in request.have.iter().enumerate() {
         if state.contains(header_id) {
+            // Record their known headers.
+            mark_as_known(state, &mut their_known, *header_id);
+
             // Respond with which headers we know.
             known.set(i, true);
 
-            // TODO: If we know the header, potentially send children of that header.
+            // If we know the header, potentially send the children of that header.
             send_queue.extend(state.get_children(&header_id));
         }
     }
