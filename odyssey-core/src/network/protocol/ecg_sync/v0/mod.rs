@@ -118,13 +118,21 @@ pub mod ecg {
             unimplemented!{}
         }
 
+        pub fn get_children(&self, n:&HeaderId) -> Vec<HeaderId> {
+            unimplemented!{}
+        }
+
         pub fn contains(&self, h:&HeaderId) -> bool {
+            unimplemented!{}
+        }
+
+        pub fn get_header<Header>(&self, n:&HeaderId) -> Header {
             unimplemented!{}
         }
     }
 }
 
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 fn prepare_haves<HeaderId:Copy>(state: &ecg::State<HeaderId>, queue: &mut VecDeque<(HeaderId, u64)>, haves: &mut Vec<(HeaderId, u64)>) {
     fn go<HeaderId:Copy>(state: &ecg::State<HeaderId>, queue: &mut VecDeque<(HeaderId, u64)>, haves: &mut Vec<(HeaderId, u64)>) {
         if haves.len() == MAX_HAVE_HEADERS.into() {
@@ -153,6 +161,36 @@ fn prepare_haves<HeaderId:Copy>(state: &ecg::State<HeaderId>, queue: &mut VecDeq
 
     haves.clear();
     go(state, queue, haves)
+}
+
+fn prepare_headers<HeaderId:Copy + Ord, Header>(state: &ecg::State<HeaderId>, send_queue: &mut VecDeque<HeaderId>, their_known: &mut BTreeSet<HeaderId>, headers: &mut Vec<Header>) {
+    headers.clear();
+    fn go<HeaderId:Copy + Ord, Header>(state: &ecg::State<HeaderId>, send_queue: &mut VecDeque<HeaderId>, their_known: &mut BTreeSet<HeaderId>, headers: &mut Vec<Header>) {
+        if headers.len() == MAX_DELIVER_HEADERS.into() {
+            return;
+        }
+
+        if let Some(header_id) = send_queue.pop_front() {
+            // Skip if they already know this header.
+            let skip = their_known.contains(&header_id);
+            if !skip {
+                // Send header to peer.
+                let header = state.get_header(&header_id);
+                headers.push(header);
+
+                // Mark header as known to peer.
+                // JP: Mark all ancestors as known as well?
+                their_known.insert(header_id);
+            }
+
+            // Add children to queue.
+            let children = state.get_children(&header_id);
+            send_queue.extend(children);
+
+            go(state, send_queue, their_known, headers)
+        }
+    }
+    go(state, send_queue, their_known, headers)
 }
 
 /// Check if the input is a power of two (inclusive of 0).

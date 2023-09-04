@@ -6,7 +6,6 @@ use std::collections::VecDeque;
 
 
 
-
 // TODO: Have this utilize session types.
 /// Sync the headers of the eventual consistency graph.
 /// Finds the least common ancestor (meet) of the graphs.
@@ -72,5 +71,5 @@ where HeaderId:Copy
     // }).await;
 
 
-    Ok(())
+    unimplemented!{}
 }

@@ -1,6 +1,6 @@
 
 use crate::network::{ConnectionManager};
-use crate::network::protocol::ecg_sync::v0::{ECGSyncError, HeaderBitmap, MAX_HAVE_HEADERS, MsgECGSync, MsgECGSyncRequest, MsgECGSyncResponse, prepare_haves, ecg};
+use crate::network::protocol::ecg_sync::v0::{ECGSyncError, HeaderBitmap, MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS, MsgECGSync, MsgECGSyncRequest, MsgECGSyncResponse, prepare_haves, prepare_headers, ecg};
 use std::cmp::min;
 use std::collections::{BTreeSet, VecDeque};
 
@@ -14,7 +14,11 @@ where HeaderId:Copy + Ord
     let mut their_tips:Vec<HeaderId> = Vec::with_capacity(usize::from(their_tips_c));
     let mut their_tips_remaining = usize::from(their_tips_c);
 
+    // Headers they know.
     let mut their_known = BTreeSet::new();
+    // Queue of headers to potentially send.
+    // JP: Priority queue by depth?
+    let mut send_queue = VecDeque::new();
 
     // TODO: Check for no headers? their_tips_c == 0
 
@@ -25,20 +29,23 @@ where HeaderId:Copy + Ord
     their_tips_remaining = their_tips_remaining - provided_tip_c;
     // TODO: if their_tips is done, update peer_state.
 
-    let mut known = HeaderBitmap::new([0;4]);
-    let headers = unimplemented!();
-    for (i, header_id) in request.have.iter().enumerate() {
-        // Record their known headers.
-        their_known.insert(header_id);
+    // Record their known headers.
+    // JP: Mark all ancestors as known as well?
+    their_known.extend(&request.have);
 
-        // Build known.
+    let mut known = HeaderBitmap::new([0;4]);
+    for (i, header_id) in request.have.iter().enumerate() {
         if state.contains(header_id) {
-            known[i] = true;
+            // Respond with which headers we know.
+            known.set(i, true);
 
             // TODO: If we know the header, potentially send children of that header.
-            unimplemented!{};
+            send_queue.extend(state.get_children(&header_id));
         }
     }
+
+    let mut headers = Vec::with_capacity(MAX_DELIVER_HEADERS.into());
+    prepare_headers(state, &mut send_queue, &mut their_known, &mut headers);
 
     let our_tips = state.tips();
     let our_tips_c = u16::try_from(our_tips.len()).map_err(|e| ECGSyncError::TooManyTips(e))?;
