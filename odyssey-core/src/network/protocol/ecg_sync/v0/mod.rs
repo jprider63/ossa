@@ -114,7 +114,7 @@ pub mod ecg {
             &self.tips
         }
 
-        pub fn get_parents_with_depth(&self, n:&HeaderId) -> Vec<(HeaderId, u64)> {
+        pub fn get_parents_with_depth(&self, n:&HeaderId) -> Vec<(u64, HeaderId)> {
             unimplemented!{}
         }
 
@@ -122,9 +122,13 @@ pub mod ecg {
             unimplemented!{}
         }
 
-        pub fn get_children(&self, n:&HeaderId) -> Vec<HeaderId> {
+        pub fn get_children_with_depth(&self, n:&HeaderId) -> Vec<(u64, HeaderId)> {
             unimplemented!{}
         }
+
+        // pub fn get_children(&self, n:&HeaderId) -> Vec<HeaderId> {
+        //     unimplemented!{}
+        // }
 
         pub fn contains(&self, h:&HeaderId) -> bool {
             unimplemented!{}
@@ -159,7 +163,7 @@ fn prepare_haves<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, queue: &mut 
 
                 // Add parents to queue.
                 let parents = state.get_parents_with_depth(&header_id);
-                for (parent_id, depth) in parents {
+                for (depth, parent_id) in parents {
                     queue.push((false, depth, parent_id, distance + 1));
                 }
             }
@@ -191,14 +195,13 @@ fn mark_as_known<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, their_known:
     go(state, their_known, queue);
 }
 
-fn prepare_headers<HeaderId:Copy + Ord, Header>(state: &ecg::State<HeaderId>, send_queue: &mut VecDeque<HeaderId>, their_known: &mut BTreeSet<HeaderId>, headers: &mut Vec<Header>) {
-    headers.clear();
-    fn go<HeaderId:Copy + Ord, Header>(state: &ecg::State<HeaderId>, send_queue: &mut VecDeque<HeaderId>, their_known: &mut BTreeSet<HeaderId>, headers: &mut Vec<Header>) {
+fn prepare_headers<HeaderId:Copy + Ord, Header>(state: &ecg::State<HeaderId>, send_queue: &mut BinaryHeap<(u64,HeaderId)>, their_known: &mut BTreeSet<HeaderId>, headers: &mut Vec<Header>) {
+    fn go<HeaderId:Copy + Ord, Header>(state: &ecg::State<HeaderId>, send_queue: &mut BinaryHeap<(u64,HeaderId)>, their_known: &mut BTreeSet<HeaderId>, headers: &mut Vec<Header>) {
         if headers.len() == MAX_DELIVER_HEADERS.into() {
             return;
         }
 
-        if let Some(header_id) = send_queue.pop_front() {
+        if let Some((_depth,header_id)) = send_queue.pop() {
             // Skip if they already know this header.
             let skip = their_known.contains(&header_id);
             if !skip {
@@ -206,18 +209,19 @@ fn prepare_headers<HeaderId:Copy + Ord, Header>(state: &ecg::State<HeaderId>, se
                 let header = state.get_header(&header_id);
                 headers.push(header);
 
-                // Mark header as known to peer.
+                // Mark header as known by peer.
                 mark_as_known(state, their_known, header_id);
             }
 
             // Add children to queue.
-            let children = state.get_children(&header_id);
+            let children = state.get_children_with_depth(&header_id);
             send_queue.extend(children);
 
             go(state, send_queue, their_known, headers)
         }
     }
 
+    headers.clear();
     go(state, send_queue, their_known, headers)
 }
 

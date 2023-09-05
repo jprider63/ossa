@@ -19,7 +19,7 @@ where HeaderId:Copy + Ord
 
     // Queue of headers to potentially send.
     // JP: Priority queue by depth?
-    let mut send_queue = VecDeque::new();
+    let mut send_queue = BinaryHeap::new();
 
     // TODO: Check for no headers? their_tips_c == 0
 
@@ -40,7 +40,7 @@ where HeaderId:Copy + Ord
             known.set(i, true);
 
             // If we know the header, potentially send the children of that header.
-            send_queue.extend(state.get_children(&header_id));
+            send_queue.extend(state.get_children_with_depth(&header_id));
         }
     }
 
