@@ -23,7 +23,7 @@ where HeaderId:Copy + Ord
 
     // Initialize the queue with our tips, zipped with distance 0.
     let mut queue = BinaryHeap::new();
-    queue.extend(our_tips.iter().map(|x| (state.get_header_depth(x), *x, 0)));
+    queue.extend(our_tips.iter().map(|x| (true, state.get_header_depth(x), *x, 0)));
     // JP: Use a priority queue based on descending depth instead?
 
     let mut haves = Vec::with_capacity(MAX_HAVE_HEADERS.into());
