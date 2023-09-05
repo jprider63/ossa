@@ -114,6 +114,10 @@ pub mod ecg {
             &self.tips
         }
 
+        pub fn get_parents_with_depth(&self, n:&HeaderId) -> Vec<(HeaderId, u64)> {
+            unimplemented!{}
+        }
+
         pub fn get_parents(&self, n:&HeaderId) -> Vec<HeaderId> {
             unimplemented!{}
         }
@@ -129,29 +133,34 @@ pub mod ecg {
         pub fn get_header<Header>(&self, n:&HeaderId) -> Header {
             unimplemented!{}
         }
+
+        pub fn get_header_depth(&self, n:&HeaderId) -> u64 {
+            unimplemented!{}
+        }
     }
 }
 
-use std::collections::{BTreeSet, VecDeque};
-fn prepare_haves<HeaderId:Copy>(state: &ecg::State<HeaderId>, queue: &mut VecDeque<(HeaderId, u64)>, haves: &mut Vec<(HeaderId, u64)>) {
-    fn go<HeaderId:Copy>(state: &ecg::State<HeaderId>, queue: &mut VecDeque<(HeaderId, u64)>, haves: &mut Vec<(HeaderId, u64)>) {
+use std::collections::{BinaryHeap, BTreeSet, VecDeque};
+fn prepare_haves<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, queue: &mut BinaryHeap<(u64, HeaderId, u64)>, haves: &mut Vec<(HeaderId, u64)>)
+{
+    fn go<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, queue: &mut BinaryHeap<(u64, HeaderId, u64)>, haves: &mut Vec<(HeaderId, u64)>)
+    {
         if haves.len() == MAX_HAVE_HEADERS.into() {
             return;
         }
 
-        if let Some(tup) = queue.pop_front() {
-            let (header_id, distance) = tup;
+        if let Some((_depth, header_id, distance)) = queue.pop() {
             // If header is at an exponential distance, send it with `haves`.
             if is_power_of_two(distance) {
-                haves.push(tup);
+                haves.push((header_id, distance));
             } else {
                 // JP: How can we always send exponential ancestors (ie, move this
                 // outside of the else)?
 
                 // Add parents to queue.
-                let parents = state.get_parents(&header_id);
-                for parent_id in parents {
-                    queue.push_back((parent_id, distance + 1));
+                let parents = state.get_parents_with_depth(&header_id);
+                for (parent_id, depth) in parents {
+                    queue.push((depth, parent_id, distance + 1));
                 }
             }
 
@@ -163,8 +172,7 @@ fn prepare_haves<HeaderId:Copy>(state: &ecg::State<HeaderId>, queue: &mut VecDeq
     go(state, queue, haves)
 }
 
-// JP: Should maintain the invariant that if a header is in `their_known`, all their ancestors
-// should be in `their_known`.
+// Invariant: if a header is in `their_known`, all the header's ancestors are in `their_known`.
 fn mark_as_known<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, their_known: &mut BTreeSet<HeaderId>, header_id: HeaderId) {
     fn go<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, their_known: &mut BTreeSet<HeaderId>, mut queue: VecDeque<HeaderId>) {
         if let Some(header_id) = queue.pop_front() {

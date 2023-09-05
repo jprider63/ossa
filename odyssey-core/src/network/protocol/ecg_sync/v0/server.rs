@@ -2,7 +2,7 @@
 use crate::network::{ConnectionManager};
 use crate::network::protocol::ecg_sync::v0::{ECGSyncError, HeaderBitmap, MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS, MsgECGSync, MsgECGSyncRequest, MsgECGSyncResponse, mark_as_known, prepare_haves, prepare_headers, ecg};
 use std::cmp::min;
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BinaryHeap, BTreeSet, VecDeque};
 
 pub(crate) async fn ecg_sync_server<StoreId, HeaderId>(conn: &ConnectionManager, store_id: &StoreId, state: &ecg::State<HeaderId>) -> Result<(), ECGSyncError>
 where HeaderId:Copy + Ord
@@ -16,6 +16,7 @@ where HeaderId:Copy + Ord
 
     // Headers they know.
     let mut their_known = BTreeSet::new();
+
     // Queue of headers to potentially send.
     // JP: Priority queue by depth?
     let mut send_queue = VecDeque::new();
@@ -49,9 +50,9 @@ where HeaderId:Copy + Ord
     let our_tips = state.tips();
     let our_tips_c = u16::try_from(our_tips.len()).map_err(|e| ECGSyncError::TooManyTips(e))?;
 
-    // Initialize the queue with our tips, zipped with distance 0.
-    let mut queue = VecDeque::new();
-    queue.extend(our_tips.iter().map(|x| (*x,0)));
+    // Initialize the priority queue with our tips, zipped with distance 0.
+    let mut queue = BinaryHeap::new();
+    queue.extend(our_tips.iter().map(|x| (state.get_header_depth(x), *x, 0)));
     // JP: Use a priority queue based on descending depth instead?
 
     let mut haves = Vec::with_capacity(MAX_HAVE_HEADERS.into());

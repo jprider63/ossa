@@ -2,7 +2,7 @@
 use crate::network::{ConnectionManager};
 use crate::network::protocol::ecg_sync::v0::{ECGSyncError, MAX_HAVE_HEADERS, MsgECGSyncRequest, MsgECGSyncResponse, prepare_haves, ecg};
 // use std::collections::BTreeMap;
-use std::collections::VecDeque;
+use std::collections::BinaryHeap;
 
 
 
@@ -11,7 +11,7 @@ use std::collections::VecDeque;
 /// Finds the least common ancestor (meet) of the graphs.
 /// Then we share/receive all the known headers after that point (in batches of size 32).
 pub(crate) async fn ecg_sync_client<StoreId, HeaderId>(conn: &ConnectionManager, store_id: &StoreId, state: &ecg::State<HeaderId>) -> Result<(), ECGSyncError>
-where HeaderId:Copy
+where HeaderId:Copy + Ord
 {
     // TODO:
     // - Get cached peer state.
@@ -22,8 +22,8 @@ where HeaderId:Copy
     // JP: Set a max value for our_tips_c?
 
     // Initialize the queue with our tips, zipped with distance 0.
-    let mut queue = VecDeque::new();
-    queue.extend(our_tips.iter().map(|x| (*x,0)));
+    let mut queue = BinaryHeap::new();
+    queue.extend(our_tips.iter().map(|x| (state.get_header_depth(x), *x, 0)));
     // JP: Use a priority queue based on descending depth instead?
 
     let mut haves = Vec::with_capacity(MAX_HAVE_HEADERS.into());
