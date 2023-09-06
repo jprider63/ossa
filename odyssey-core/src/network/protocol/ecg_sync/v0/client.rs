@@ -26,8 +26,11 @@ where HeaderId:Copy + Ord
     queue.extend(our_tips.iter().map(|x| (true, state.get_header_depth(x), *x, 0)));
     // JP: Use a priority queue based on descending depth instead?
 
+    // Headers they know.
+    let mut their_known = BTreeSet::new();
+
     let mut haves = Vec::with_capacity(MAX_HAVE_HEADERS.into());
-    prepare_haves(state, &mut queue, &mut haves);
+    prepare_haves(state, &mut queue, &their_known, &mut haves);
 
     // let mut our_tips_c_remaining = usize::from(our_tips_c);
     // let mut sent_haves = BTreeSet::new();
@@ -67,9 +70,6 @@ where HeaderId:Copy + Ord
     let all_valid = handle_received_headers(state, response.sync.headers);
     // TODO: Record and exit if they sent invalid headers? Or tit for tat?
 
-    // Headers they know.
-    let mut their_known = BTreeSet::new();
-
     // Queue of headers to potentially send.
     // JP: Priority queue by depth?
     let mut send_queue = BinaryHeap::new();
@@ -84,7 +84,7 @@ where HeaderId:Copy + Ord
     prepare_headers(state, &mut send_queue, &mut their_known, &mut headers);
 
     // Propose headers we have.
-    prepare_haves(state, &mut queue, &mut haves);
+    prepare_haves(state, &mut queue, &their_known, &mut haves);
 
     // TODO: Check if we're done.
 

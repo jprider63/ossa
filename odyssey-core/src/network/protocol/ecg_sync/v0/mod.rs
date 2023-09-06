@@ -146,21 +146,22 @@ pub mod ecg {
 
 use std::cmp::min;
 use std::collections::{BinaryHeap, BTreeSet, VecDeque};
-fn prepare_haves<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, queue: &mut BinaryHeap<(bool, u64, HeaderId, u64)>, haves: &mut Vec<(HeaderId, u64)>)
+fn prepare_haves<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, queue: &mut BinaryHeap<(bool, u64, HeaderId, u64)>, their_known: &BTreeSet<HeaderId>, haves: &mut Vec<(HeaderId, u64)>)
 {
-    fn go<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, queue: &mut BinaryHeap<(bool, u64, HeaderId, u64)>, haves: &mut Vec<(HeaderId, u64)>)
+    fn go<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, queue: &mut BinaryHeap<(bool, u64, HeaderId, u64)>, their_known: &BTreeSet<HeaderId>, haves: &mut Vec<(HeaderId, u64)>)
     {
         if haves.len() == MAX_HAVE_HEADERS.into() {
             return;
         }
 
         if let Some((_is_tip, _depth, header_id, distance)) = queue.pop() {
-            // If header is at an exponential distance, send it with `haves`.
-            if is_power_of_two(distance) {
-                haves.push((header_id, distance));
-            } else {
-                // JP: How can we always send exponential ancestors (ie, move this
-                // outside of the else)?
+            // If they already know this header, they already know its ancestors.
+            let skip = their_known.contains(&header_id);
+            if !skip {
+                // If header is at an exponential distance, send it with `haves`.
+                if is_power_of_two(distance) {
+                    haves.push((header_id, distance));
+                }
 
                 // Add parents to queue.
                 let parents = state.get_parents_with_depth(&header_id);
@@ -169,12 +170,12 @@ fn prepare_haves<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, queue: &mut 
                 }
             }
 
-            go(state, queue, haves)
+            go(state, queue, their_known, haves)
         }
     }
 
     haves.clear();
-    go(state, queue, haves)
+    go(state, queue, their_known, haves)
 }
 
 // Handle the haves that the peer sent to us.

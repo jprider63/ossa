@@ -21,7 +21,7 @@ where HeaderId:Copy + Ord
     // JP: Priority queue by depth?
     let mut send_queue = BinaryHeap::new();
 
-    // TODO: Check for no headers? their_tips_c == 0
+    // TODO: Check for no headers? their_tips_c == 0? or request.have.len() == 0?
 
     // Handle the haves that the peer sent to us.
     let known = handle_received_have(state, &mut their_tips_remaining, &mut their_tips, &mut their_known, &mut send_queue, &request.have);
@@ -38,7 +38,7 @@ where HeaderId:Copy + Ord
     queue.extend(our_tips.iter().map(|x| (true, state.get_header_depth(x), *x, 0)));
 
     let mut haves = Vec::with_capacity(MAX_HAVE_HEADERS.into());
-    prepare_haves(state, &mut queue, &mut haves);
+    prepare_haves(state, &mut queue, &their_known, &mut haves);
 
     // TODO: Check if we're done.
 
