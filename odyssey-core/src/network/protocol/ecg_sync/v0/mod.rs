@@ -203,6 +203,15 @@ fn handle_received_have<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, their
     known
 }
 
+// Handle (and verify) headers they sent to us.
+// Returns if all the headers were valid.
+fn handle_received_headers<HeaderId:Copy + Ord, Header>(state: &ecg::State<HeaderId>, headers: Vec<Header>) -> bool {
+    // TODO: 
+    // Verify header.
+    // Add to state.
+    unimplemented!{}
+}
+
 // Precondition: `state` contains header_id.
 // Invariant: if a header is in `their_known`, all the header's ancestors are in `their_known`.
 fn mark_as_known<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, their_known: &mut BTreeSet<HeaderId>, header_id: HeaderId) {

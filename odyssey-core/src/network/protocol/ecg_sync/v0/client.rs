@@ -1,6 +1,6 @@
 
 use crate::network::{ConnectionManager};
-use crate::network::protocol::ecg_sync::v0::{ECGSyncError, MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS, MsgECGSync, MsgECGSyncRequest, MsgECGSyncResponse, handle_received_have, prepare_haves, prepare_headers, ecg};
+use crate::network::protocol::ecg_sync::v0::{ECGSyncError, MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS, MsgECGSync, MsgECGSyncRequest, MsgECGSyncResponse, handle_received_have, handle_received_headers, prepare_haves, prepare_headers, ecg};
 use std::cmp::min;
 use std::collections::{BinaryHeap, BTreeSet};
 
@@ -63,8 +63,9 @@ where HeaderId:Copy + Ord
     let mut their_tips:Vec<HeaderId> = Vec::with_capacity(usize::from(their_tips_c));
     let mut their_tips_remaining = usize::from(their_tips_c);
 
-    // TODO: Receive (and verify the headers they sent to us)
-    // TODO: handle_received_headers();
+    // Receive (and verify) the headers they sent to us
+    let all_valid = handle_received_headers(state, response.sync.headers);
+    // TODO: Record and exit if they sent invalid headers? Or tit for tat?
 
     // Headers they know.
     let mut their_known = BTreeSet::new();
