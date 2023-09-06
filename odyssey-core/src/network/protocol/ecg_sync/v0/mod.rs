@@ -144,6 +144,7 @@ pub mod ecg {
     }
 }
 
+use std::cmp::min;
 use std::collections::{BinaryHeap, BTreeSet, VecDeque};
 fn prepare_haves<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, queue: &mut BinaryHeap<(bool, u64, HeaderId, u64)>, haves: &mut Vec<(HeaderId, u64)>)
 {
@@ -176,6 +177,33 @@ fn prepare_haves<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, queue: &mut 
     go(state, queue, haves)
 }
 
+// Handle the haves that the peer sent to us.
+// Returns the bitmap of which haves we know.
+fn handle_received_have<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, their_tips_remaining: &mut usize, their_tips: &mut Vec<HeaderId>, their_known: &mut BTreeSet<HeaderId>, send_queue: &mut BinaryHeap<(u64,HeaderId)>, have: &Vec<HeaderId>) -> HeaderBitmap {
+    // Accumulate their_tips.
+    let provided_tip_c = min(*their_tips_remaining, have.len());
+    their_tips.extend(&have[0..provided_tip_c]);
+    *their_tips_remaining = *their_tips_remaining - provided_tip_c;
+    // TODO: if their_tips is done, update peer_state.
+
+    let mut known = HeaderBitmap::new([0;4]);
+    for (i, header_id) in have.iter().enumerate() {
+        if state.contains(header_id) {
+            // Record their known headers.
+            mark_as_known(state, their_known, *header_id);
+
+            // Respond with which headers we know.
+            known.set(i, true);
+
+            // If we know the header, potentially send the children of that header.
+            send_queue.extend(state.get_children_with_depth(&header_id));
+        }
+    }
+
+    known
+}
+
+// Precondition: `state` contains header_id.
 // Invariant: if a header is in `their_known`, all the header's ancestors are in `their_known`.
 fn mark_as_known<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, their_known: &mut BTreeSet<HeaderId>, header_id: HeaderId) {
     fn go<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, their_known: &mut BTreeSet<HeaderId>, mut queue: VecDeque<HeaderId>) {
@@ -195,6 +223,7 @@ fn mark_as_known<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, their_known:
     go(state, their_known, queue);
 }
 
+// Build the headers we will send to the peer.
 fn prepare_headers<HeaderId:Copy + Ord, Header>(state: &ecg::State<HeaderId>, send_queue: &mut BinaryHeap<(u64,HeaderId)>, their_known: &mut BTreeSet<HeaderId>, headers: &mut Vec<Header>) {
     fn go<HeaderId:Copy + Ord, Header>(state: &ecg::State<HeaderId>, send_queue: &mut BinaryHeap<(u64,HeaderId)>, their_known: &mut BTreeSet<HeaderId>, headers: &mut Vec<Header>) {
         if headers.len() == MAX_DELIVER_HEADERS.into() {

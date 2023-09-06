@@ -1,8 +1,8 @@
 
 use crate::network::{ConnectionManager};
-use crate::network::protocol::ecg_sync::v0::{ECGSyncError, MAX_HAVE_HEADERS, MsgECGSyncRequest, MsgECGSyncResponse, prepare_haves, ecg};
-// use std::collections::BTreeMap;
-use std::collections::BinaryHeap;
+use crate::network::protocol::ecg_sync::v0::{ECGSyncError, MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS, MsgECGSync, MsgECGSyncRequest, MsgECGSyncResponse, handle_received_have, prepare_haves, prepare_headers, ecg};
+use std::cmp::min;
+use std::collections::{BinaryHeap, BTreeSet};
 
 
 
@@ -57,19 +57,47 @@ where HeaderId:Copy + Ord
     conn.send(req).await;
 
     let response: MsgECGSyncResponse<HeaderId> = conn.receive().await;
-    // if let Some() = sync_state.initial_response();
+    // JP: Set (and check) max value for tips?
 
+    let their_tips_c = response.tip_count;
+    let mut their_tips:Vec<HeaderId> = Vec::with_capacity(usize::from(their_tips_c));
+    let mut their_tips_remaining = usize::from(their_tips_c);
 
-    // while let Some()
+    // TODO: Receive (and verify the headers they sent to us)
+    // TODO: handle_received_headers();
 
+    // Headers they know.
+    let mut their_known = BTreeSet::new();
 
-    // let sent_have = vec![]; // TODO
-    
-    // conn.send(MsgECGSyncRequest{
-    //     tips: our_tips,
-    //     have: sent_have,
-    // }).await;
+    // Queue of headers to potentially send.
+    // JP: Priority queue by depth?
+    let mut send_queue = BinaryHeap::new();
 
+    // TODO: Check for no headers? their_tips_c == 0
+
+    // Handle the haves that the peer sent to us.
+    let known = handle_received_have(state, &mut their_tips_remaining, &mut their_tips, &mut their_known, &mut send_queue, &response.sync.have);
+
+    // Send the headers we have.
+    let mut headers = Vec::with_capacity(MAX_DELIVER_HEADERS.into());
+    prepare_headers(state, &mut send_queue, &mut their_known, &mut headers);
+
+    // Propose headers we have.
+    prepare_haves(state, &mut queue, &mut haves);
+
+    // TODO: Check if we're done.
+
+    let msg: MsgECGSync<HeaderId> = MsgECGSync {
+        have: haves.iter().map(|x| x.0).collect(),
+        known: known,
+        headers: headers,
+    };
+    conn.send(msg).await;
+
+    // TODO
+    // Loop:
+    // - Send sync msg
+    // - Receive sync msg
 
     unimplemented!{}
 }

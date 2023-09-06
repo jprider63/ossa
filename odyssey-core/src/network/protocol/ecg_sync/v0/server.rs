@@ -1,6 +1,6 @@
 
 use crate::network::{ConnectionManager};
-use crate::network::protocol::ecg_sync::v0::{ECGSyncError, HeaderBitmap, MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS, MsgECGSync, MsgECGSyncRequest, MsgECGSyncResponse, mark_as_known, prepare_haves, prepare_headers, ecg};
+use crate::network::protocol::ecg_sync::v0::{ECGSyncError, HeaderBitmap, MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS, MsgECGSync, MsgECGSyncRequest, MsgECGSyncResponse, handle_received_have, mark_as_known, prepare_haves, prepare_headers, ecg};
 use std::cmp::min;
 use std::collections::{BinaryHeap, BTreeSet, VecDeque};
 
@@ -23,37 +23,19 @@ where HeaderId:Copy + Ord
 
     // TODO: Check for no headers? their_tips_c == 0
 
-    // TODO:
-    // Accumulate their_tips.
-    let provided_tip_c = min(their_tips_remaining, request.have.len());
-    their_tips.extend(&request.have[0..provided_tip_c]);
-    their_tips_remaining = their_tips_remaining - provided_tip_c;
-    // TODO: if their_tips is done, update peer_state.
-
-    let mut known = HeaderBitmap::new([0;4]);
-    for (i, header_id) in request.have.iter().enumerate() {
-        if state.contains(header_id) {
-            // Record their known headers.
-            mark_as_known(state, &mut their_known, *header_id);
-
-            // Respond with which headers we know.
-            known.set(i, true);
-
-            // If we know the header, potentially send the children of that header.
-            send_queue.extend(state.get_children_with_depth(&header_id));
-        }
-    }
+    // Handle the haves that the peer sent to us.
+    let known = handle_received_have(state, &mut their_tips_remaining, &mut their_tips, &mut their_known, &mut send_queue, &request.have);
 
     let mut headers = Vec::with_capacity(MAX_DELIVER_HEADERS.into());
     prepare_headers(state, &mut send_queue, &mut their_known, &mut headers);
 
     let our_tips = state.tips();
     let our_tips_c = u16::try_from(our_tips.len()).map_err(|e| ECGSyncError::TooManyTips(e))?;
+    // JP: Set a max value for our_tips_c?
 
     // Initialize the priority queue with our tips, zipped with distance 0.
     let mut queue = BinaryHeap::new();
     queue.extend(our_tips.iter().map(|x| (true, state.get_header_depth(x), *x, 0)));
-    // JP: Use a priority queue based on descending depth instead?
 
     let mut haves = Vec::with_capacity(MAX_HAVE_HEADERS.into());
     prepare_haves(state, &mut queue, &mut haves);
@@ -70,6 +52,11 @@ where HeaderId:Copy + Ord
     };
 
     conn.send(response).await;
+
+    // TODO:
+    // Loop:
+    // - Receive sync msg
+    // - Send sync msg
 
     unimplemented!{}
 }
