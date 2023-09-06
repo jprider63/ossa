@@ -154,12 +154,12 @@ fn prepare_haves<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, queue: &mut 
             return;
         }
 
-        if let Some((_is_tip, _depth, header_id, distance)) = queue.pop() {
+        if let Some((_is_tip, depth, header_id, distance)) = queue.pop() {
             // If they already know this header, they already know its ancestors.
             let skip = their_known.contains(&header_id);
             if !skip {
-                // If header is at an exponential distance, send it with `haves`.
-                if is_power_of_two(distance) {
+                // If header is at an exponential distance (or is a child of the root node), send it with `haves`.
+                if is_power_of_two(distance) || depth == 1 {
                     haves.push((header_id, distance));
                 }
 
