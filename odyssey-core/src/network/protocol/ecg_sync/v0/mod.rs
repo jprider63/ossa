@@ -7,6 +7,7 @@ pub mod client;
 pub mod server;
 
 // TODO: Move this to the right location.
+#[derive(Clone)]
 pub struct Header {}
 
 /// TODO:
@@ -180,28 +181,26 @@ fn prepare_haves<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, queue: &mut 
 
 // Handle the haves that the peer sent to us.
 // Returns the bitmap of which haves we know.
-fn handle_received_have<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, their_tips_remaining: &mut usize, their_tips: &mut Vec<HeaderId>, their_known: &mut BTreeSet<HeaderId>, send_queue: &mut BinaryHeap<(u64,HeaderId)>, have: &Vec<HeaderId>) -> HeaderBitmap {
+fn handle_received_have<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, their_tips_remaining: &mut usize, their_tips: &mut Vec<HeaderId>, their_known: &mut BTreeSet<HeaderId>, send_queue: &mut BinaryHeap<(u64,HeaderId)>, have: &Vec<HeaderId>, known_bitmap: &mut HeaderBitmap) {
     // Accumulate their_tips.
     let provided_tip_c = min(*their_tips_remaining, have.len());
     their_tips.extend(&have[0..provided_tip_c]);
     *their_tips_remaining = *their_tips_remaining - provided_tip_c;
     // TODO: if their_tips is done, update peer_state.
 
-    let mut known = HeaderBitmap::new([0;4]);
+    known_bitmap.fill(false);
     for (i, header_id) in have.iter().enumerate() {
         if state.contains(header_id) {
             // Record their known headers.
             mark_as_known(state, their_known, *header_id);
 
             // Respond with which headers we know.
-            known.set(i, true);
+            known_bitmap.set(i, true);
 
             // If we know the header, potentially send the children of that header.
             send_queue.extend(state.get_children_with_depth(&header_id));
         }
     }
-
-    known
 }
 
 // Handle (and verify) headers they sent to us.

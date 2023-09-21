@@ -24,7 +24,8 @@ where HeaderId:Copy + Ord
     // TODO: Check for no headers? their_tips_c == 0? or request.have.len() == 0?
 
     // Handle the haves that the peer sent to us.
-    let known = handle_received_have(state, &mut their_tips_remaining, &mut their_tips, &mut their_known, &mut send_queue, &request.have);
+    let mut known_bitmap = HeaderBitmap::new([0;4]); // TODO: MAX_HAVE_HEADERS/8?
+    handle_received_have(state, &mut their_tips_remaining, &mut their_tips, &mut their_known, &mut send_queue, &request.have, &mut known_bitmap);
 
     let mut headers = Vec::with_capacity(MAX_DELIVER_HEADERS.into());
     prepare_headers(state, &mut send_queue, &mut their_known, &mut headers);
@@ -41,22 +42,40 @@ where HeaderId:Copy + Ord
     prepare_haves(state, &mut queue, &their_known, &mut haves);
 
     // TODO: Check if we're done.
+    let mut done = false;
 
     let response: MsgECGSyncResponse<HeaderId> = MsgECGSyncResponse {
         tip_count: our_tips_c,
         sync: MsgECGSync {
             have: haves.iter().map(|x| x.0).collect(),
-            known: known,
+            known: known_bitmap,
             headers: headers,
         },
     };
 
     conn.send(response).await;
 
+    while !done {
+        // let sync_req: MsgECGSync<HeaderId> = conn.receive().await;
+
+        // // Handle the haves that the peer sent to us.
+        // let known = handle_received_have(state, &mut their_tips_remaining, &mut their_tips, &mut their_known, &mut send_queue, &sync_req.have);
+    
+        // prepare_headers(state, &mut send_queue, &mut their_known, &mut headers);
+
+        // prepare_haves(state, &mut queue, &their_known, &mut haves);
+
+        // // TODO: Check if we're done.
+        // done = false;
+
+        // let sync_response
+        unimplemented!{}
+    }
+
     // TODO:
     // Loop:
     // - Receive sync msg
     // - Send sync msg
 
-    unimplemented!{}
+    Ok(())
 }
