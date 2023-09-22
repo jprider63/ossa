@@ -47,7 +47,7 @@ where HeaderId:Copy + Ord
     let response: MsgECGSyncResponse<HeaderId> = MsgECGSyncResponse {
         tip_count: our_tips_c,
         sync: MsgECGSync {
-            have: haves.iter().map(|x| x.0).collect(),
+            have: haves,
             known: known_bitmap,
             headers: headers,
         },

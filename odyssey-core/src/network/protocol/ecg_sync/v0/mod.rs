@@ -147,9 +147,9 @@ pub mod ecg {
 
 use std::cmp::min;
 use std::collections::{BinaryHeap, BTreeSet, VecDeque};
-fn prepare_haves<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, queue: &mut BinaryHeap<(bool, u64, HeaderId, u64)>, their_known: &BTreeSet<HeaderId>, haves: &mut Vec<(HeaderId, u64)>)
+fn prepare_haves<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, queue: &mut BinaryHeap<(bool, u64, HeaderId, u64)>, their_known: &BTreeSet<HeaderId>, haves: &mut Vec<HeaderId>)
 {
-    fn go<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, queue: &mut BinaryHeap<(bool, u64, HeaderId, u64)>, their_known: &BTreeSet<HeaderId>, haves: &mut Vec<(HeaderId, u64)>)
+    fn go<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, queue: &mut BinaryHeap<(bool, u64, HeaderId, u64)>, their_known: &BTreeSet<HeaderId>, haves: &mut Vec<HeaderId>)
     {
         if haves.len() == MAX_HAVE_HEADERS.into() {
             return;
@@ -161,7 +161,7 @@ fn prepare_haves<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, queue: &mut 
             if !skip {
                 // If header is at an exponential distance (or is a child of the root node), send it with `haves`.
                 if is_power_of_two(distance) || depth == 1 {
-                    haves.push((header_id, distance));
+                    haves.push(header_id);
                 }
 
                 // Add parents to queue.
@@ -266,5 +266,15 @@ fn prepare_headers<HeaderId:Copy + Ord, Header>(state: &ecg::State<HeaderId>, se
 /// Check if the input is a power of two (inclusive of 0).
 fn is_power_of_two(x:u64) -> bool {
     0 == (x & (x-1))
+}
+
+fn handle_received_known<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, their_known: &mut BTreeSet<HeaderId>, sent_haves: &Vec<HeaderId>, received_known: &HeaderBitmap) {
+    for (i, header_id) in sent_haves.iter().enumerate() {
+        // Check if they claimed they know this header.
+        if *received_known.get(i).expect("Unreachable since we're iterating of the headers we sent.") {
+            // Mark header as known by them.
+            mark_as_known(state, their_known, *header_id);
+        }
+    }
 }
 

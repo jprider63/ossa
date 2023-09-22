@@ -1,6 +1,6 @@
 
 use crate::network::{ConnectionManager};
-use crate::network::protocol::ecg_sync::v0::{ECGSyncError, HeaderBitmap, MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS, MsgECGSync, MsgECGSyncRequest, MsgECGSyncResponse, handle_received_have, handle_received_headers, prepare_haves, prepare_headers, ecg};
+use crate::network::protocol::ecg_sync::v0::{ECGSyncError, HeaderBitmap, MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS, MsgECGSync, MsgECGSyncRequest, MsgECGSyncResponse, handle_received_have, handle_received_headers, handle_received_known, prepare_haves, prepare_headers, ecg};
 use std::cmp::min;
 use std::collections::{BinaryHeap, BTreeSet};
 
@@ -55,7 +55,7 @@ where HeaderId: Copy + Ord,
     // let sent = haves;
     let req: MsgECGSyncRequest<HeaderId> = MsgECGSyncRequest {
         tip_count: our_tips_c,
-        have: haves.iter().map(|x| x.0).collect(),
+        have: haves.clone(), // TODO: Avoid this clone?
     };
     conn.send(req).await;
 
@@ -98,7 +98,7 @@ where HeaderId: Copy + Ord,
 
         // Send sync msg
         let send_sync_msg: MsgECGSync<HeaderId> = MsgECGSync {
-            have: haves.iter().map(|x| x.0).collect(),
+            have: haves.clone(), // TODO: Avoid this clone. // .iter().map(|x| x.0).collect(),
             known: known_bitmap,
             headers: headers.clone(), // TODO: Skip this clone.
         };
@@ -114,12 +114,14 @@ where HeaderId: Copy + Ord,
     unimplemented!{}
 }
 
-fn handle_received_ecg_sync<HeaderId:Copy + Ord, Header>(sync_msg: MsgECGSync<HeaderId>, state: &ecg::State<HeaderId>, their_tips_remaining: &mut usize, their_tips: &mut Vec<HeaderId>, their_known: &mut BTreeSet<HeaderId>, send_queue: &mut BinaryHeap<(u64,HeaderId)>, queue: &mut BinaryHeap<(bool, u64, HeaderId, u64)>, haves: &mut Vec<(HeaderId, u64)>, headers: &mut Vec<Header>, known_bitmap: &mut HeaderBitmap) -> bool {
+fn handle_received_ecg_sync<HeaderId:Copy + Ord, Header>(sync_msg: MsgECGSync<HeaderId>, state: &ecg::State<HeaderId>, their_tips_remaining: &mut usize, their_tips: &mut Vec<HeaderId>, their_known: &mut BTreeSet<HeaderId>, send_queue: &mut BinaryHeap<(u64,HeaderId)>, queue: &mut BinaryHeap<(bool, u64, HeaderId, u64)>, haves: &mut Vec<HeaderId>, headers: &mut Vec<Header>, known_bitmap: &mut HeaderBitmap) -> bool {
     // TODO: XXX 
-    unimplemented!("Why isn't sync_msg.known used?");
     unimplemented!("Define ECGSyncState struct with all these variables");
     // XXX
     // XXX
+
+    // Record which headers they say they already know.
+    handle_received_known(state, &mut their_known, haves, &sync_msg.known);
 
     // Receive (and verify) the headers they sent to us
     let all_valid = handle_received_headers(state, sync_msg.headers);
