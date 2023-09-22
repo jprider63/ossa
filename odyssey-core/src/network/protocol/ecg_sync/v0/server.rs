@@ -1,6 +1,6 @@
 
 use crate::network::{ConnectionManager};
-use crate::network::protocol::ecg_sync::v0::{ECGSyncError, HeaderBitmap, MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS, MsgECGSync, MsgECGSyncRequest, MsgECGSyncResponse, handle_received_have, mark_as_known, prepare_haves, prepare_headers, ecg};
+use crate::network::protocol::ecg_sync::v0::{ECGSyncError, HeaderBitmap, MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS, MsgECGSync, MsgECGSyncRequest, MsgECGSyncResponse, handle_received_ecg_sync, handle_received_have, mark_as_known, prepare_haves, prepare_headers, ecg};
 use std::cmp::min;
 use std::collections::{BinaryHeap, BTreeSet, VecDeque};
 
@@ -47,35 +47,32 @@ where HeaderId:Copy + Ord
     let response: MsgECGSyncResponse<HeaderId> = MsgECGSyncResponse {
         tip_count: our_tips_c,
         sync: MsgECGSync {
-            have: haves,
+            have: haves.clone(), // TODO: Skip this clone
             known: known_bitmap,
-            headers: headers,
+            headers: headers.clone(), // TODO: Skip this clone
         },
     };
 
     conn.send(response).await;
 
     while !done {
-        // let sync_req: MsgECGSync<HeaderId> = conn.receive().await;
+        // Receive sync msg
+        let received_sync_msg: MsgECGSync<HeaderId> = conn.receive().await;
 
-        // // Handle the haves that the peer sent to us.
-        // let known = handle_received_have(state, &mut their_tips_remaining, &mut their_tips, &mut their_known, &mut send_queue, &sync_req.have);
-    
-        // prepare_headers(state, &mut send_queue, &mut their_known, &mut headers);
+        done = handle_received_ecg_sync(received_sync_msg, state, &mut their_tips_remaining, &mut their_tips, &mut their_known, &mut send_queue, &mut queue, &mut haves, &mut headers, &mut known_bitmap);
+        unimplemented!("TODO: Fix this `done` termination handling");
 
-        // prepare_haves(state, &mut queue, &their_known, &mut haves);
+        // Send sync msg
+        let send_sync_msg: MsgECGSync<HeaderId> = MsgECGSync {
+            have: haves.clone(), // TODO: Avoid this clone.
+            known: known_bitmap,
+            headers: headers.clone(), // TODO: Skip this clone.
+        };
+        conn.send(send_sync_msg).await;
 
         // // TODO: Check if we're done.
         // done = false;
-
-        // let sync_response
-        unimplemented!{}
     }
-
-    // TODO:
-    // Loop:
-    // - Receive sync msg
-    // - Send sync msg
 
     Ok(())
 }

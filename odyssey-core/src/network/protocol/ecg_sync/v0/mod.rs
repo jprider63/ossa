@@ -278,3 +278,33 @@ fn handle_received_known<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, thei
     }
 }
 
+fn handle_received_ecg_sync<HeaderId:Copy + Ord, Header>(sync_msg: MsgECGSync<HeaderId>, state: &ecg::State<HeaderId>, their_tips_remaining: &mut usize, their_tips: &mut Vec<HeaderId>, their_known: &mut BTreeSet<HeaderId>, send_queue: &mut BinaryHeap<(u64,HeaderId)>, queue: &mut BinaryHeap<(bool, u64, HeaderId, u64)>, haves: &mut Vec<HeaderId>, headers: &mut Vec<Header>, known_bitmap: &mut HeaderBitmap) -> bool {
+    // TODO: XXX 
+    unimplemented!("Define ECGSyncState struct with all these variables");
+    // XXX
+    // XXX
+
+    // Record which headers they say they already know.
+    handle_received_known(state, &mut their_known, haves, &sync_msg.known);
+
+    // Receive (and verify) the headers they sent to us
+    let all_valid = handle_received_headers(state, sync_msg.headers);
+    // TODO: Record and exit if they sent invalid headers? Or tit for tat?
+
+    // TODO: Check for no headers? their_tips_c == 0
+
+    // Handle the haves that the peer sent to us.
+    handle_received_have(state, &mut their_tips_remaining, &mut their_tips, &mut their_known, &mut send_queue, &sync_msg.have, &mut known_bitmap);
+
+    // Send the headers we have.
+    prepare_headers(state, &mut send_queue, &mut their_known, &mut headers);
+
+    // Propose headers we have.
+    prepare_haves(state, queue, &their_known, &mut haves);
+
+
+
+
+    // TODO: Check if we're done.
+    false
+}
