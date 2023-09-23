@@ -278,7 +278,7 @@ fn handle_received_known<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, thei
     }
 }
 
-fn handle_received_ecg_sync<HeaderId:Copy + Ord, Header>(sync_msg: MsgECGSync<HeaderId>, state: &ecg::State<HeaderId>, their_tips_remaining: &mut usize, their_tips: &mut Vec<HeaderId>, their_known: &mut BTreeSet<HeaderId>, send_queue: &mut BinaryHeap<(u64,HeaderId)>, queue: &mut BinaryHeap<(bool, u64, HeaderId, u64)>, haves: &mut Vec<HeaderId>, headers: &mut Vec<Header>, known_bitmap: &mut HeaderBitmap) -> bool {
+fn handle_received_ecg_sync<HeaderId:Copy + Ord, Header>(sync_msg: MsgECGSync<HeaderId>, state: &ecg::State<HeaderId>, their_tips_remaining: &mut usize, their_tips: &mut Vec<HeaderId>, their_known: &mut BTreeSet<HeaderId>, send_queue: &mut BinaryHeap<(u64,HeaderId)>, queue: &mut BinaryHeap<(bool, u64, HeaderId, u64)>, haves: &mut Vec<HeaderId>, headers: &mut Vec<Header>, known_bitmap: &mut HeaderBitmap) {
     // TODO: XXX 
     unimplemented!("Define ECGSyncState struct with all these variables");
     // XXX
@@ -301,10 +301,27 @@ fn handle_received_ecg_sync<HeaderId:Copy + Ord, Header>(sync_msg: MsgECGSync<He
 
     // Propose headers we have.
     prepare_haves(state, queue, &their_known, &mut haves);
+}
 
+trait ECGSyncMessage {
+    /// Check if we're done based on this message.
+    fn is_done(&self) -> bool;
+}
 
+impl<HeaderId> ECGSyncMessage for MsgECGSync<HeaderId> {
+    fn is_done(&self) -> bool {
+        self.have.len() == 0 && self.headers.len() == 0
+    }
+}
 
+impl<HeaderId> ECGSyncMessage for MsgECGSyncRequest<HeaderId> {
+    fn is_done(&self) -> bool {
+        self.have.len() == 0
+    }
+}
 
-    // TODO: Check if we're done.
-    false
+impl<HeaderId> ECGSyncMessage for MsgECGSyncResponse<HeaderId> {
+    fn is_done(&self) -> bool {
+        self.sync.is_done()
+    }
 }
