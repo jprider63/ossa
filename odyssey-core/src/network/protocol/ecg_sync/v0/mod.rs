@@ -2,9 +2,11 @@
 use async_session_types::{Eps, Send, Recv};
 use bitvec::{BitArr, order::Msb0};
 use std::num::TryFromIntError;
+use crate::store::ecg;
 
 pub mod client;
 pub mod server;
+mod test;
 
 // TODO: Move this to the right location.
 #[derive(Clone)]
@@ -98,52 +100,6 @@ pub struct MsgECGSync<HeaderId> {
 //     }
 // }
 
-
-
-
-
-
-// TODO: Move this somewhere else. store::state::ecg?
-pub mod ecg {
-    pub struct State<HeaderId> {
-        // Tips of the ECG (hashes of their headers).
-        tips: Vec<HeaderId>,
-    }
-
-    impl<HeaderId> State<HeaderId> {
-        pub fn tips(&self) -> &[HeaderId] {
-            &self.tips
-        }
-
-        pub fn get_parents_with_depth(&self, n:&HeaderId) -> Vec<(u64, HeaderId)> {
-            unimplemented!{}
-        }
-
-        pub fn get_parents(&self, n:&HeaderId) -> Vec<HeaderId> {
-            unimplemented!{}
-        }
-
-        pub fn get_children_with_depth(&self, n:&HeaderId) -> Vec<(u64, HeaderId)> {
-            unimplemented!{}
-        }
-
-        // pub fn get_children(&self, n:&HeaderId) -> Vec<HeaderId> {
-        //     unimplemented!{}
-        // }
-
-        pub fn contains(&self, h:&HeaderId) -> bool {
-            unimplemented!{}
-        }
-
-        pub fn get_header<Header>(&self, n:&HeaderId) -> Header {
-            unimplemented!{}
-        }
-
-        pub fn get_header_depth(&self, n:&HeaderId) -> u64 {
-            unimplemented!{}
-        }
-    }
-}
 
 use std::cmp::min;
 use std::collections::{BinaryHeap, BTreeSet, VecDeque};
