@@ -4,6 +4,10 @@ use serde::{Deserialize, Serialize};
 use crate::protocol;
 use crate::util::Hash;
 
+// TODO: Move this to the right location.
+#[derive(Clone)]
+pub struct Header {}
+
 // pub struct Store<Id, T> {
 //     id: Id,
 //     state: T,

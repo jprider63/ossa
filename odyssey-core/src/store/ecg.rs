@@ -15,7 +15,10 @@ impl<HeaderId> PartialEq for State<HeaderId> {
 
 impl<HeaderId> State<HeaderId> {
     pub fn new() -> State<HeaderId> {
-        unimplemented!{}
+        State {
+            dependency_graph: daggy::Dag::new(),
+            tips: vec![],
+        }
     }
 
     pub fn tips(&self) -> &[HeaderId] {
@@ -49,4 +52,13 @@ impl<HeaderId> State<HeaderId> {
     pub fn get_header_depth(&self, n:&HeaderId) -> u64 {
         unimplemented!{}
     }
+
+    pub fn insert_header<Header>(&mut self, header: Header) -> bool {
+        unimplemented!{}
+    }
+}
+
+/// Tests whether two ecg states have the same DAG.
+pub(crate) fn equal_dags<HeaderId>(l: &State<HeaderId>, r: &State<HeaderId>) -> bool {
+    unimplemented!()
 }

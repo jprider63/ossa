@@ -4,8 +4,9 @@ use crate::network::protocol::ecg_sync::v0::{ECGSyncMessage, ECGSyncError, Heade
 use std::cmp::min;
 use std::collections::{BinaryHeap, BTreeSet, VecDeque};
 
-pub(crate) async fn ecg_sync_server<StoreId, HeaderId>(conn: &ConnectionManager, store_id: &StoreId, state: &ecg::State<HeaderId>) -> Result<(), ECGSyncError>
-where HeaderId:Copy + Ord
+pub(crate) async fn ecg_sync_server<StoreId, HeaderId, Header>(conn: &ConnectionManager, store_id: &StoreId, state: &ecg::State<HeaderId>) -> Result<(), ECGSyncError>
+where HeaderId:Copy + Ord,
+      Header: Clone,
 {
     let request: MsgECGSyncRequest<HeaderId> = conn.receive().await;
     // JP: Set (and check) max value for tips?
@@ -43,7 +44,7 @@ where HeaderId:Copy + Ord
     let mut haves = Vec::with_capacity(MAX_HAVE_HEADERS.into());
     prepare_haves(state, &mut queue, &their_known, &mut haves);
 
-    let response: MsgECGSyncResponse<HeaderId> = MsgECGSyncResponse {
+    let response: MsgECGSyncResponse<HeaderId, Header> = MsgECGSyncResponse {
         tip_count: our_tips_c,
         sync: MsgECGSync {
             have: haves.clone(), // TODO: Skip this clone
@@ -59,13 +60,13 @@ where HeaderId:Copy + Ord
 
     while !done {
         // Receive sync msg
-        let received_sync_msg: MsgECGSync<HeaderId> = conn.receive().await;
+        let received_sync_msg: MsgECGSync<HeaderId, Header> = conn.receive().await;
         done = received_sync_msg.is_done();
 
         handle_received_ecg_sync(received_sync_msg, state, &mut their_tips_remaining, &mut their_tips, &mut their_known, &mut send_queue, &mut queue, &mut haves, &mut headers, &mut known_bitmap);
 
         // Send sync msg
-        let send_sync_msg: MsgECGSync<HeaderId> = MsgECGSync {
+        let send_sync_msg: MsgECGSync<HeaderId, Header> = MsgECGSync {
             have: haves.clone(), // TODO: Avoid this clone.
             known: known_bitmap,
             headers: headers.clone(), // TODO: Skip this clone.

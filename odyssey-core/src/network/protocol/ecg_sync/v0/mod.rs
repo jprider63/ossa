@@ -8,10 +8,6 @@ pub mod client;
 pub mod server;
 mod test;
 
-// TODO: Move this to the right location.
-#[derive(Clone)]
-pub struct Header {}
-
 /// TODO:
 /// The session type for the ecg-sync protocol.
 pub type ECGSync = Send<(), Eps>; // TODO
@@ -26,14 +22,14 @@ pub type ECGSync = Send<(), Eps>; // TODO
 // Send hashes of tips.
 // Send hashes of (skipped) ancestors.
 // Send bitmap indices of prev.have that we have.
-// 
+//
 // Loop until meet identified:
 //
 //   Client:
 //
 //   Send hashes of (skipped) ancestors.
 //   Send bitmap indices of prev.have that we have.
-// 
+//
 //   Server:
 //
 //   Send hashes of (skipped) ancestors.
@@ -46,7 +42,7 @@ pub type ECGSync = Send<(), Eps>; // TODO
 // Client:
 //
 // Send all headers he have that they don't (batched).
-// 
+//
 
 /// The maximum number of `have` hashes that can be sent in each message.
 pub const MAX_HAVE_HEADERS : u16 = 32;
@@ -68,15 +64,15 @@ pub struct MsgECGSyncRequest<HeaderId> {
     have: Vec<HeaderId>, // Should this include ancestors? Yes.
 }
 
-pub struct MsgECGSyncResponse<HeaderId> {
+pub struct MsgECGSyncResponse<HeaderId, Header> {
     /// Number of tips the server has.
     tip_count: u16,
     /// `MsgECGSync` sync response.
-    sync: MsgECGSync<HeaderId>,
+    sync: MsgECGSync<HeaderId, Header>,
 }
 
 pub type HeaderBitmap = BitArr!(for MAX_HAVE_HEADERS as usize, in u8, Msb0);
-pub struct MsgECGSync<HeaderId> {
+pub struct MsgECGSync<HeaderId, Header> {
     /// Hashes of headers the server has.
     /// The first `tip_count` hashes (potentially split across multiple messages) are tip headers.
     /// The maximum length is `MAX_HAVE_HEADERS`.
@@ -91,7 +87,7 @@ pub struct MsgECGSync<HeaderId> {
 // pub struct ECGSyncState<HeaderId> {
 //     our_tips: Vec<HeaderId>,
 // }
-// 
+//
 // impl<HeaderId> ECGSyncState<HeaderId> {
 //     pub fn new(tips: Vec<HeaderId>) -> Self {
 //         ECGSyncState {
@@ -162,7 +158,7 @@ fn handle_received_have<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, their
 // Handle (and verify) headers they sent to us.
 // Returns if all the headers were valid.
 fn handle_received_headers<HeaderId:Copy + Ord, Header>(state: &ecg::State<HeaderId>, headers: Vec<Header>) -> bool {
-    // TODO: 
+    // TODO:
     // Verify header.
     // Add to state.
     unimplemented!{}
@@ -178,7 +174,7 @@ fn mark_as_known<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, their_known:
                 let parents = state.get_parents(&header_id);
                 queue.extend(parents);
             }
-            
+
             go(state, their_known, queue);
         }
     }
@@ -234,8 +230,8 @@ fn handle_received_known<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, thei
     }
 }
 
-fn handle_received_ecg_sync<HeaderId:Copy + Ord, Header>(sync_msg: MsgECGSync<HeaderId>, state: &ecg::State<HeaderId>, their_tips_remaining: &mut usize, their_tips: &mut Vec<HeaderId>, their_known: &mut BTreeSet<HeaderId>, send_queue: &mut BinaryHeap<(u64,HeaderId)>, queue: &mut BinaryHeap<(bool, u64, HeaderId, u64)>, haves: &mut Vec<HeaderId>, headers: &mut Vec<Header>, known_bitmap: &mut HeaderBitmap) {
-    // TODO: XXX 
+fn handle_received_ecg_sync<HeaderId:Copy + Ord, Header>(sync_msg: MsgECGSync<HeaderId, Header>, state: &ecg::State<HeaderId>, their_tips_remaining: &mut usize, their_tips: &mut Vec<HeaderId>, their_known: &mut BTreeSet<HeaderId>, send_queue: &mut BinaryHeap<(u64,HeaderId)>, queue: &mut BinaryHeap<(bool, u64, HeaderId, u64)>, haves: &mut Vec<HeaderId>, headers: &mut Vec<Header>, known_bitmap: &mut HeaderBitmap) {
+    // TODO: XXX
     unimplemented!("Define ECGSyncState struct with all these variables");
     // XXX
     // XXX
@@ -264,7 +260,7 @@ trait ECGSyncMessage {
     fn is_done(&self) -> bool;
 }
 
-impl<HeaderId> ECGSyncMessage for MsgECGSync<HeaderId> {
+impl<HeaderId, Header> ECGSyncMessage for MsgECGSync<HeaderId, Header> {
     fn is_done(&self) -> bool {
         self.have.len() == 0 && self.headers.len() == 0
     }
@@ -276,7 +272,7 @@ impl<HeaderId> ECGSyncMessage for MsgECGSyncRequest<HeaderId> {
     }
 }
 
-impl<HeaderId> ECGSyncMessage for MsgECGSyncResponse<HeaderId> {
+impl<HeaderId, Header> ECGSyncMessage for MsgECGSyncResponse<HeaderId, Header> {
     fn is_done(&self) -> bool {
         self.sync.is_done()
     }

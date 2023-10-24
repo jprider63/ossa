@@ -10,8 +10,9 @@ use std::collections::{BinaryHeap, BTreeSet};
 /// Sync the headers of the eventual consistency graph.
 /// Finds the least common ancestor (meet) of the graphs.
 /// Then we share/receive all the known headers after that point (in batches of size 32).
-pub(crate) async fn ecg_sync_client<StoreId, HeaderId>(conn: &ConnectionManager, store_id: &StoreId, state: &ecg::State<HeaderId>) -> Result<(), ECGSyncError>
+pub(crate) async fn ecg_sync_client<StoreId, HeaderId, Header>(conn: &ConnectionManager, store_id: &StoreId, state: &ecg::State<HeaderId>) -> Result<(), ECGSyncError>
 where HeaderId: Copy + Ord,
+      Header: Clone,
 {
     // TODO:
     // - Get cached peer state.
@@ -63,7 +64,7 @@ where HeaderId: Copy + Ord,
 
     conn.send(request).await;
 
-    let response: MsgECGSyncResponse<HeaderId> = conn.receive().await;
+    let response: MsgECGSyncResponse<HeaderId, Header> = conn.receive().await;
     // JP: Set (and check) max value for tips?
 
     // Check if we're done.
@@ -102,7 +103,7 @@ where HeaderId: Copy + Ord,
     while !done {
 
         // Send sync msg
-        let send_sync_msg: MsgECGSync<HeaderId> = MsgECGSync {
+        let send_sync_msg: MsgECGSync<HeaderId, Header> = MsgECGSync {
             have: haves.clone(), // TODO: Avoid this clone. // .iter().map(|x| x.0).collect(),
             known: known_bitmap,
             headers: headers.clone(), // TODO: Skip this clone.
@@ -111,7 +112,7 @@ where HeaderId: Copy + Ord,
         conn.send(send_sync_msg).await;
         
         // Receive sync msg
-        let received_sync_msg: MsgECGSync<HeaderId> = conn.receive().await;
+        let received_sync_msg: MsgECGSync<HeaderId, Header> = conn.receive().await;
         done = done && received_sync_msg.is_done();
 
         handle_received_ecg_sync(received_sync_msg, state, &mut their_tips_remaining, &mut their_tips, &mut their_known, &mut send_queue, &mut queue, &mut haves, &mut headers, &mut known_bitmap);
