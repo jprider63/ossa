@@ -1,21 +1,23 @@
 
 use crate::network::{ConnectionManager};
 use crate::network::protocol::ecg_sync::v0::{ECGSyncMessage, ECGSyncError, HeaderBitmap, MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS, MsgECGSync, MsgECGSyncRequest, MsgECGSyncResponse, handle_received_ecg_sync, handle_received_have, mark_as_known, prepare_haves, prepare_headers, ecg};
+use crate::store::ecg::ECGHeader;
 use std::cmp::min;
 use std::collections::{BinaryHeap, BTreeSet, VecDeque};
 
-pub(crate) async fn ecg_sync_server<StoreId, HeaderId, Header>(conn: &ConnectionManager, store_id: &StoreId, state: &ecg::State<HeaderId>) -> Result<(), ECGSyncError>
-where HeaderId:Copy + Ord,
-      Header: Clone,
+pub(crate) async fn ecg_sync_server<StoreId, Header>(conn: &ConnectionManager, store_id: &StoreId, state: &ecg::State<Header>) -> Result<(), ECGSyncError>
+where
+      Header: Clone + ECGHeader,
+      <Header as ECGHeader>::HeaderId: Copy + Ord,
 {
-    let request: MsgECGSyncRequest<HeaderId> = conn.receive().await;
+    let request: MsgECGSyncRequest<Header> = conn.receive().await;
     // JP: Set (and check) max value for tips?
 
     // Check if we're done.
     let mut done = request.is_done();
 
     let their_tips_c = request.tip_count;
-    let mut their_tips:Vec<HeaderId> = Vec::with_capacity(usize::from(their_tips_c));
+    let mut their_tips:Vec<Header::HeaderId> = Vec::with_capacity(usize::from(their_tips_c));
     let mut their_tips_remaining = usize::from(their_tips_c);
 
     // Headers they know.
@@ -44,7 +46,7 @@ where HeaderId:Copy + Ord,
     let mut haves = Vec::with_capacity(MAX_HAVE_HEADERS.into());
     prepare_haves(state, &mut queue, &their_known, &mut haves);
 
-    let response: MsgECGSyncResponse<HeaderId, Header> = MsgECGSyncResponse {
+    let response: MsgECGSyncResponse<Header> = MsgECGSyncResponse {
         tip_count: our_tips_c,
         sync: MsgECGSync {
             have: haves.clone(), // TODO: Skip this clone
@@ -60,13 +62,13 @@ where HeaderId:Copy + Ord,
 
     while !done {
         // Receive sync msg
-        let received_sync_msg: MsgECGSync<HeaderId, Header> = conn.receive().await;
+        let received_sync_msg: MsgECGSync<Header> = conn.receive().await;
         done = received_sync_msg.is_done();
 
         handle_received_ecg_sync(received_sync_msg, state, &mut their_tips_remaining, &mut their_tips, &mut their_known, &mut send_queue, &mut queue, &mut haves, &mut headers, &mut known_bitmap);
 
         // Send sync msg
-        let send_sync_msg: MsgECGSync<HeaderId, Header> = MsgECGSync {
+        let send_sync_msg: MsgECGSync<Header> = MsgECGSync {
             have: haves.clone(), // TODO: Avoid this clone.
             known: known_bitmap,
             headers: headers.clone(), // TODO: Skip this clone.

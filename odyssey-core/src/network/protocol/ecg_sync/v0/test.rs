@@ -1,12 +1,25 @@
 
-use crate::store::ecg;
+use crate::store::ecg::{self, ECGHeader};
 
-fn run_ecg_sync<HeaderId>(st1: &mut ecg::State<HeaderId>, st2: &mut ecg::State<HeaderId>) {
+// For testing, just have the header store the parent id.
+impl ECGHeader for u32 {
+    type HeaderId = u32;
+
+    fn get_parent_id(self: &u32) -> u32 {
+        *self
+    }
+}
+
+fn run_ecg_sync<Header:ECGHeader>(st1: &mut ecg::State<Header>, st2: &mut ecg::State<Header>) {
     unimplemented!{}
 }
 
 fn add_ops(st: &mut ecg::State<u32>, ops: &[(u32,&[u32])]) {
-    unimplemented!{}
+    for (parent_id, header_ids) in ops {
+        for header_id in *header_ids {
+            assert!(st.insert_header(*header_id, *parent_id), "Failed to insert header");
+        }
+    }
 }
 
 fn test_helper(common: &[(u32,&[u32])], left: &[(u32,&[u32])], right: &[(u32,&[u32])]) {
@@ -20,7 +33,7 @@ fn test_helper(common: &[(u32,&[u32])], left: &[(u32,&[u32])], right: &[(u32,&[u
 
     run_ecg_sync(&mut left_tree, &mut right_tree);
 
-    assert_eq!(left_tree, right_tree);
+    assert!(ecg::equal_dags(&left_tree, &right_tree));
 }
 
 fn test_both(common: &[(u32,&[u32])], left: &[(u32,&[u32])], right: &[(u32,&[u32])]) {

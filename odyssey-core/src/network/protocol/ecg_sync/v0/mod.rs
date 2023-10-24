@@ -2,7 +2,7 @@
 use async_session_types::{Eps, Send, Recv};
 use bitvec::{BitArr, order::Msb0};
 use std::num::TryFromIntError;
-use crate::store::ecg;
+use crate::store::ecg::{self, ECGHeader};
 
 pub mod client;
 pub mod server;
@@ -55,28 +55,28 @@ pub enum ECGSyncError {
     // TODO: Timeout, IO error, connection terminated, etc...
 }
 
-pub struct MsgECGSyncRequest<HeaderId> {
+pub struct MsgECGSyncRequest<Header:ECGHeader> {
     /// Number of tips the client has.
     tip_count: u16,
     /// Hashes of headers the client has.
     /// The first `tip_count` hashes (potentially split across multiple messages) are tip headers.
     /// The maximum length is `MAX_HAVE_HEADERS`.
-    have: Vec<HeaderId>, // Should this include ancestors? Yes.
+    have: Vec<Header::HeaderId>, // Should this include ancestors? Yes.
 }
 
-pub struct MsgECGSyncResponse<HeaderId, Header> {
+pub struct MsgECGSyncResponse<Header:ECGHeader> {
     /// Number of tips the server has.
     tip_count: u16,
     /// `MsgECGSync` sync response.
-    sync: MsgECGSync<HeaderId, Header>,
+    sync: MsgECGSync<Header>,
 }
 
 pub type HeaderBitmap = BitArr!(for MAX_HAVE_HEADERS as usize, in u8, Msb0);
-pub struct MsgECGSync<HeaderId, Header> {
+pub struct MsgECGSync<Header:ECGHeader> {
     /// Hashes of headers the server has.
     /// The first `tip_count` hashes (potentially split across multiple messages) are tip headers.
     /// The maximum length is `MAX_HAVE_HEADERS`.
-    have: Vec<HeaderId>,
+    have: Vec<Header::HeaderId>,
     /// Bitmap of the hashes that the server knows from the previously sent headers `prev.have`.
     known: HeaderBitmap,
     /// Headers being delivered to the other party.
@@ -99,9 +99,13 @@ pub struct MsgECGSync<HeaderId, Header> {
 
 use std::cmp::min;
 use std::collections::{BinaryHeap, BTreeSet, VecDeque};
-fn prepare_haves<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, queue: &mut BinaryHeap<(bool, u64, HeaderId, u64)>, their_known: &BTreeSet<HeaderId>, haves: &mut Vec<HeaderId>)
+fn prepare_haves<Header:ECGHeader>(state: &ecg::State<Header>, queue: &mut BinaryHeap<(bool, u64, Header::HeaderId, u64)>, their_known: &BTreeSet<Header::HeaderId>, haves: &mut Vec<Header::HeaderId>)
+where
+    Header::HeaderId: Copy + Ord,
 {
-    fn go<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, queue: &mut BinaryHeap<(bool, u64, HeaderId, u64)>, their_known: &BTreeSet<HeaderId>, haves: &mut Vec<HeaderId>)
+    fn go<Header:ECGHeader>(state: &ecg::State<Header>, queue: &mut BinaryHeap<(bool, u64, Header::HeaderId, u64)>, their_known: &BTreeSet<Header::HeaderId>, haves: &mut Vec<Header::HeaderId>)
+    where
+        Header::HeaderId: Copy + Ord,
     {
         if haves.len() == MAX_HAVE_HEADERS.into() {
             return;
@@ -133,7 +137,10 @@ fn prepare_haves<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, queue: &mut 
 
 // Handle the haves that the peer sent to us.
 // Returns the bitmap of which haves we know.
-fn handle_received_have<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, their_tips_remaining: &mut usize, their_tips: &mut Vec<HeaderId>, their_known: &mut BTreeSet<HeaderId>, send_queue: &mut BinaryHeap<(u64,HeaderId)>, have: &Vec<HeaderId>, known_bitmap: &mut HeaderBitmap) {
+fn handle_received_have<Header:ECGHeader>(state: &ecg::State<Header>, their_tips_remaining: &mut usize, their_tips: &mut Vec<Header::HeaderId>, their_known: &mut BTreeSet<Header::HeaderId>, send_queue: &mut BinaryHeap<(u64,Header::HeaderId)>, have: &Vec<Header::HeaderId>, known_bitmap: &mut HeaderBitmap)
+where
+    Header::HeaderId: Copy + Ord,
+{
     // Accumulate their_tips.
     let provided_tip_c = min(*their_tips_remaining, have.len());
     their_tips.extend(&have[0..provided_tip_c]);
@@ -157,7 +164,7 @@ fn handle_received_have<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, their
 
 // Handle (and verify) headers they sent to us.
 // Returns if all the headers were valid.
-fn handle_received_headers<HeaderId:Copy + Ord, Header>(state: &ecg::State<HeaderId>, headers: Vec<Header>) -> bool {
+fn handle_received_headers<Header:ECGHeader>(state: &ecg::State<Header>, headers: Vec<Header>) -> bool {
     // TODO:
     // Verify header.
     // Add to state.
@@ -166,8 +173,14 @@ fn handle_received_headers<HeaderId:Copy + Ord, Header>(state: &ecg::State<Heade
 
 // Precondition: `state` contains header_id.
 // Invariant: if a header is in `their_known`, all the header's ancestors are in `their_known`.
-fn mark_as_known<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, their_known: &mut BTreeSet<HeaderId>, header_id: HeaderId) {
-    fn go<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, their_known: &mut BTreeSet<HeaderId>, mut queue: VecDeque<HeaderId>) {
+fn mark_as_known<Header:ECGHeader>(state: &ecg::State<Header>, their_known: &mut BTreeSet<Header::HeaderId>, header_id: Header::HeaderId)
+where
+    Header::HeaderId: Copy + Ord,
+{
+    fn go<Header:ECGHeader>(state: &ecg::State<Header>, their_known: &mut BTreeSet<Header::HeaderId>, mut queue: VecDeque<Header::HeaderId>)
+    where
+        Header::HeaderId: Copy + Ord,
+    {
         if let Some(header_id) = queue.pop_front() {
             let contains = their_known.insert(header_id);
             if !contains {
@@ -185,8 +198,14 @@ fn mark_as_known<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, their_known:
 }
 
 // Build the headers we will send to the peer.
-fn prepare_headers<HeaderId:Copy + Ord, Header>(state: &ecg::State<HeaderId>, send_queue: &mut BinaryHeap<(u64,HeaderId)>, their_known: &mut BTreeSet<HeaderId>, headers: &mut Vec<Header>) {
-    fn go<HeaderId:Copy + Ord, Header>(state: &ecg::State<HeaderId>, send_queue: &mut BinaryHeap<(u64,HeaderId)>, their_known: &mut BTreeSet<HeaderId>, headers: &mut Vec<Header>) {
+fn prepare_headers<Header:ECGHeader>(state: &ecg::State<Header>, send_queue: &mut BinaryHeap<(u64,Header::HeaderId)>, their_known: &mut BTreeSet<Header::HeaderId>, headers: &mut Vec<Header>)
+where
+    Header::HeaderId: Copy + Ord,
+{
+    fn go<Header:ECGHeader>(state: &ecg::State<Header>, send_queue: &mut BinaryHeap<(u64,Header::HeaderId)>, their_known: &mut BTreeSet<Header::HeaderId>, headers: &mut Vec<Header>)
+    where
+        Header::HeaderId: Copy + Ord,
+    {
         if headers.len() == MAX_DELIVER_HEADERS.into() {
             return;
         }
@@ -220,7 +239,10 @@ fn is_power_of_two(x:u64) -> bool {
     0 == (x & (x-1))
 }
 
-fn handle_received_known<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, their_known: &mut BTreeSet<HeaderId>, sent_haves: &Vec<HeaderId>, received_known: &HeaderBitmap) {
+fn handle_received_known<Header:ECGHeader>(state: &ecg::State<Header>, their_known: &mut BTreeSet<Header::HeaderId>, sent_haves: &Vec<Header::HeaderId>, received_known: &HeaderBitmap)
+where
+    Header::HeaderId: Copy + Ord
+{
     for (i, header_id) in sent_haves.iter().enumerate() {
         // Check if they claimed they know this header.
         if *received_known.get(i).expect("Unreachable since we're iterating of the headers we sent.") {
@@ -230,7 +252,10 @@ fn handle_received_known<HeaderId:Copy + Ord>(state: &ecg::State<HeaderId>, thei
     }
 }
 
-fn handle_received_ecg_sync<HeaderId:Copy + Ord, Header>(sync_msg: MsgECGSync<HeaderId, Header>, state: &ecg::State<HeaderId>, their_tips_remaining: &mut usize, their_tips: &mut Vec<HeaderId>, their_known: &mut BTreeSet<HeaderId>, send_queue: &mut BinaryHeap<(u64,HeaderId)>, queue: &mut BinaryHeap<(bool, u64, HeaderId, u64)>, haves: &mut Vec<HeaderId>, headers: &mut Vec<Header>, known_bitmap: &mut HeaderBitmap) {
+fn handle_received_ecg_sync<Header:ECGHeader>(sync_msg: MsgECGSync<Header>, state: &ecg::State<Header>, their_tips_remaining: &mut usize, their_tips: &mut Vec<Header::HeaderId>, their_known: &mut BTreeSet<Header::HeaderId>, send_queue: &mut BinaryHeap<(u64,Header::HeaderId)>, queue: &mut BinaryHeap<(bool, u64, Header::HeaderId, u64)>, haves: &mut Vec<Header::HeaderId>, headers: &mut Vec<Header>, known_bitmap: &mut HeaderBitmap)
+where
+    Header::HeaderId: Copy + Ord
+{
     // TODO: XXX
     unimplemented!("Define ECGSyncState struct with all these variables");
     // XXX
@@ -260,19 +285,19 @@ trait ECGSyncMessage {
     fn is_done(&self) -> bool;
 }
 
-impl<HeaderId, Header> ECGSyncMessage for MsgECGSync<HeaderId, Header> {
+impl<Header:ECGHeader> ECGSyncMessage for MsgECGSync<Header> {
     fn is_done(&self) -> bool {
         self.have.len() == 0 && self.headers.len() == 0
     }
 }
 
-impl<HeaderId> ECGSyncMessage for MsgECGSyncRequest<HeaderId> {
+impl<Header:ECGHeader> ECGSyncMessage for MsgECGSyncRequest<Header> {
     fn is_done(&self) -> bool {
         self.have.len() == 0
     }
 }
 
-impl<HeaderId, Header> ECGSyncMessage for MsgECGSyncResponse<HeaderId, Header> {
+impl<Header:ECGHeader> ECGSyncMessage for MsgECGSyncResponse<Header> {
     fn is_done(&self) -> bool {
         self.sync.is_done()
     }
