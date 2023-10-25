@@ -10,7 +10,7 @@ async-recursion = "*"
 async-session-types = "*"
 bitvec = "*"
 bytes = "*"
-daggy = "*"
+daggy = {version="*", features=["stable_dag"]}
 futures = "*"
 log = "*"
 rand = "*"

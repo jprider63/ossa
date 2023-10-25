@@ -1,12 +1,17 @@
 
 use crate::store::ecg::{self, ECGHeader};
 
+#[derive(Clone)]
+struct TestHeader {
+    parent_ids: Vec<u32>,
+}
+
 // For testing, just have the header store the parent id.
-impl ECGHeader for u32 {
+impl ECGHeader for TestHeader {
     type HeaderId = u32;
 
-    fn get_parent_id(self: &u32) -> u32 {
-        *self
+    fn get_parent_ids(self: &Self) -> &[u32] {
+        &self.parent_ids
     }
 }
 
@@ -14,11 +19,12 @@ fn run_ecg_sync<Header:ECGHeader>(st1: &mut ecg::State<Header>, st2: &mut ecg::S
     unimplemented!{}
 }
 
-fn add_ops(st: &mut ecg::State<u32>, ops: &[(u32,&[u32])]) {
-    for (parent_id, header_ids) in ops {
-        for header_id in *header_ids {
-            assert!(st.insert_header(*header_id, *parent_id), "Failed to insert header");
-        }
+fn add_ops(st: &mut ecg::State<TestHeader>, ops: &[(u32,&[u32])]) {
+    for (header_id, parent_ids) in ops {
+        let header = TestHeader {
+            parent_ids: parent_ids.to_vec(),
+        };
+        assert!(st.insert_header(*header_id, header), "Failed to insert header");
     }
 }
 
