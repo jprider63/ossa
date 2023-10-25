@@ -10,6 +10,8 @@ pub trait ECGHeader {
     /// Return the parents ids of a node. If an empty slice is returned, the root node is the
     /// parent.
     fn get_parent_ids(&self) -> &[Self::HeaderId];
+
+    fn validate_header(&self, header_id: Self::HeaderId) -> bool;
 }
 
 // /// An internal type for nodes that are actually stored in the DAG.
@@ -79,7 +81,10 @@ impl<Header:ECGHeader> State<Header> {
     }
 
     pub fn insert_header(&mut self, header_id: Header::HeaderId, header: Header) -> bool {
-        // TODO: Validate header.
+        // Validate header.
+        if !header.validate_header(header_id) {
+            return false;
+        }
 
         // Check that the header is not already in the dependency_graph.
         if self.node_idx_map.contains_key(&header_id) {
@@ -115,6 +120,7 @@ impl<Header:ECGHeader> State<Header> {
 
         // Insert edges.
         if let Err(_) = self.dependency_graph.add_edges(parent_idxs.into_iter().map(|parent_idx| (parent_idx, idx, ()))) {
+            // TODO: Unreachable? Log this.
             return false;
         }
 

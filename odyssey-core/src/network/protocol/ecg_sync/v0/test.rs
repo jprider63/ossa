@@ -13,6 +13,10 @@ impl ECGHeader for TestHeader {
     fn get_parent_ids(self: &Self) -> &[u32] {
         &self.parent_ids
     }
+
+    fn validate_header(&self, header_id: Self::HeaderId) -> bool {
+        true
+    }
 }
 
 fn run_ecg_sync<Header:ECGHeader>(st1: &mut ecg::State<Header>, st2: &mut ecg::State<Header>) {
