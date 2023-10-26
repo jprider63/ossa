@@ -6,7 +6,7 @@ struct TestHeader {
     parent_ids: Vec<u32>,
 }
 
-// For testing, just have the header store the parent id.
+// For testing, just have the header store the parent ids.
 impl ECGHeader for TestHeader {
     type HeaderId = u32;
 

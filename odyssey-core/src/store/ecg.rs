@@ -1,4 +1,5 @@
 
+use std::cmp;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub mod v0;
@@ -20,6 +21,14 @@ pub trait ECGHeader {
 //     Node(N),
 // }
 
+#[derive(Copy, Clone, Debug)]
+struct NodeInfo {
+    /// The index of this node in the dependency graph.
+    graph_index: daggy::NodeIndex,
+    /// The (minimum) depth of this node in the dependency graph.
+    depth: u64,
+}
+
 #[derive(Clone, Debug)]
 pub struct State<Header:ECGHeader> {
     dependency_graph: daggy::stable_dag::StableDag<Header::HeaderId, ()>, // JP: Hold the operations? Depth? Do we need StableDag?
@@ -29,10 +38,10 @@ pub struct State<Header:ECGHeader> {
     root_nodes: BTreeSet<Header::HeaderId>,
 
     /// Mapping from header ids to node indices.
-    node_idx_map: BTreeMap<Header::HeaderId, daggy::NodeIndex>,
+    node_info_map: BTreeMap<Header::HeaderId, NodeInfo>,
 
     /// Tips of the ECG (hashes of their headers).
-    tips: Vec<Header::HeaderId>,
+    tips: BTreeSet<Header::HeaderId>,
 }
 
 impl<Header:ECGHeader> State<Header> {
@@ -43,13 +52,14 @@ impl<Header:ECGHeader> State<Header> {
         State {
             dependency_graph,
             root_nodes: BTreeSet::new(),
-            node_idx_map: BTreeMap::new(),
-            tips: vec![],
+            node_info_map: BTreeMap::new(),
+            tips: BTreeSet::new(),
         }
     }
 
     pub fn tips(&self) -> &[Header::HeaderId] {
-        &self.tips
+        unimplemented!()
+        // &self.tips.iter()
     }
 
     pub fn get_parents_with_depth(&self, n:&Header::HeaderId) -> Vec<(u64, Header::HeaderId)> {
@@ -87,12 +97,12 @@ impl<Header:ECGHeader> State<Header> {
         }
 
         // Check that the header is not already in the dependency_graph.
-        if self.node_idx_map.contains_key(&header_id) {
+        if self.node_info_map.contains_key(&header_id) {
             return false;
         }
 
         let parents = header.get_parent_ids();
-        let parent_idxs = if parents.is_empty() {
+        let (parent_idxs, depth) = if parents.is_empty() {
             let is_new_insert = self.root_nodes.insert(header_id);
             // Check if it already existed.
             if !is_new_insert {
@@ -101,10 +111,14 @@ impl<Header:ECGHeader> State<Header> {
                 return false;
             }
 
-            vec![]
+            (vec![], 1)
         } else {
-            if let Some(parent_idxs) = parents.iter().map(|parent_id| self.node_idx_map.get(&parent_id).map(|x| *x)).try_collect::<Vec<daggy::NodeIndex>>() {
-                parent_idxs
+            let mut depth = u64::MAX;
+            if let Some(parent_idxs) = parents.iter().map(|parent_id| self.node_info_map.get(&parent_id).map(|i| {
+                depth = cmp::min(depth, i.depth);
+                i.graph_index
+              })).try_collect::<Vec<daggy::NodeIndex>>() {
+                (parent_idxs, depth + 1)
             } else {
                 return false;
             }
@@ -112,14 +126,17 @@ impl<Header:ECGHeader> State<Header> {
 
         // Insert node and store its index in `node_idx_map`.
         // JP: We really want an `add_child` function that takes multiple parents.
-        let idx = self.dependency_graph.add_node(header_id);
-        if let Err(_) = self.node_idx_map.try_insert(header_id, idx) {
+        let node_info = NodeInfo {
+            graph_index: self.dependency_graph.add_node(header_id),
+            depth,
+        };
+        if let Err(_) = self.node_info_map.try_insert(header_id, node_info) {
             // TODO: Should be unreachable. Log this.
             return false;
         }
 
         // Insert edges.
-        if let Err(_) = self.dependency_graph.add_edges(parent_idxs.into_iter().map(|parent_idx| (parent_idx, idx, ()))) {
+        if let Err(_) = self.dependency_graph.add_edges(parent_idxs.into_iter().map(|parent_idx| (parent_idx, node_info.graph_index, ()))) {
             // TODO: Unreachable? Log this.
             return false;
         }
