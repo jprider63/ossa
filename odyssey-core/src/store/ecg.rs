@@ -15,12 +15,6 @@ pub trait ECGHeader {
     fn validate_header(&self, header_id: Self::HeaderId) -> bool;
 }
 
-// /// An internal type for nodes that are actually stored in the DAG.
-// enum InternalNode<N> {
-//     Root,
-//     Node(N),
-// }
-
 #[derive(Copy, Clone, Debug)]
 struct NodeInfo {
     /// The index of this node in the dependency graph.
@@ -33,7 +27,6 @@ struct NodeInfo {
 pub struct State<Header:ECGHeader> {
     dependency_graph: daggy::stable_dag::StableDag<Header::HeaderId, ()>, // JP: Hold the operations? Depth? Do we need StableDag?
 
-    // root_node_idx: daggy::NodeIndex, // JP: Should we actually insert the root node?
     /// Nodes at the top of the DAG that depend on the initial state.
     root_nodes: BTreeSet<Header::HeaderId>,
 
@@ -47,7 +40,6 @@ pub struct State<Header:ECGHeader> {
 impl<Header:ECGHeader> State<Header> {
     pub fn new() -> State<Header> {
         let mut dependency_graph = daggy::stable_dag::StableDag::new();
-        // let root_node_idx = dependency_graph.add_node(InternalNode::Root);
 
         State {
             dependency_graph,
