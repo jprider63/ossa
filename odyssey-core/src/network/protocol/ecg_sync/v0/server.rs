@@ -8,7 +8,6 @@ use std::collections::{BinaryHeap, BTreeSet, VecDeque};
 pub(crate) async fn ecg_sync_server<StoreId, Header>(conn: &ConnectionManager, store_id: &StoreId, state: &ecg::State<Header>) -> Result<(), ECGSyncError>
 where
       Header: Clone + ECGHeader,
-      <Header as ECGHeader>::HeaderId: Copy + Ord,
 {
     let request: MsgECGSyncRequest<Header> = conn.receive().await;
     // JP: Set (and check) max value for tips?

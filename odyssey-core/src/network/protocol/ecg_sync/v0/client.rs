@@ -14,7 +14,6 @@ use std::collections::{BinaryHeap, BTreeSet};
 pub(crate) async fn ecg_sync_client<StoreId, Header>(conn: &ConnectionManager, store_id: &StoreId, state: &ecg::State<Header>) -> Result<(), ECGSyncError>
 where
     Header: Clone + ECGHeader,
-    Header::HeaderId: Copy + Ord,
 {
     // TODO:
     // - Get cached peer state.

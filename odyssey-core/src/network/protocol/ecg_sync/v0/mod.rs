@@ -50,6 +50,7 @@ pub const MAX_HAVE_HEADERS : u16 = 32;
 /// The maximum number of headers that can be sent in each message.
 pub const MAX_DELIVER_HEADERS : u16 = 32;
 
+#[derive(Debug, PartialEq)]
 pub enum ECGSyncError {
     // We have too many tips to run the sync protocol.
     TooManyTips(TryFromIntError),

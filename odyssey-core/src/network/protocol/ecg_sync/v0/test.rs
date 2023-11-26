@@ -1,4 +1,6 @@
 
+use crate::network::protocol::ecg_sync::v0::client::ecg_sync_client;
+use crate::network::protocol::ecg_sync::v0::server::ecg_sync_server;
 use crate::store::ecg::{self, ECGHeader};
 
 #[derive(Clone)]
@@ -19,8 +21,22 @@ impl ECGHeader for TestHeader {
     }
 }
 
-fn run_ecg_sync<Header:ECGHeader>(st1: &mut ecg::State<Header>, st2: &mut ecg::State<Header>) {
-    unimplemented!{}
+fn run_ecg_sync<Header:ECGHeader + Clone>(st1: &mut ecg::State<Header>, st2: &mut ecg::State<Header>) {
+    async fn future<Header:ECGHeader + Clone>(st1: &mut ecg::State<Header>, st2: &mut ecg::State<Header>) {
+        let store_id = 0_u64;
+        let conn = todo!();
+
+        let server = ecg_sync_server(conn, &store_id, st1);
+        let client = ecg_sync_client(conn, &store_id, st1);
+
+        let (server_res, client_res) = tokio::join!(server, client);
+
+        assert_eq!(server_res, Ok(()));
+        assert_eq!(client_res, Ok(()));
+    }
+
+    let mut rt = tokio::runtime::Runtime::new().expect("Failed to start tokio runtime");
+    rt.block_on(future(st1, st2));
 }
 
 fn add_ops(st: &mut ecg::State<TestHeader>, ops: &[(u32,&[u32])]) {
