@@ -26,7 +26,14 @@ where
 
     // Initialize the queue with our tips, zipped with distance 0.
     let mut queue = BinaryHeap::new();
-    queue.extend(our_tips.iter().map(|x| (true, state.get_header_depth(x), *x, 0)));
+    queue.extend(our_tips.iter().map(|x| {
+        if let Some(depth) = state.get_header_depth(x) {
+            (true, depth, *x, 0)
+        } else {
+            // TODO XXX
+            todo!("Do we need to do anything?")
+        }
+    }));
     // JP: Use a priority queue based on descending depth instead?
 
     // Headers they know.

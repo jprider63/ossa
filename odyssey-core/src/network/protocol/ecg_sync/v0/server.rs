@@ -41,7 +41,14 @@ where
 
     // Initialize the priority queue with our tips, zipped with distance 0.
     let mut queue = BinaryHeap::new();
-    queue.extend(our_tips.iter().map(|x| (true, state.get_header_depth(x), *x, 0)));
+    queue.extend(our_tips.iter().map(|x| {
+        if let Some(depth) = state.get_header_depth(x) {
+            (true, depth, *x, 0)
+        } else {
+            // TODO XXX
+            todo!("Do we need to do anything?")
+        }
+    }));
 
     let mut haves = Vec::with_capacity(MAX_HAVE_HEADERS.into());
     prepare_haves(state, &mut queue, &their_known, &mut haves);

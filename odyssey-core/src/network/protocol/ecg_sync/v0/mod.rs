@@ -122,9 +122,13 @@ where
                 }
 
                 // Add parents to queue.
-                let parents = state.get_parents_with_depth(&header_id);
-                for (depth, parent_id) in parents {
-                    queue.push((false, depth, parent_id, distance + 1));
+                if let Some(parents) = state.get_parents_with_depth(&header_id) {
+                    for (depth, parent_id) in parents {
+                        queue.push((false, depth, parent_id, distance + 1));
+                    }
+                } else {
+                    // TODO XXX
+                    todo!("Do we need to do anything?")
                 }
             }
 
@@ -158,7 +162,12 @@ where
             known_bitmap.set(i, true);
 
             // If we know the header, potentially send the children of that header.
-            send_queue.extend(state.get_children_with_depth(&header_id));
+            if let Some(children) = state.get_children_with_depth(&header_id) {
+                send_queue.extend(children);
+            } else {
+                // TODO XXX
+                todo!("Do we need to do anything?")
+            }
         }
     }
 }
@@ -185,8 +194,12 @@ where
         if let Some(header_id) = queue.pop_front() {
             let contains = their_known.insert(header_id);
             if !contains {
-                let parents = state.get_parents(&header_id);
-                queue.extend(parents);
+                if let Some(parents) = state.get_parents(&header_id) {
+                    queue.extend(parents);
+                } else {
+                    // TODO XXX
+                    todo!("unreachable?")
+                }
             }
 
             go(state, their_known, queue);
@@ -202,10 +215,12 @@ where
 fn prepare_headers<Header:ECGHeader>(state: &ecg::State<Header>, send_queue: &mut BinaryHeap<(u64,Header::HeaderId)>, their_known: &mut BTreeSet<Header::HeaderId>, headers: &mut Vec<Header>)
 where
     Header::HeaderId: Copy + Ord,
+    Header: Clone,
 {
     fn go<Header:ECGHeader>(state: &ecg::State<Header>, send_queue: &mut BinaryHeap<(u64,Header::HeaderId)>, their_known: &mut BTreeSet<Header::HeaderId>, headers: &mut Vec<Header>)
     where
         Header::HeaderId: Copy + Ord,
+        Header: Clone,
     {
         if headers.len() == MAX_DELIVER_HEADERS.into() {
             return;
@@ -216,16 +231,24 @@ where
             let skip = their_known.contains(&header_id);
             if !skip {
                 // Send header to peer.
-                let header = state.get_header(&header_id);
-                headers.push(header);
+                if let Some(header) = state.get_header(&header_id) {
+                    headers.push(header.clone());
 
-                // Mark header as known by peer.
-                mark_as_known(state, their_known, header_id);
+                    // Mark header as known by peer.
+                    mark_as_known(state, their_known, header_id);
+                } else {
+                    // TODO XXX
+                    todo!("unreachable?")
+                }
             }
 
             // Add children to queue.
-            let children = state.get_children_with_depth(&header_id);
-            send_queue.extend(children);
+            if let Some(children) = state.get_children_with_depth(&header_id) {
+                send_queue.extend(children);
+            } else {
+                // TODO XXX
+                todo!("unreachable?")
+            }
 
             go(state, send_queue, their_known, headers)
         }
@@ -255,7 +278,8 @@ where
 
 fn handle_received_ecg_sync<Header:ECGHeader>(sync_msg: MsgECGSync<Header>, state: &ecg::State<Header>, their_tips_remaining: &mut usize, their_tips: &mut Vec<Header::HeaderId>, their_known: &mut BTreeSet<Header::HeaderId>, send_queue: &mut BinaryHeap<(u64,Header::HeaderId)>, queue: &mut BinaryHeap<(bool, u64, Header::HeaderId, u64)>, haves: &mut Vec<Header::HeaderId>, headers: &mut Vec<Header>, known_bitmap: &mut HeaderBitmap)
 where
-    Header::HeaderId: Copy + Ord
+    Header::HeaderId: Copy + Ord,
+    Header: Clone,
 {
     // TODO: XXX
     unimplemented!("Define ECGSyncState struct with all these variables");

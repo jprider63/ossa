@@ -52,9 +52,8 @@ impl<Header:ECGHeader> State<Header> {
         }
     }
 
-    pub fn tips(&self) -> &[Header::HeaderId] {
-        unimplemented!()
-        // &self.tips.iter()
+    pub fn tips(&self) -> &BTreeSet<Header::HeaderId> {
+        &self.tips
     }
 
     /// Returns the parents of the given node (with their depths) if it exists. If the returned array is
@@ -78,7 +77,7 @@ impl<Header:ECGHeader> State<Header> {
     }
 
     /// Returns the children of the given node (with their depths) if it exists. If the returned array is
-    /// empty, the node is a root node.
+    /// empty, the node is a leaf node.
     pub fn get_children_with_depth(&self, h:&Header::HeaderId) -> Option<Vec<(u64, Header::HeaderId)>> {
         let node_info = self.node_info_map.get(h)?;
         self.dependency_graph.children(node_info.graph_index).iter(&self.dependency_graph).map(|(_,child_idx)|
@@ -100,8 +99,8 @@ impl<Header:ECGHeader> State<Header> {
         }
     }
 
-    pub fn get_header(&self, n:&Header::HeaderId) -> Option<Header> {
-        self.node_info_map.get(n).map(|i| i.header)
+    pub fn get_header(&self, n:&Header::HeaderId) -> Option<&Header> {
+        self.node_info_map.get(n).map(|i| &i.header)
     }
 
     pub fn get_header_depth(&self, n:&Header::HeaderId) -> Option<u64> {
@@ -142,10 +141,17 @@ impl<Header:ECGHeader> State<Header> {
             }
         };
 
+        // Update tip if any of the parents where previously a tip.
+        let any_parent_was_tip = parents.iter().any(|parent_id| self.tips.remove(parent_id));
+        if any_parent_was_tip {
+            self.tips.insert(header_id);
+        }
+
         // Insert node and store its index in `node_idx_map`.
         // JP: We really want an `add_child` function that takes multiple parents.
+        let graph_index = self.dependency_graph.add_node(header_id);
         let node_info = NodeInfo {
-            graph_index: self.dependency_graph.add_node(header_id),
+            graph_index: graph_index.clone(),
             depth,
             header,
         };
@@ -155,7 +161,7 @@ impl<Header:ECGHeader> State<Header> {
         }
 
         // Insert edges.
-        if let Err(_) = self.dependency_graph.add_edges(parent_idxs.into_iter().map(|parent_idx| (parent_idx, node_info.graph_index, ()))) {
+        if let Err(_) = self.dependency_graph.add_edges(parent_idxs.into_iter().map(|parent_idx| (parent_idx, graph_index, ()))) {
             // TODO: Unreachable? Log this.
             return false;
         }
