@@ -12,6 +12,7 @@ bitvec = "*"
 bytes = "*"
 daggy = {version="*", features=["stable_dag"]}
 futures = "*"
+futures-channel = "*"
 log = "*"
 rand = "*"
 serde = {version="*", features=["derive"]}

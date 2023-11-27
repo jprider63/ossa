@@ -2,10 +2,11 @@
 use crate::network::{ConnectionManager};
 use crate::network::protocol::ecg_sync::v0::{ECGSyncMessage, ECGSyncError, HeaderBitmap, MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS, MsgECGSync, MsgECGSyncRequest, MsgECGSyncResponse, handle_received_ecg_sync, handle_received_have, mark_as_known, prepare_haves, prepare_headers, ecg};
 use crate::store::ecg::ECGHeader;
+use crate::util::Stream;
 use std::cmp::min;
 use std::collections::{BinaryHeap, BTreeSet, VecDeque};
 
-pub(crate) async fn ecg_sync_server<StoreId, Header>(conn: &ConnectionManager, store_id: &StoreId, state: &ecg::State<Header>) -> Result<(), ECGSyncError>
+pub(crate) async fn ecg_sync_server<S:Stream, StoreId, Header>(conn: &ConnectionManager<S>, store_id: &StoreId, state: &ecg::State<Header>) -> Result<(), ECGSyncError>
 where
       Header: Clone + ECGHeader,
 {

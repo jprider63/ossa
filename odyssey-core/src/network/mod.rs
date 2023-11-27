@@ -2,6 +2,7 @@ pub mod p2p;
 pub mod protocol;
 
 use crate::store;
+use crate::util::Stream;
 
 pub struct ManagerSettings {
 }
@@ -41,9 +42,16 @@ impl Manager {
 }
 
 // Manage a connection with a peer.
-pub struct ConnectionManager {}
+pub struct ConnectionManager<S:Stream> {
+    connection: S,
+}
 
-impl ConnectionManager {
+impl<S:Stream> ConnectionManager<S> {
+    pub fn new(connection: S) -> ConnectionManager<S> {
+        ConnectionManager {
+            connection,
+        }
+    }
     /// Retrieve the connection status.
     pub async fn connection_status(&self) -> ConnectionStatus {
         ConnectionStatus::Active

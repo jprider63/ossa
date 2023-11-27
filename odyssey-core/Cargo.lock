@@ -439,6 +439,7 @@ dependencies = [
  "bytes",
  "daggy",
  "futures",
+ "futures-channel",
  "log",
  "rand",
  "serde",

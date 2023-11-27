@@ -67,10 +67,53 @@ impl Hash for Sha256Hash {
 pub trait Stream: futures::Stream<Item=Result<BytesMut,std::io::Error>>
     + futures::Sink<Bytes, Error=std::io::Error>
     + Unpin
+    + Sync // JP: This is needed for async_recursion. Not sure if this makes sense in practice.
 {}
 impl<T> Stream for T
 where
     T:futures::Stream<Item=Result<BytesMut,std::io::Error>>,
     T:futures::Sink<Bytes, Error=std::io::Error>,
     T:Unpin,
+    T:Sync,
 {}
+
+// use futures::task::{Context, Poll};
+#[cfg(test)]
+use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
+#[cfg(test)]
+use core::pin::Pin;
+#[cfg(test)]
+use core::task::Context;
+#[cfg(test)]
+use core::task::Poll;
+
+#[cfg(test)]
+pub struct Channel<T> {
+    send: UnboundedSender<T>,
+    recv: UnboundedReceiver<T>,
+}
+
+#[cfg(test)]
+impl<T> Channel<T> {
+    pub fn new() -> Channel<T> {
+        todo!()
+    }
+}
+
+#[cfg(test)]
+impl<T> futures::Stream for Channel<T> {
+    type Item = <UnboundedReceiver<T> as futures::Stream>::Item;
+    fn poll_next(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<<Self as futures::Stream>::Item>> { todo!() }
+}
+
+#[cfg(test)]
+// impl<T> futures::Sink<bytes::Bytes> for Channel<T> {
+impl<T> futures::Sink<T> for Channel<T> {
+    type Error = <UnboundedSender<T> as futures::Sink<T>>::Error;
+
+    fn poll_ready(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> { todo!() }
+    fn start_send(self: Pin<&mut Self>, _: T) -> Result<(), <Self as futures::Sink<T>>::Error> { todo!() }
+    fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> { todo!() }
+    fn poll_close(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> { todo!() }
+}
+
