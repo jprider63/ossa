@@ -1,4 +1,3 @@
-
 use daggy::Walker;
 use std::cmp;
 use std::collections::{BTreeMap, BTreeSet};
@@ -27,7 +26,7 @@ struct NodeInfo<Header> {
 }
 
 #[derive(Clone, Debug)]
-pub struct State<Header:ECGHeader> {
+pub struct State<Header: ECGHeader> {
     dependency_graph: daggy::stable_dag::StableDag<Header::HeaderId, ()>, // JP: Hold the operations? Depth? Do we need StableDag?
 
     /// Nodes at the top of the DAG that depend on the initial state.
@@ -40,7 +39,7 @@ pub struct State<Header:ECGHeader> {
     tips: BTreeSet<Header::HeaderId>,
 }
 
-impl<Header:ECGHeader> State<Header> {
+impl<Header: ECGHeader> State<Header> {
     pub fn new() -> State<Header> {
         let mut dependency_graph = daggy::stable_dag::StableDag::new();
 
@@ -58,40 +57,64 @@ impl<Header:ECGHeader> State<Header> {
 
     /// Returns the parents of the given node (with their depths) if it exists. If the returned array is
     /// empty, the node is a root node.
-    pub fn get_parents_with_depth(&self, h:&Header::HeaderId) -> Option<Vec<(u64, Header::HeaderId)>> {
+    pub fn get_parents_with_depth(
+        &self,
+        h: &Header::HeaderId,
+    ) -> Option<Vec<(u64, Header::HeaderId)>> {
         let node_info = self.node_info_map.get(h)?;
-        self.dependency_graph.parents(node_info.graph_index).iter(&self.dependency_graph).map(|(_,parent_idx)|
-            self.dependency_graph.node_weight(parent_idx).and_then(|parent_id|
-                self.node_info_map.get(parent_id).map(|i| (i.depth, *parent_id))
-            )
-        ).try_collect()
+        self.dependency_graph
+            .parents(node_info.graph_index)
+            .iter(&self.dependency_graph)
+            .map(|(_, parent_idx)| {
+                self.dependency_graph
+                    .node_weight(parent_idx)
+                    .and_then(|parent_id| {
+                        self.node_info_map
+                            .get(parent_id)
+                            .map(|i| (i.depth, *parent_id))
+                    })
+            })
+            .try_collect()
     }
 
     /// Returns the parents of the given node if it exists. If the returned array is
     /// empty, the node is a root node.
-    pub fn get_parents(&self, h:&Header::HeaderId) -> Option<Vec<Header::HeaderId>> {
+    pub fn get_parents(&self, h: &Header::HeaderId) -> Option<Vec<Header::HeaderId>> {
         let node_info = self.node_info_map.get(h)?;
-        self.dependency_graph.parents(node_info.graph_index).iter(&self.dependency_graph).map(|(_,parent_idx)|
-            self.dependency_graph.node_weight(parent_idx).map(|i| *i)
-        ).try_collect()
+        self.dependency_graph
+            .parents(node_info.graph_index)
+            .iter(&self.dependency_graph)
+            .map(|(_, parent_idx)| self.dependency_graph.node_weight(parent_idx).map(|i| *i))
+            .try_collect()
     }
 
     /// Returns the children of the given node (with their depths) if it exists. If the returned array is
     /// empty, the node is a leaf node.
-    pub fn get_children_with_depth(&self, h:&Header::HeaderId) -> Option<Vec<(u64, Header::HeaderId)>> {
+    pub fn get_children_with_depth(
+        &self,
+        h: &Header::HeaderId,
+    ) -> Option<Vec<(u64, Header::HeaderId)>> {
         let node_info = self.node_info_map.get(h)?;
-        self.dependency_graph.children(node_info.graph_index).iter(&self.dependency_graph).map(|(_,child_idx)|
-            self.dependency_graph.node_weight(child_idx).and_then(|child_id|
-                self.node_info_map.get(child_id).map(|i| (i.depth, *child_id))
-            )
-        ).try_collect()
+        self.dependency_graph
+            .children(node_info.graph_index)
+            .iter(&self.dependency_graph)
+            .map(|(_, child_idx)| {
+                self.dependency_graph
+                    .node_weight(child_idx)
+                    .and_then(|child_id| {
+                        self.node_info_map
+                            .get(child_id)
+                            .map(|i| (i.depth, *child_id))
+                    })
+            })
+            .try_collect()
     }
 
     // pub fn get_children(&self, n:&HeaderId) -> Vec<HeaderId> {
     //     unimplemented!{}
     // }
 
-    pub fn contains(&self, h:&Header::HeaderId) -> bool {
+    pub fn contains(&self, h: &Header::HeaderId) -> bool {
         if let Some(_node_info) = self.node_info_map.get(h) {
             true
         } else {
@@ -99,11 +122,11 @@ impl<Header:ECGHeader> State<Header> {
         }
     }
 
-    pub fn get_header(&self, n:&Header::HeaderId) -> Option<&Header> {
+    pub fn get_header(&self, n: &Header::HeaderId) -> Option<&Header> {
         self.node_info_map.get(n).map(|i| &i.header)
     }
 
-    pub fn get_header_depth(&self, n:&Header::HeaderId) -> Option<u64> {
+    pub fn get_header_depth(&self, n: &Header::HeaderId) -> Option<u64> {
         self.node_info_map.get(n).map(|i| i.depth)
     }
 
@@ -131,10 +154,16 @@ impl<Header:ECGHeader> State<Header> {
             (vec![], 1)
         } else {
             let mut depth = u64::MAX;
-            if let Some(parent_idxs) = parents.iter().map(|parent_id| self.node_info_map.get(&parent_id).map(|i| {
-                depth = cmp::min(depth, i.depth);
-                i.graph_index
-              })).try_collect::<Vec<daggy::NodeIndex>>() {
+            if let Some(parent_idxs) = parents
+                .iter()
+                .map(|parent_id| {
+                    self.node_info_map.get(&parent_id).map(|i| {
+                        depth = cmp::min(depth, i.depth);
+                        i.graph_index
+                    })
+                })
+                .try_collect::<Vec<daggy::NodeIndex>>()
+            {
                 (parent_idxs, depth + 1)
             } else {
                 return false;
@@ -161,7 +190,11 @@ impl<Header:ECGHeader> State<Header> {
         }
 
         // Insert edges.
-        if let Err(_) = self.dependency_graph.add_edges(parent_idxs.into_iter().map(|parent_idx| (parent_idx, graph_index, ()))) {
+        if let Err(_) = self.dependency_graph.add_edges(
+            parent_idxs
+                .into_iter()
+                .map(|parent_idx| (parent_idx, graph_index, ())),
+        ) {
             // TODO: Unreachable? Log this.
             return false;
         }
@@ -171,6 +204,6 @@ impl<Header:ECGHeader> State<Header> {
 }
 
 /// Tests whether two ecg states have the same DAG.
-pub(crate) fn equal_dags<Header:ECGHeader>(l: &State<Header>, r: &State<Header>) -> bool {
+pub(crate) fn equal_dags<Header: ECGHeader>(l: &State<Header>, r: &State<Header>) -> bool {
     unimplemented!()
 }

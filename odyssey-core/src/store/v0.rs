@@ -1,4 +1,3 @@
-
 use serde::{Deserialize, Serialize};
 
 use crate::protocol;
@@ -9,7 +8,7 @@ use crate::util::Hash;
 //     state: T,
 //     metadata: Metadata<T>,
 // }
-// 
+//
 // impl<Id, T: Clone> Store<Id, T> {
 //     pub fn create_new(initial_state:T) -> Store<Id, T> {
 //         let meta = Metadata {
@@ -25,7 +24,7 @@ use crate::util::Hash;
 //         };
 //     }
 // }
-// 
+//
 // /// Metadata for a store.
 // pub struct Metadata<T> {
 //     protocol_version: protocol::Version,
@@ -49,7 +48,6 @@ pub struct MetadataHeader<TypeId, Hash> {
     // Owner?
     // Encryption options
     // Access control options?
-
     /// Size in bytes of the metadata body.
     pub body_size: usize,
 
@@ -59,7 +57,7 @@ pub struct MetadataHeader<TypeId, Hash> {
 
 // TODO: Signature of MetadataHeader by `owner`.
 
-impl<TypeId:AsRef<[u8]>, H: Hash>  MetadataHeader<TypeId, H> {
+impl<TypeId: AsRef<[u8]>, H: Hash> MetadataHeader<TypeId, H> {
     /// Compute the store id for the `MetadataHeader`.
     /// This function must be updated any time `MetadataHeader` is updated.
     fn store_id(&self) -> H {
@@ -81,16 +79,15 @@ pub struct MetadataBody {
 }
 
 impl MetadataBody {
-    pub fn hash<H:Hash>(&self) -> H {
+    pub fn hash<H: Hash>(&self) -> H {
         let mut h = H::new();
         H::update(&mut h, &self.initial_state);
         H::finalize(h)
     }
 
     /// Validate a `MetadataBody` given its header.
-    pub fn validate<TypeId, H:Hash>(&self, header: &MetadataHeader<TypeId, H>) -> bool {
-           self.initial_state.len() == header.body_size
-        && self.hash::<H>() == header.body_hash
+    pub fn validate<TypeId, H: Hash>(&self, header: &MetadataHeader<TypeId, H>) -> bool {
+        self.initial_state.len() == header.body_size && self.hash::<H>() == header.body_hash
     }
 }
 

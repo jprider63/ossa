@@ -1,4 +1,3 @@
-
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_cbor::to_vec;
@@ -8,8 +7,8 @@ use std::marker::Send;
 use tokio::net::TcpStream;
 use tokio_util::codec::{self, LengthDelimitedCodec};
 
-use crate::protocol::Version;
 use crate::protocol::v0::{StoreMetadataHeaderRequest, StoreMetadataHeaderResponse};
+use crate::protocol::Version;
 use crate::store::v0::MetadataHeader;
 use crate::util::Stream;
 
@@ -20,13 +19,13 @@ pub mod keep_alive;
 //     V0,
 // }
 
-pub(crate) fn run_handshake_server<S:Stream>(stream: &S) -> Version {
+pub(crate) fn run_handshake_server<S: Stream>(stream: &S) -> Version {
     // TODO: Implement this and make it abstract.
 
     Version::V0
 }
 
-pub(crate) fn run_handshake_client<S:Stream>(stream: &S) -> Version {
+pub(crate) fn run_handshake_client<S: Stream>(stream: &S) -> Version {
     // TODO: Implement this and make it abstract.
 
     Version::V0
@@ -34,21 +33,23 @@ pub(crate) fn run_handshake_client<S:Stream>(stream: &S) -> Version {
 
 // TODO: Generalize the argument.
 // pub(crate) async fn run_store_metadata_server<'a, StoreId:Deserialize<'a>>(stream: &mut codec::Framed<TcpStream, LengthDelimitedCodec>) -> () {
-pub(crate) async fn run_store_metadata_server<StoreId, S:Stream>(stream: &mut S) -> Result<(), ProtocolError>
+pub(crate) async fn run_store_metadata_server<StoreId, S: Stream>(
+    stream: &mut S,
+) -> Result<(), ProtocolError>
 where
-  StoreId:for<'a> Deserialize<'a> + Send + Debug
+    StoreId: for<'a> Deserialize<'a> + Send + Debug,
 {
-    let req : StoreMetadataHeaderRequest<StoreId> = receive(stream).await?;
+    let req: StoreMetadataHeaderRequest<StoreId> = receive(stream).await?;
     log::info!("Received request: {:?}", req);
 
     // TODO: Proper response.
     let response = StoreMetadataHeaderResponse {
         header: MetadataHeader {
-            nonce: [0;32],
+            nonce: [0; 32],
             protocol_version: Version::V0,
-            store_type: [1;32],
+            store_type: [1; 32],
             body_size: 0,
-            body_hash: [2;32],
+            body_hash: [2; 32],
         },
         body: None,
     };
@@ -56,7 +57,10 @@ where
     send(stream, &response).await
 }
 
-pub async fn run_store_metadata_client<TypeId, StoreId, S:Stream>(stream: &mut codec::Framed<TcpStream, LengthDelimitedCodec>, request: &StoreMetadataHeaderRequest<StoreId>) -> Result<StoreMetadataHeaderResponse<TypeId, StoreId>, ProtocolError>
+pub async fn run_store_metadata_client<TypeId, StoreId, S: Stream>(
+    stream: &mut codec::Framed<TcpStream, LengthDelimitedCodec>,
+    request: &StoreMetadataHeaderRequest<StoreId>,
+) -> Result<StoreMetadataHeaderResponse<TypeId, StoreId>, ProtocolError>
 where
     StoreId: Serialize + for<'a> Deserialize<'a>,
     TypeId: for<'a> Deserialize<'a>,
@@ -129,6 +133,4 @@ where
             }
         }
     }
-
 }
-
