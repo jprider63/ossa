@@ -26,7 +26,9 @@ impl ECGHeader for TestHeader {
 fn run_ecg_sync<Header:ECGHeader + Clone>(st1: &mut ecg::State<Header>, st2: &mut ecg::State<Header>) {
     async fn future<Header:ECGHeader + Clone>(st1: &mut ecg::State<Header>, st2: &mut ecg::State<Header>) {
         let store_id = 0_u64;
-        let channel: Channel<bytes::Bytes> = Channel::new();
+        // let channel: Channel<bytes::Bytes> = Channel::new();
+        // let channel: Channel<Result<BytesMut, std::io::Error>> = Channel::new();
+        let channel: Channel<Result<bytes::Bytes, std::io::Error>> = Channel::new();
         let conn = ConnectionManager::new(channel);
 
         let server = ecg_sync_server(&conn, &store_id, st1);

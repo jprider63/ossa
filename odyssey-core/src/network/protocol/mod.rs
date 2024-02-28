@@ -78,7 +78,7 @@ pub enum ProtocolError {
 /// Send a message as CBOR over the given stream.
 async fn send<T, S>(stream: &mut S, message: &T) -> Result<(), ProtocolError>
 where
-    S: Stream,
+    S: Stream<T>,
     T: Serialize,
 {
     // TODO: to_writer instead?
@@ -106,7 +106,7 @@ where
 /// Receive a message as CBOR from the given stream.
 async fn receive<S, T>(stream: &mut S) -> Result<T, ProtocolError>
 where
-    S: Stream,
+    S: Stream<T>,
     T: for<'a> Deserialize<'a>,
 {
     match stream.next().await {

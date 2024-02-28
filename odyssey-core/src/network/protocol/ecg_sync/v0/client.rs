@@ -1,6 +1,6 @@
 
 use crate::network::{ConnectionManager};
-use crate::network::protocol::ecg_sync::v0::{ECGSyncMessage, ECGSyncError, HeaderBitmap, MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS, MsgECGSync, MsgECGSyncRequest, MsgECGSyncResponse, handle_received_ecg_sync, handle_received_have, handle_received_headers, handle_received_known, prepare_haves, prepare_headers, ecg};
+use crate::network::protocol::ecg_sync::v0::{ECGSyncMessage, ECGSyncError, HeaderBitmap, MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS, MsgECGSync, MsgECGSyncData, MsgECGSyncRequest, MsgECGSyncResponse, handle_received_ecg_sync, handle_received_have, handle_received_headers, handle_received_known, prepare_haves, prepare_headers, ecg};
 use crate::store::ecg::ECGHeader;
 use crate::util::Stream;
 use std::cmp::min;
@@ -12,7 +12,7 @@ use std::collections::{BinaryHeap, BTreeSet};
 /// Sync the headers of the eventual consistency graph.
 /// Finds the least common ancestor (meet) of the graphs.
 /// Then we share/receive all the known headers after that point (in batches of size 32).
-pub(crate) async fn ecg_sync_client<S:Stream, StoreId, Header>(conn: &ConnectionManager<S>, store_id: &StoreId, state: &ecg::State<Header>) -> Result<(), ECGSyncError>
+pub(crate) async fn ecg_sync_client<S:Stream<MsgECGSync<Header>>, StoreId, Header>(conn: &ConnectionManager<S>, store_id: &StoreId, state: &ecg::State<Header>) -> Result<(), ECGSyncError>
 where
     Header: Clone + ECGHeader,
 {
@@ -112,7 +112,7 @@ where
     while !done {
 
         // Send sync msg
-        let send_sync_msg: MsgECGSync<Header> = MsgECGSync {
+        let send_sync_msg: MsgECGSyncData<Header> = MsgECGSyncData {
             have: haves.clone(), // TODO: Avoid this clone. // .iter().map(|x| x.0).collect(),
             known: known_bitmap,
             headers: headers.clone(), // TODO: Skip this clone.

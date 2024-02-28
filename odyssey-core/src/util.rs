@@ -64,18 +64,18 @@ impl Hash for Sha256Hash {
 }
 
 // TODO: Generalize the error and stream.
-pub trait Stream: futures::Stream<Item=Result<BytesMut,std::io::Error>>
-    + futures::Sink<Bytes, Error=std::io::Error>
+pub trait Stream<T>: futures::Stream<Item=Result<BytesMut,std::io::Error>>
+    + futures::Sink<T, Error=std::io::Error>
     + Unpin
     + Sync // JP: This is needed for async_recursion. Not sure if this makes sense in practice.
 {}
-impl<T> Stream for T
-where
-    T:futures::Stream<Item=Result<BytesMut,std::io::Error>>,
-    T:futures::Sink<Bytes, Error=std::io::Error>,
-    T:Unpin,
-    T:Sync,
-{}
+// impl<T> Stream<T> for T
+// where
+//     T:futures::Stream<Item=Result<BytesMut,std::io::Error>>,
+//     T:futures::Sink<Bytes, Error=std::io::Error>,
+//     T:Unpin,
+//     T:Sync,
+// {}
 
 // use futures::task::{Context, Poll};
 #[cfg(test)]

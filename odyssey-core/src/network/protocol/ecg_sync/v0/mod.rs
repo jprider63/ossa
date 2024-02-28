@@ -57,6 +57,12 @@ pub enum ECGSyncError {
     // TODO: Timeout, IO error, connection terminated, etc...
 }
 
+pub enum MsgECGSync<H> {
+    Request(MsgECGSyncRequest<H>),
+    Response(MsgECGSyncResponse<H>),
+    Sync(MsgECGSync<H>),
+}
+
 pub struct MsgECGSyncRequest<Header:ECGHeader> {
     /// Number of tips the client has.
     tip_count: u16,
@@ -74,7 +80,7 @@ pub struct MsgECGSyncResponse<Header:ECGHeader> {
 }
 
 pub type HeaderBitmap = BitArr!(for MAX_HAVE_HEADERS as usize, in u8, Msb0);
-pub struct MsgECGSync<Header:ECGHeader> {
+pub struct MsgECGSyncData<Header:ECGHeader> {
     /// Hashes of headers the server has.
     /// The first `tip_count` hashes (potentially split across multiple messages) are tip headers.
     /// The maximum length is `MAX_HAVE_HEADERS`.

@@ -1,12 +1,12 @@
 
 use crate::network::{ConnectionManager};
-use crate::network::protocol::ecg_sync::v0::{ECGSyncMessage, ECGSyncError, HeaderBitmap, MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS, MsgECGSync, MsgECGSyncRequest, MsgECGSyncResponse, handle_received_ecg_sync, handle_received_have, mark_as_known, prepare_haves, prepare_headers, ecg};
+use crate::network::protocol::ecg_sync::v0::{ECGSyncMessage, ECGSyncError, HeaderBitmap, MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS, MsgECGSync, MsgECGSyncData, MsgECGSyncRequest, MsgECGSyncResponse, handle_received_ecg_sync, handle_received_have, mark_as_known, prepare_haves, prepare_headers, ecg};
 use crate::store::ecg::ECGHeader;
 use crate::util::Stream;
 use std::cmp::min;
 use std::collections::{BinaryHeap, BTreeSet, VecDeque};
 
-pub(crate) async fn ecg_sync_server<S:Stream, StoreId, Header>(conn: &ConnectionManager<S>, store_id: &StoreId, state: &ecg::State<Header>) -> Result<(), ECGSyncError>
+pub(crate) async fn ecg_sync_server<S:Stream<MsgECGSync<Header>>  , StoreId, Header>(conn: &ConnectionManager<S>, store_id: &StoreId, state: &ecg::State<Header>) -> Result<(), ECGSyncError>
 where
       Header: Clone + ECGHeader,
 {
@@ -55,7 +55,7 @@ where
 
     let response: MsgECGSyncResponse<Header> = MsgECGSyncResponse {
         tip_count: our_tips_c,
-        sync: MsgECGSync {
+        sync: MsgECGSyncData {
             have: haves.clone(), // TODO: Skip this clone
             known: known_bitmap,
             headers: headers.clone(), // TODO: Skip this clone
@@ -75,7 +75,7 @@ where
         handle_received_ecg_sync(received_sync_msg, state, &mut their_tips_remaining, &mut their_tips, &mut their_known, &mut send_queue, &mut queue, &mut haves, &mut headers, &mut known_bitmap);
 
         // Send sync msg
-        let send_sync_msg: MsgECGSync<Header> = MsgECGSync {
+        let send_sync_msg: MsgECGSyncData<Header> = MsgECGSyncData {
             have: haves.clone(), // TODO: Avoid this clone.
             known: known_bitmap,
             headers: headers.clone(), // TODO: Skip this clone.

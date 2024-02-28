@@ -11,6 +11,12 @@ pub type KeepAlive = Send<MsgKeepAliveRequest,Recv<MsgKeepAliveResponse, Eps>>;
 // TODO:
 // impl Protocol for KeepAlive {}
 
+enum MsgKeepAlive {
+    Request(MsgKeepAliveRequest),
+    Done(MsgKeepAliveDone),
+    Response(MsgKeepAliveResponse),
+}
+
 // Messages for the protocol.
 pub struct MsgKeepAliveRequest {
     heartbeat: u16,
