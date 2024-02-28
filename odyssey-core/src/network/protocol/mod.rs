@@ -9,7 +9,7 @@ use tokio::net::TcpStream;
 use tokio_util::codec::{self, LengthDelimitedCodec};
 
 use crate::protocol::Version;
-use crate::protocol::v0::{StoreMetadataHeaderRequest, StoreMetadataHeaderResponse};
+use crate::protocol::v0::{MsgStoreMetadataHeader, StoreMetadataHeaderRequest, StoreMetadataHeaderResponse};
 use crate::store::v0::MetadataHeader;
 use crate::util::Stream;
 
@@ -20,13 +20,13 @@ pub mod keep_alive;
 //     V0,
 // }
 
-pub(crate) fn run_handshake_server<S:Stream>(stream: &S) -> Version {
+pub(crate) fn run_handshake_server<TypeId, StoreId, S:Stream<MsgStoreMetadataHeader<TypeId, StoreId>>>(stream: &S) -> Version {
     // TODO: Implement this and make it abstract.
 
     Version::V0
 }
 
-pub(crate) fn run_handshake_client<S:Stream>(stream: &S) -> Version {
+pub(crate) fn run_handshake_client<TypeId, StoreId, S:Stream<MsgStoreMetadataHeader<TypeId, StoreId>>>(stream: &S) -> Version {
     // TODO: Implement this and make it abstract.
 
     Version::V0
@@ -34,7 +34,7 @@ pub(crate) fn run_handshake_client<S:Stream>(stream: &S) -> Version {
 
 // TODO: Generalize the argument.
 // pub(crate) async fn run_store_metadata_server<'a, StoreId:Deserialize<'a>>(stream: &mut codec::Framed<TcpStream, LengthDelimitedCodec>) -> () {
-pub(crate) async fn run_store_metadata_server<StoreId, S:Stream>(stream: &mut S) -> Result<(), ProtocolError>
+pub(crate) async fn run_store_metadata_server<TypeId, StoreId, S:Stream<MsgStoreMetadataHeader<TypeId, StoreId>>>(stream: &mut S) -> Result<(), ProtocolError>
 where
   StoreId:for<'a> Deserialize<'a> + Send + Debug
 {
@@ -56,7 +56,7 @@ where
     send(stream, &response).await
 }
 
-pub async fn run_store_metadata_client<TypeId, StoreId, S:Stream>(stream: &mut codec::Framed<TcpStream, LengthDelimitedCodec>, request: &StoreMetadataHeaderRequest<StoreId>) -> Result<StoreMetadataHeaderResponse<TypeId, StoreId>, ProtocolError>
+pub async fn run_store_metadata_client<TypeId, StoreId, S:Stream<MsgStoreMetadataHeader<TypeId, StoreId>>>(stream: &mut codec::Framed<TcpStream, LengthDelimitedCodec>, request: &StoreMetadataHeaderRequest<StoreId>) -> Result<StoreMetadataHeaderResponse<TypeId, StoreId>, ProtocolError>
 where
     StoreId: Serialize + for<'a> Deserialize<'a>,
     TypeId: for<'a> Deserialize<'a>,

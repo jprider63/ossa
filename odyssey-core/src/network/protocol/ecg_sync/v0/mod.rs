@@ -57,10 +57,10 @@ pub enum ECGSyncError {
     // TODO: Timeout, IO error, connection terminated, etc...
 }
 
-pub enum MsgECGSync<H> {
+pub enum MsgECGSync<H:ECGHeader> {
     Request(MsgECGSyncRequest<H>),
     Response(MsgECGSyncResponse<H>),
-    Sync(MsgECGSync<H>),
+    Sync(MsgECGSyncData<H>),
 }
 
 pub struct MsgECGSyncRequest<Header:ECGHeader> {
@@ -76,7 +76,7 @@ pub struct MsgECGSyncResponse<Header:ECGHeader> {
     /// Number of tips the server has.
     tip_count: u16,
     /// `MsgECGSync` sync response.
-    sync: MsgECGSync<Header>,
+    sync: MsgECGSyncData<Header>,
 }
 
 pub type HeaderBitmap = BitArr!(for MAX_HAVE_HEADERS as usize, in u8, Msb0);

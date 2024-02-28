@@ -42,11 +42,11 @@ impl Manager {
 }
 
 // Manage a connection with a peer.
-pub struct ConnectionManager<S:Stream> {
+pub struct ConnectionManager<S> { // }:Stream> {
     connection: S,
 }
 
-impl<S:Stream> ConnectionManager<S> {
+impl<S> ConnectionManager<S> {
     pub fn new(connection: S) -> ConnectionManager<S> {
         ConnectionManager {
             connection,

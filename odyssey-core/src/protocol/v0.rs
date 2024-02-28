@@ -15,6 +15,10 @@ pub type StoreMetadataBody = Send<StoreMetadataBodyRequest,Recv<ProtocolResult<S
 //
 
 // # Messages sent by protocols.
+pub enum MsgStoreMetadataHeader<TypeId, StoreId> {
+    Request(StoreMetadataHeaderRequest<StoreId>),
+    Response(StoreMetadataHeaderResponse<TypeId, StoreId>),
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct StoreMetadataHeaderRequest<StoreId> {
