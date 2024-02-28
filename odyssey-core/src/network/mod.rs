@@ -4,8 +4,7 @@ pub mod protocol;
 use crate::store;
 use crate::util::Stream;
 
-pub struct ManagerSettings {
-}
+pub struct ManagerSettings {}
 
 /// Network manager.
 pub struct Manager {
@@ -18,18 +17,20 @@ impl Manager {
         // Start listening on port.
         // Start DHT.
 
-        Manager {
-            settings
-        }
+        Manager { settings }
     }
 
-    // 
-    pub fn createAndConnectToStore<TypeId, H>(store_metadata: store::MetadataHeader<TypeId, H>) -> Result<(), String> { // TODO: async API that pushes errors, applied operations, connection/peer info, etc to a queue?
-        unimplemented!{}
+    //
+    pub fn createAndConnectToStore<TypeId, H>(
+        store_metadata: store::MetadataHeader<TypeId, H>,
+    ) -> Result<(), String> {
+        // TODO: async API that pushes errors, applied operations, connection/peer info, etc to a queue?
+        unimplemented! {}
     }
 
-    pub fn connectToStoreById<Id>(store_metadata: Id) -> Result<(), String> { // TODO: async API that pushes errors to a queue?
-        // TODO: 
+    pub fn connectToStoreById<Id>(store_metadata: Id) -> Result<(), String> {
+        // TODO: async API that pushes errors to a queue?
+        // TODO:
         // Lookup id on DHT to retrieve peers
         // Manage peers
         // Retrieve MetadataHeader if we don't have it.
@@ -37,20 +38,18 @@ impl Manager {
         // Sync any data
         // Propagate that data asyncronously
         // Store any updates to the file system
-        unimplemented!{}
+        unimplemented! {}
     }
 }
 
 // Manage a connection with a peer.
-pub struct ConnectionManager<S:Stream> {
+pub struct ConnectionManager<S: Stream> {
     connection: S,
 }
 
-impl<S:Stream> ConnectionManager<S> {
+impl<S: Stream> ConnectionManager<S> {
     pub fn new(connection: S) -> ConnectionManager<S> {
-        ConnectionManager {
-            connection,
-        }
+        ConnectionManager { connection }
     }
     /// Retrieve the connection status.
     pub async fn connection_status(&self) -> ConnectionStatus {
@@ -71,4 +70,3 @@ pub enum ConnectionStatus {
     Active,
     Done,
 }
-
