@@ -1,4 +1,3 @@
-
 #[derive(Clone)]
 pub struct HeaderId<Hash>(Hash);
 

@@ -1,14 +1,21 @@
-
-use crate::network::{ConnectionManager};
-use crate::network::protocol::ecg_sync::v0::{ECGSyncMessage, ECGSyncError, HeaderBitmap, MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS, MsgECGSync, MsgECGSyncData, MsgECGSyncRequest, MsgECGSyncResponse, handle_received_ecg_sync, handle_received_have, mark_as_known, prepare_haves, prepare_headers, ecg};
+use crate::network::protocol::ecg_sync::v0::{
+    ecg, handle_received_ecg_sync, handle_received_have, mark_as_known, prepare_haves,
+    prepare_headers, ECGSyncError, ECGSyncMessage, HeaderBitmap, MsgECGSync, MsgECGSyncData,
+    MsgECGSyncRequest, MsgECGSyncResponse, MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS,
+};
+use crate::network::ConnectionManager;
 use crate::store::ecg::ECGHeader;
 use crate::util::Stream;
 use std::cmp::min;
-use std::collections::{BinaryHeap, BTreeSet, VecDeque};
+use std::collections::{BTreeSet, BinaryHeap, VecDeque};
 
-pub(crate) async fn ecg_sync_server<S:Stream<MsgECGSync<Header>>  , StoreId, Header>(conn: &ConnectionManager<S>, store_id: &StoreId, state: &ecg::State<Header>) -> Result<(), ECGSyncError>
+pub(crate) async fn ecg_sync_server<S: Stream<MsgECGSync<Header>>, StoreId, Header>(
+    conn: &ConnectionManager<S>,
+    store_id: &StoreId,
+    state: &ecg::State<Header>,
+) -> Result<(), ECGSyncError>
 where
-      Header: Clone + ECGHeader,
+    Header: Clone + ECGHeader,
 {
     let request: MsgECGSyncRequest<Header> = conn.receive().await;
     // JP: Set (and check) max value for tips?
@@ -17,7 +24,7 @@ where
     let mut done = request.is_done();
 
     let their_tips_c = request.tip_count;
-    let mut their_tips:Vec<Header::HeaderId> = Vec::with_capacity(usize::from(their_tips_c));
+    let mut their_tips: Vec<Header::HeaderId> = Vec::with_capacity(usize::from(their_tips_c));
     let mut their_tips_remaining = usize::from(their_tips_c);
 
     // Headers they know.
@@ -29,8 +36,16 @@ where
     // TODO: Check for no headers? their_tips_c == 0? or request.have.len() == 0?
 
     // Handle the haves that the peer sent to us.
-    let mut known_bitmap = HeaderBitmap::new([0;4]); // TODO: MAX_HAVE_HEADERS/8?
-    handle_received_have(state, &mut their_tips_remaining, &mut their_tips, &mut their_known, &mut send_queue, &request.have, &mut known_bitmap);
+    let mut known_bitmap = HeaderBitmap::new([0; 4]); // TODO: MAX_HAVE_HEADERS/8?
+    handle_received_have(
+        state,
+        &mut their_tips_remaining,
+        &mut their_tips,
+        &mut their_known,
+        &mut send_queue,
+        &request.have,
+        &mut known_bitmap,
+    );
 
     let mut headers = Vec::with_capacity(MAX_DELIVER_HEADERS.into());
     prepare_headers(state, &mut send_queue, &mut their_known, &mut headers);
@@ -72,7 +87,18 @@ where
         let received_sync_msg: MsgECGSyncData<Header> = conn.receive().await;
         done = received_sync_msg.is_done();
 
-        handle_received_ecg_sync(received_sync_msg, state, &mut their_tips_remaining, &mut their_tips, &mut their_known, &mut send_queue, &mut queue, &mut haves, &mut headers, &mut known_bitmap);
+        handle_received_ecg_sync(
+            received_sync_msg,
+            state,
+            &mut their_tips_remaining,
+            &mut their_tips,
+            &mut their_known,
+            &mut send_queue,
+            &mut queue,
+            &mut haves,
+            &mut headers,
+            &mut known_bitmap,
+        );
 
         // Send sync msg
         let send_sync_msg: MsgECGSyncData<Header> = MsgECGSyncData {

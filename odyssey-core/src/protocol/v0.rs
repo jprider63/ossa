@@ -1,5 +1,4 @@
-
-use async_session_types::{Eps, Send, Recv};
+use async_session_types::{Eps, Recv, Send};
 use serde::{Deserialize, Serialize};
 
 use crate::store;
@@ -7,8 +6,12 @@ use crate::store;
 // # Protocols run between peers.
 
 // request_store_metadata_header :: RequestStoreMetadataHeaderV0 -> Either<ProtocolError, ResponseStoreMetadataHeaderV0>
-pub type StoreMetadataHeader<TypeId, StoreId> = Send<StoreMetadataHeaderRequest<StoreId>,Recv<ProtocolResult<StoreMetadataHeaderResponse<TypeId, StoreId>>, Eps>>;
-pub type StoreMetadataBody = Send<StoreMetadataBodyRequest,Recv<ProtocolResult<StoreMetadataBodyResponse>, Eps>>;
+pub type StoreMetadataHeader<TypeId, StoreId> = Send<
+    StoreMetadataHeaderRequest<StoreId>,
+    Recv<ProtocolResult<StoreMetadataHeaderResponse<TypeId, StoreId>>, Eps>,
+>;
+pub type StoreMetadataBody =
+    Send<StoreMetadataBodyRequest, Recv<ProtocolResult<StoreMetadataBodyResponse>, Eps>>;
 
 //
 // TODO: Do we need to do a handshake to establish a MAC key (is an encryption needed)?.
@@ -30,17 +33,23 @@ pub enum MsgStoreMetadataHeader<TypeId, StoreId> {
 //         }
 //     }
 // }
-impl<TypeId, StoreId> Into<MsgStoreMetadataHeader<TypeId, StoreId>> for StoreMetadataHeaderRequest<StoreId> {
+impl<TypeId, StoreId> Into<MsgStoreMetadataHeader<TypeId, StoreId>>
+    for StoreMetadataHeaderRequest<StoreId>
+{
     fn into(self) -> MsgStoreMetadataHeader<TypeId, StoreId> {
         MsgStoreMetadataHeader::Request(self)
     }
 }
-impl<TypeId, StoreId> Into<MsgStoreMetadataHeader<TypeId, StoreId>> for StoreMetadataHeaderResponse<TypeId, StoreId> {
+impl<TypeId, StoreId> Into<MsgStoreMetadataHeader<TypeId, StoreId>>
+    for StoreMetadataHeaderResponse<TypeId, StoreId>
+{
     fn into(self) -> MsgStoreMetadataHeader<TypeId, StoreId> {
         MsgStoreMetadataHeader::Response(self)
     }
 }
-impl<TypeId, StoreId> TryInto<StoreMetadataHeaderRequest<StoreId>> for MsgStoreMetadataHeader<TypeId, StoreId> {
+impl<TypeId, StoreId> TryInto<StoreMetadataHeaderRequest<StoreId>>
+    for MsgStoreMetadataHeader<TypeId, StoreId>
+{
     type Error = ();
     fn try_into(self) -> Result<StoreMetadataHeaderRequest<StoreId>, ()> {
         match self {
@@ -49,7 +58,9 @@ impl<TypeId, StoreId> TryInto<StoreMetadataHeaderRequest<StoreId>> for MsgStoreM
         }
     }
 }
-impl<TypeId, StoreId> TryInto<StoreMetadataHeaderResponse<TypeId, StoreId>> for MsgStoreMetadataHeader<TypeId, StoreId> {
+impl<TypeId, StoreId> TryInto<StoreMetadataHeaderResponse<TypeId, StoreId>>
+    for MsgStoreMetadataHeader<TypeId, StoreId>
+{
     type Error = ();
     fn try_into(self) -> Result<StoreMetadataHeaderResponse<TypeId, StoreId>, ()> {
         match self {
@@ -58,7 +69,6 @@ impl<TypeId, StoreId> TryInto<StoreMetadataHeaderResponse<TypeId, StoreId>> for 
         }
     }
 }
-
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct StoreMetadataHeaderRequest<StoreId> {
@@ -77,4 +87,3 @@ pub type StoreMetadataBodyResponse = store::v0::MetadataBody; // TODO: Eventuall
 
 pub type ProtocolResult<T> = Result<T, ProtocolError>;
 pub type ProtocolError = String; // TODO: Eventually more informative error type.
-

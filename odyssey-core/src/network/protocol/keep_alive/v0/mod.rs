@@ -1,12 +1,11 @@
-
-use async_session_types::{Eps, Send, Recv};
+use async_session_types::{Eps, Recv, Send};
 
 pub mod client;
 pub mod server;
 
 /// TODO:
 /// The session type for the protocol.
-pub type KeepAlive = Send<MsgKeepAliveRequest,Recv<MsgKeepAliveResponse, Eps>>;
+pub type KeepAlive = Send<MsgKeepAliveRequest, Recv<MsgKeepAliveResponse, Eps>>;
 
 // TODO:
 // impl Protocol for KeepAlive {}
@@ -28,8 +27,5 @@ pub struct MsgKeepAliveResponse {
 
 // Protocol error
 pub enum KeepAliveError {
-    MismatchedHeartbeats {
-        expected: u16,
-        response: u16,
-    },
+    MismatchedHeartbeats { expected: u16, response: u16 },
 }
