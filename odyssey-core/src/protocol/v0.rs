@@ -24,15 +24,6 @@ pub enum MsgStoreMetadataHeader<TypeId, StoreId> {
     Response(StoreMetadataHeaderResponse<TypeId, StoreId>),
 }
 
-// impl<TypeId, StoreId> TryFrom<MsgStoreMetadataHeader<TypeId, StoreId>> for StoreMetadataHeaderRequest<StoreId> {
-//     type Error = ();
-//     fn try_from(x:MsgStoreMetadataHeader<TypeId, StoreId>) -> Result<Self, ()> {
-//         match x {
-//             MsgStoreMetadataHeader::Request(r) => Ok(r),
-//             MsgStoreMetadataHeader::Response(r) => Err(()),
-//         }
-//     }
-// }
 impl<TypeId, StoreId> Into<MsgStoreMetadataHeader<TypeId, StoreId>>
     for StoreMetadataHeaderRequest<StoreId>
 {

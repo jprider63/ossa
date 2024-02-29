@@ -9,18 +9,19 @@ use crate::store::ecg::ECGHeader;
 use crate::util::Stream;
 use std::cmp::min;
 use std::collections::{BTreeSet, BinaryHeap};
+use std::fmt::Debug;
 
 // TODO: Have this utilize session types.
 /// Sync the headers of the eventual consistency graph.
 /// Finds the least common ancestor (meet) of the graphs.
 /// Then we share/receive all the known headers after that point (in batches of size 32).
 pub(crate) async fn ecg_sync_client<S: Stream<MsgECGSync<Header>>, StoreId, Header>(
-    conn: &ConnectionManager<S>,
+    conn: &mut ConnectionManager<S>,
     store_id: &StoreId,
     state: &ecg::State<Header>,
 ) -> Result<(), ECGSyncError>
 where
-    Header: Clone + ECGHeader,
+    Header: Clone + ECGHeader + Debug,
 {
     // TODO:
     // - Get cached peer state.

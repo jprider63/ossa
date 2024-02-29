@@ -8,14 +8,15 @@ use crate::store::ecg::ECGHeader;
 use crate::util::Stream;
 use std::cmp::min;
 use std::collections::{BTreeSet, BinaryHeap, VecDeque};
+use std::fmt::Debug;
 
 pub(crate) async fn ecg_sync_server<S: Stream<MsgECGSync<Header>>, StoreId, Header>(
-    conn: &ConnectionManager<S>,
+    conn: &mut ConnectionManager<S>,
     store_id: &StoreId,
     state: &ecg::State<Header>,
 ) -> Result<(), ECGSyncError>
 where
-    Header: Clone + ECGHeader,
+    Header: Clone + ECGHeader + Debug,
 {
     let request: MsgECGSyncRequest<Header> = conn.receive().await;
     // JP: Set (and check) max value for tips?

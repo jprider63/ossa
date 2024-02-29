@@ -1,12 +1,13 @@
 use daggy::Walker;
 use std::cmp;
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Debug;
 
 pub mod v0;
 
 /// Trait that ECG headers (nodes?) must implement.
 pub trait ECGHeader {
-    type HeaderId: Ord + Copy;
+    type HeaderId: Ord + Copy + Debug;
 
     /// Return the parents ids of a node. If an empty slice is returned, the root node is the
     /// parent.

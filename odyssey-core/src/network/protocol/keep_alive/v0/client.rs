@@ -10,7 +10,7 @@ use crate::util::Stream;
 // TODO: Have this utilize the KeepAlive session type.
 #[async_recursion]
 pub(crate) async fn keep_alive_client<S: Stream<MsgKeepAlive>>(
-    conn: &ConnectionManager<S>,
+    conn: &mut ConnectionManager<S>,
 ) -> Result<(), KeepAliveError> {
     // Check if the connection is ending.
     if conn.connection_status().await == ConnectionStatus::Done {

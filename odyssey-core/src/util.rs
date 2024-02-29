@@ -71,6 +71,7 @@ pub trait Stream<T>:
       futures::Stream<Item=Result<T,ProtocolError>> // Result<BytesMut,std::io::Error>>
     + futures::Sink<T, Error=ProtocolError>
     + Unpin
+    + Send // JP: This is needed for async_recursion. Not sure if this makes sense in practice.
     + Sync // JP: This is needed for async_recursion. Not sure if this makes sense in practice.
 {}
 
@@ -146,7 +147,7 @@ where
 
 impl<S, T> Stream<T> for TypedStream<S, T>
 where
-    S: futures::Stream<Item = Result<BytesMut, std::io::Error>>,
+    S: futures::Stream<Item = Result<BytesMut, std::io::Error>> + Send,
     S: futures::Sink<Bytes, Error = std::io::Error>,
     S: Unpin,
     S: Sync,
@@ -180,8 +181,18 @@ pub struct Channel<T> {
 
 #[cfg(test)]
 impl<T> Channel<T> {
-    pub fn new() -> Channel<T> {
-        todo!()
+    pub fn new_pair() -> (Channel<T>, Channel<T>) {
+        let (send1, recv1) = futures_channel::mpsc::unbounded();
+        let (send2, recv2) = futures_channel::mpsc::unbounded();
+        let c1 = Channel {
+            send: send1,
+            recv: recv2,
+        };
+        let c2 = Channel {
+            send: send2,
+            recv: recv1,
+        };
+        (c1, c2)
     }
 }
 
@@ -192,6 +203,7 @@ where
 // //     S: futures::Sink<Bytes, Error = std::io::Error>,
 // //     S: Unpin,
     Channel<T>: Sync,
+    Channel<T>: Send,
 {
 }
 

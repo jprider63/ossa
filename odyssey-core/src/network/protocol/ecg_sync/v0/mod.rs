@@ -62,6 +62,7 @@ pub enum MsgECGSync<H: ECGHeader> {
     Sync(MsgECGSyncData<H>),
 }
 
+#[derive(Debug)]
 pub struct MsgECGSyncRequest<Header: ECGHeader> {
     /// Number of tips the client has.
     tip_count: u16,
@@ -71,6 +72,7 @@ pub struct MsgECGSyncRequest<Header: ECGHeader> {
     have: Vec<Header::HeaderId>, // Should this include ancestors? Yes.
 }
 
+#[derive(Debug)]
 pub struct MsgECGSyncResponse<Header: ECGHeader> {
     /// Number of tips the server has.
     tip_count: u16,
@@ -79,6 +81,7 @@ pub struct MsgECGSyncResponse<Header: ECGHeader> {
 }
 
 pub type HeaderBitmap = BitArr!(for MAX_HAVE_HEADERS as usize, in u8, Msb0);
+#[derive(Debug)]
 pub struct MsgECGSyncData<Header: ECGHeader> {
     /// Hashes of headers the server has.
     /// The first `tip_count` hashes (potentially split across multiple messages) are tip headers.
@@ -387,5 +390,39 @@ impl<Header: ECGHeader> ECGSyncMessage for MsgECGSyncRequest<Header> {
 impl<Header: ECGHeader> ECGSyncMessage for MsgECGSyncResponse<Header> {
     fn is_done(&self) -> bool {
         self.sync.is_done()
+    }
+}
+
+impl<H:ECGHeader> Into<MsgECGSync<H>> for MsgECGSyncRequest<H> {
+    fn into(self) -> MsgECGSync<H> {
+        MsgECGSync::Request(self)
+    }
+}
+impl<H:ECGHeader> Into<MsgECGSync<H>> for MsgECGSyncResponse<H> {
+    fn into(self) -> MsgECGSync<H> {
+        MsgECGSync::Response(self)
+    }
+}
+impl<H:ECGHeader> Into<MsgECGSync<H>> for MsgECGSyncData<H> {
+    fn into(self) -> MsgECGSync<H> {
+        MsgECGSync::Sync(self)
+    }
+}
+impl<H:ECGHeader> TryInto<MsgECGSyncRequest<H>> for MsgECGSync<H> {
+    type Error = ();
+    fn try_into(self) -> Result<MsgECGSyncRequest<H>, ()> {
+        todo!()
+    }
+}
+impl<H:ECGHeader> TryInto<MsgECGSyncResponse<H>> for MsgECGSync<H> {
+    type Error = ();
+    fn try_into(self) -> Result<MsgECGSyncResponse<H>, ()> {
+        todo!()
+    }
+}
+impl<H:ECGHeader> TryInto<MsgECGSyncData<H>> for MsgECGSync<H> {
+    type Error = ();
+    fn try_into(self) -> Result<MsgECGSyncData<H>, ()> {
+        todo!()
     }
 }

@@ -1,6 +1,9 @@
 pub mod p2p;
 pub mod protocol;
 
+use std::fmt::Debug;
+
+use crate::network::protocol::{receive, send};
 use crate::store;
 use crate::util::Stream;
 
@@ -43,6 +46,7 @@ impl Manager {
 }
 
 // Manage a connection with a peer.
+// TODO: Switch everything to use a ConnectionManager or get rid of it.
 pub struct ConnectionManager<S> {
     // }:Stream> {
     connection: S,
@@ -57,12 +61,21 @@ impl<S> ConnectionManager<S> {
         ConnectionStatus::Active
     }
 
-    pub async fn send<T>(&self, val: T) {
-        println!("TODO: send");
+    pub async fn send<T, U>(&mut self, val: U)
+    where
+        S: Stream<T>,
+        U: Into<T>,
+    {
+        send(&mut self.connection, val).await.expect("TODO")
     }
 
-    pub async fn receive<T>(&self) -> T {
-        unimplemented!();
+    pub async fn receive<T, U>(&mut self) -> U
+    where
+        S: Stream<T>,
+        T: TryInto<U>,
+        U: Debug,
+    {
+        receive(&mut self.connection).await.expect("TODO")
     }
 }
 

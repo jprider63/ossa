@@ -95,7 +95,7 @@ pub enum ProtocolError {
 }
 
 /// Send a message as CBOR over the given stream.
-async fn send<S, T, U>(stream: &mut S, message: T) -> Result<(), ProtocolError>
+pub(crate) async fn send<S, T, U>(stream: &mut S, message: T) -> Result<(), ProtocolError>
 where
     S: Stream<U>,
     T: Into<U>,
@@ -122,7 +122,7 @@ where
 }
 
 /// Receive a message as CBOR from the given stream.
-async fn receive<S, T, U>(stream: &mut S) -> Result<U, ProtocolError>
+pub(crate) async fn receive<S, T, U>(stream: &mut S) -> Result<U, ProtocolError>
 where
     S: Stream<T>,
     // U: TryFrom<T> + Debug,

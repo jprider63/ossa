@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use crate::network::protocol::ecg_sync::v0::MsgECGSync;
 use crate::network::protocol::ecg_sync::v0::client::ecg_sync_client;
 use crate::network::protocol::ecg_sync::v0::server::ecg_sync_server;
@@ -5,7 +7,7 @@ use crate::network::ConnectionManager;
 use crate::store::ecg::{self, ECGHeader};
 use crate::util::Channel;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct TestHeader {
     parent_ids: Vec<u32>,
 }
@@ -23,14 +25,14 @@ impl ECGHeader for TestHeader {
     }
 }
 
-fn run_ecg_sync<Header: ECGHeader + Send + Clone>(
+fn run_ecg_sync<Header: ECGHeader + Send + Clone + Debug>(
     st1: &mut ecg::State<Header>,
     st2: &mut ecg::State<Header>,
 )
 where
     <Header as ECGHeader>::HeaderId: Send,
 {
-    async fn future<Header: ECGHeader + Send + Clone>(
+    async fn future<Header: ECGHeader + Send + Clone + Debug>(
         st1: &mut ecg::State<Header>,
         st2: &mut ecg::State<Header>,
     )
@@ -42,11 +44,12 @@ where
         // let channel: Channel<Result<BytesMut, std::io::Error>> = Channel::new();
         // let channel: Channel<Result<bytes::Bytes, std::io::Error>> = Channel::new();
         // let channel: Channel<Result<MsgECGSync<_>, std::io::Error>> = Channel::new();
-        let channel: Channel<MsgECGSync<_>> = Channel::new();
-        let conn = ConnectionManager::new(channel);
+        let (channel1, channel2): (Channel<MsgECGSync<_>>, _) = Channel::new_pair();
+        let mut conn1 = ConnectionManager::new(channel1);
+        let mut conn2 = ConnectionManager::new(channel2);
 
-        let server = ecg_sync_server(&conn, &store_id, st1);
-        let client = ecg_sync_client(&conn, &store_id, st1);
+        let server = ecg_sync_server(&mut conn1, &store_id, st1);
+        let client = ecg_sync_client(&mut conn2, &store_id, st2);
 
         let (server_res, client_res) = tokio::join!(server, client);
 
