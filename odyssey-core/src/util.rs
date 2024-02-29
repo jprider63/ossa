@@ -170,12 +170,6 @@ where
 
 // use futures::task::{Context, Poll};
 #[cfg(test)]
-use core::pin::Pin;
-#[cfg(test)]
-use core::task::Context;
-#[cfg(test)]
-use core::task::Poll;
-#[cfg(test)]
 use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
 
 #[cfg(test)]
@@ -192,8 +186,18 @@ impl<T> Channel<T> {
 }
 
 #[cfg(test)]
+impl<T> Stream<T> for Channel<T>
+where
+// //     S: futures::Stream<Item = Result<BytesMut, std::io::Error>>,
+// //     S: futures::Sink<Bytes, Error = std::io::Error>,
+// //     S: Unpin,
+    Channel<T>: Sync,
+{
+}
+
+#[cfg(test)]
 impl<T> futures::Stream for Channel<T> {
-    type Item = <UnboundedReceiver<T> as futures::Stream>::Item;
+    type Item = Result<T, ProtocolError>;
     fn poll_next(
         self: Pin<&mut Self>,
         _: &mut Context<'_>,
@@ -205,7 +209,7 @@ impl<T> futures::Stream for Channel<T> {
 #[cfg(test)]
 // impl<T> futures::Sink<bytes::Bytes> for Channel<T> {
 impl<T> futures::Sink<T> for Channel<T> {
-    type Error = <UnboundedSender<T> as futures::Sink<T>>::Error;
+    type Error = ProtocolError;
 
     fn poll_ready(
         self: Pin<&mut Self>,

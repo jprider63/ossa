@@ -1,3 +1,4 @@
+use crate::network::protocol::ecg_sync::v0::MsgECGSync;
 use crate::network::protocol::ecg_sync::v0::client::ecg_sync_client;
 use crate::network::protocol::ecg_sync::v0::server::ecg_sync_server;
 use crate::network::ConnectionManager;
@@ -22,18 +23,26 @@ impl ECGHeader for TestHeader {
     }
 }
 
-fn run_ecg_sync<Header: ECGHeader + Clone>(
+fn run_ecg_sync<Header: ECGHeader + Send + Clone>(
     st1: &mut ecg::State<Header>,
     st2: &mut ecg::State<Header>,
-) {
-    async fn future<Header: ECGHeader + Clone>(
+)
+where
+    <Header as ECGHeader>::HeaderId: Send,
+{
+    async fn future<Header: ECGHeader + Send + Clone>(
         st1: &mut ecg::State<Header>,
         st2: &mut ecg::State<Header>,
-    ) {
+    )
+    where
+        <Header as ECGHeader>::HeaderId: Send,
+    {
         let store_id = 0_u64;
         // let channel: Channel<bytes::Bytes> = Channel::new();
         // let channel: Channel<Result<BytesMut, std::io::Error>> = Channel::new();
-        let channel: Channel<Result<bytes::Bytes, std::io::Error>> = Channel::new();
+        // let channel: Channel<Result<bytes::Bytes, std::io::Error>> = Channel::new();
+        // let channel: Channel<Result<MsgECGSync<_>, std::io::Error>> = Channel::new();
+        let channel: Channel<MsgECGSync<_>> = Channel::new();
         let conn = ConnectionManager::new(channel);
 
         let server = ecg_sync_server(&conn, &store_id, st1);
