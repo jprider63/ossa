@@ -121,7 +121,7 @@ where
         conn.send(send_sync_msg).await;
         
         // Receive sync msg
-        let received_sync_msg: MsgECGSync<Header> = conn.receive().await;
+        let received_sync_msg: MsgECGSyncData<Header> = conn.receive().await;
         done = done && received_sync_msg.is_done();
 
         handle_received_ecg_sync(received_sync_msg, state, &mut their_tips_remaining, &mut their_tips, &mut their_known, &mut send_queue, &mut queue, &mut haves, &mut headers, &mut known_bitmap);

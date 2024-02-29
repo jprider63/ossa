@@ -13,6 +13,7 @@ use tokio_serde::formats;
 use tokio_tower::multiplex;
 
 use crate::protocol::Version;
+use crate::protocol::v0::MsgStoreMetadataHeader;
 use crate::network::protocol::{run_handshake_server, run_store_metadata_server};
 use crate::util::TypedStream;
 
@@ -30,6 +31,7 @@ impl P2PManager {
     pub fn initialize<TypeId, StoreId>(settings: P2PSettings) -> P2PManager
     where
         StoreId:for<'a> Deserialize<'a> + Send + Debug,
+        TypeId: Send,
     {
         // Spawn thread.
         let p2p_thread = thread::spawn(move || {
@@ -65,7 +67,7 @@ impl P2PManager {
                     // Spawn async.
                     tokio::spawn(async {
                         // let (read_stream, write_stream) = tcpstream.split();
-                        let mut stream = codec::Framed::new(tcpstream, LengthDelimitedCodec::new()); 
+                        let stream = codec::Framed::new(tcpstream, LengthDelimitedCodec::new()); 
 
                         // TODO XXX
                         // Handshake.
@@ -74,7 +76,7 @@ impl P2PManager {
                         let stream = TypedStream::new(stream);
                         let Version::V0 = run_handshake_server(&stream);
 
-                        let stream = TypedStream::new(stream.finalize());
+                        let mut stream:TypedStream<_, MsgStoreMetadataHeader<TypeId, StoreId>> = TypedStream::new(stream.finalize());
                         run_store_metadata_server::<TypeId, StoreId, _>(&mut stream).await.expect("TODO");
                         // run_store_metadata_server::<TypeId, StoreId, codec::Framed<TcpStream, LengthDelimitedCodec>>(&mut stream).await.expect("TODO");
 

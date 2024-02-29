@@ -38,30 +38,32 @@ pub(crate) fn run_handshake_client<S:Stream<MsgHandshake>>(stream: &S) -> Versio
 // pub(crate) async fn run_store_metadata_server<'a, StoreId:Deserialize<'a>>(stream: &mut codec::Framed<TcpStream, LengthDelimitedCodec>) -> () {
 pub(crate) async fn run_store_metadata_server<TypeId, StoreId, S:Stream<MsgStoreMetadataHeader<TypeId, StoreId>>>(stream: &mut S) -> Result<(), ProtocolError>
 where
-  StoreId:for<'a> Deserialize<'a> + Send + Debug
+  StoreId:for<'a> Deserialize<'a> + Send + Debug,
+  TypeId: Send,
 {
     let req : StoreMetadataHeaderRequest<StoreId> = receive(stream).await?;
     log::info!("Received request: {:?}", req);
 
     // TODO: Proper response.
-    let response = StoreMetadataHeaderResponse {
+    let response: StoreMetadataHeaderResponse<TypeId, StoreId> = StoreMetadataHeaderResponse {
         header: MetadataHeader {
             nonce: [0;32],
             protocol_version: Version::V0,
-            store_type: [1;32],
+            store_type: todo!(), // [1;32],
             body_size: 0,
-            body_hash: [2;32],
+            body_hash: todo!(), // [2;32],
         },
         body: None,
     };
 
-    send(stream, &response).await
+    send(stream, response).await
 }
 
-pub async fn run_store_metadata_client<TypeId, StoreId, S:Stream<MsgStoreMetadataHeader<TypeId, StoreId>>>(stream: &mut codec::Framed<TcpStream, LengthDelimitedCodec>, request: &StoreMetadataHeaderRequest<StoreId>) -> Result<StoreMetadataHeaderResponse<TypeId, StoreId>, ProtocolError>
+// pub async fn run_store_metadata_client<TypeId, StoreId, S:Stream<MsgStoreMetadataHeader<TypeId, StoreId>>>(stream: &mut codec::Framed<TcpStream, LengthDelimitedCodec>, request: &StoreMetadataHeaderRequest<StoreId>) -> Result<StoreMetadataHeaderResponse<TypeId, StoreId>, ProtocolError>
+pub async fn run_store_metadata_client<TypeId, StoreId, S:Stream<MsgStoreMetadataHeader<TypeId, StoreId>>>(stream: &mut S, request: StoreMetadataHeaderRequest<StoreId>) -> Result<StoreMetadataHeaderResponse<TypeId, StoreId>, ProtocolError>
 where
-    StoreId: Serialize + for<'a> Deserialize<'a>,
-    TypeId: for<'a> Deserialize<'a>,
+    StoreId: Serialize + for<'a> Deserialize<'a> + Debug,
+    TypeId: for<'a> Deserialize<'a> + Debug,
 {
     send(stream, request).await?;
 
@@ -72,15 +74,17 @@ where
 pub enum ProtocolError {
     SerializationError(serde_cbor::Error),
     DeserializationError(serde_cbor::Error),
-    StreamSendError(std::io::Error),
+    // StreamSendError(std::io::Error),
     ReceivedNoData, // Connection closed?
-    StreamReceiveError(std::io::Error),
+    // StreamReceiveError(std::io::Error),
+    ProtocolDeviation, // Temporary?
 }
 
 /// Send a message as CBOR over the given stream.
-async fn send<T, S>(stream: &mut S, message: T) -> Result<(), ProtocolError>
+async fn send<S, T, U>(stream: &mut S, message: T) -> Result<(), ProtocolError>
 where
-    S: Stream<T>,
+    S: Stream<U>,
+    T: Into<U>,
     // T: Serialize,
 {
     // TODO: to_writer instead?
@@ -93,20 +97,23 @@ where
     //         Err(ProtocolError::SerializationError(err))
     //     }
     //     Ok(cbor) => {
-    match stream.send(message).await {
+    match stream.send(message.into()).await {
         Err(err) => {
             // TODO: Push the error up the stack instead of recording it here?
-            log::error!("Failed to send {}: {}", type_name::<T>(), err);
-            Err(ProtocolError::StreamSendError(err))
+            log::error!("Failed to send {}: {:?}", type_name::<T>(), err);
+            Err(err)
         }
         Ok(()) => Ok(()),
     }
 }
 
 /// Receive a message as CBOR from the given stream.
-async fn receive<S, T>(stream: &mut S) -> Result<T, ProtocolError>
+async fn receive<S, T, U>(stream: &mut S) -> Result<U, ProtocolError>
 where
     S: Stream<T>,
+    // U: TryFrom<T> + Debug,
+    U: Debug,
+    T: TryInto<U>
     // T: for<'a> Deserialize<'a>,
 {
     match stream.next().await {
@@ -115,8 +122,8 @@ where
             Err(ProtocolError::ReceivedNoData)
         }
         Some(Err(err)) => {
-            log::error!("Failed to receive data from peer: {}", err);
-            Err(ProtocolError::StreamReceiveError(err))
+            log::error!("Error while receiving data from peer: {:?}", err);
+            Err(err)
         }
         Some(Ok(msg)) => {
             // match serde_cbor::from_slice(&bytes) {
@@ -127,7 +134,16 @@ where
             //     }
             //     Ok(msg) => Ok(msg),
             // }
-            Ok(msg)
+            match msg.try_into() {
+                Err(err) => {
+                    log::error!("Received unexpected data from peer"); // : {:?}", err);
+                    Err(ProtocolError::ProtocolDeviation)
+                }
+                Ok(msg) => {
+                    log::debug!("Received data from peer: {:?}", msg);
+                    Ok(msg)
+                }
+            }
         }
     }
 

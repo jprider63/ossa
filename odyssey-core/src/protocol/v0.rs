@@ -15,10 +15,50 @@ pub type StoreMetadataBody = Send<StoreMetadataBodyRequest,Recv<ProtocolResult<S
 //
 
 // # Messages sent by protocols.
+#[derive(Debug)]
 pub enum MsgStoreMetadataHeader<TypeId, StoreId> {
     Request(StoreMetadataHeaderRequest<StoreId>),
     Response(StoreMetadataHeaderResponse<TypeId, StoreId>),
 }
+
+// impl<TypeId, StoreId> TryFrom<MsgStoreMetadataHeader<TypeId, StoreId>> for StoreMetadataHeaderRequest<StoreId> {
+//     type Error = ();
+//     fn try_from(x:MsgStoreMetadataHeader<TypeId, StoreId>) -> Result<Self, ()> {
+//         match x {
+//             MsgStoreMetadataHeader::Request(r) => Ok(r),
+//             MsgStoreMetadataHeader::Response(r) => Err(()),
+//         }
+//     }
+// }
+impl<TypeId, StoreId> Into<MsgStoreMetadataHeader<TypeId, StoreId>> for StoreMetadataHeaderRequest<StoreId> {
+    fn into(self) -> MsgStoreMetadataHeader<TypeId, StoreId> {
+        MsgStoreMetadataHeader::Request(self)
+    }
+}
+impl<TypeId, StoreId> Into<MsgStoreMetadataHeader<TypeId, StoreId>> for StoreMetadataHeaderResponse<TypeId, StoreId> {
+    fn into(self) -> MsgStoreMetadataHeader<TypeId, StoreId> {
+        MsgStoreMetadataHeader::Response(self)
+    }
+}
+impl<TypeId, StoreId> TryInto<StoreMetadataHeaderRequest<StoreId>> for MsgStoreMetadataHeader<TypeId, StoreId> {
+    type Error = ();
+    fn try_into(self) -> Result<StoreMetadataHeaderRequest<StoreId>, ()> {
+        match self {
+            MsgStoreMetadataHeader::Request(r) => Ok(r),
+            MsgStoreMetadataHeader::Response(_) => Err(()),
+        }
+    }
+}
+impl<TypeId, StoreId> TryInto<StoreMetadataHeaderResponse<TypeId, StoreId>> for MsgStoreMetadataHeader<TypeId, StoreId> {
+    type Error = ();
+    fn try_into(self) -> Result<StoreMetadataHeaderResponse<TypeId, StoreId>, ()> {
+        match self {
+            MsgStoreMetadataHeader::Response(r) => Ok(r),
+            MsgStoreMetadataHeader::Request(_) => Err(()),
+        }
+    }
+}
+
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct StoreMetadataHeaderRequest<StoreId> {

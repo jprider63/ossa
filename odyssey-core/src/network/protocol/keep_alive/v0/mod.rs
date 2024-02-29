@@ -11,7 +11,7 @@ pub type KeepAlive = Send<MsgKeepAliveRequest,Recv<MsgKeepAliveResponse, Eps>>;
 // TODO:
 // impl Protocol for KeepAlive {}
 
-enum MsgKeepAlive {
+pub enum MsgKeepAlive {
     Request(MsgKeepAliveRequest),
     Done(MsgKeepAliveDone),
     Response(MsgKeepAliveResponse),
