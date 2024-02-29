@@ -393,36 +393,48 @@ impl<Header: ECGHeader> ECGSyncMessage for MsgECGSyncResponse<Header> {
     }
 }
 
-impl<H:ECGHeader> Into<MsgECGSync<H>> for MsgECGSyncRequest<H> {
+impl<H: ECGHeader> Into<MsgECGSync<H>> for MsgECGSyncRequest<H> {
     fn into(self) -> MsgECGSync<H> {
         MsgECGSync::Request(self)
     }
 }
-impl<H:ECGHeader> Into<MsgECGSync<H>> for MsgECGSyncResponse<H> {
+impl<H: ECGHeader> Into<MsgECGSync<H>> for MsgECGSyncResponse<H> {
     fn into(self) -> MsgECGSync<H> {
         MsgECGSync::Response(self)
     }
 }
-impl<H:ECGHeader> Into<MsgECGSync<H>> for MsgECGSyncData<H> {
+impl<H: ECGHeader> Into<MsgECGSync<H>> for MsgECGSyncData<H> {
     fn into(self) -> MsgECGSync<H> {
         MsgECGSync::Sync(self)
     }
 }
-impl<H:ECGHeader> TryInto<MsgECGSyncRequest<H>> for MsgECGSync<H> {
+impl<H: ECGHeader> TryInto<MsgECGSyncRequest<H>> for MsgECGSync<H> {
     type Error = ();
     fn try_into(self) -> Result<MsgECGSyncRequest<H>, ()> {
-        todo!()
+        match self {
+            MsgECGSync::Request(r) => Ok(r),
+            MsgECGSync::Response(_) => Err(()),
+            MsgECGSync::Sync(_) => Err(()),
+        }
     }
 }
-impl<H:ECGHeader> TryInto<MsgECGSyncResponse<H>> for MsgECGSync<H> {
+impl<H: ECGHeader> TryInto<MsgECGSyncResponse<H>> for MsgECGSync<H> {
     type Error = ();
     fn try_into(self) -> Result<MsgECGSyncResponse<H>, ()> {
-        todo!()
+        match self {
+            MsgECGSync::Request(_) => Err(()),
+            MsgECGSync::Response(r) => Ok(r),
+            MsgECGSync::Sync(_) => Err(()),
+        }
     }
 }
-impl<H:ECGHeader> TryInto<MsgECGSyncData<H>> for MsgECGSync<H> {
+impl<H: ECGHeader> TryInto<MsgECGSyncData<H>> for MsgECGSync<H> {
     type Error = ();
     fn try_into(self) -> Result<MsgECGSyncData<H>, ()> {
-        todo!()
+        match self {
+            MsgECGSync::Request(_) => Err(()),
+            MsgECGSync::Response(_) => Err(()),
+            MsgECGSync::Sync(s) => Ok(s),
+        }
     }
 }

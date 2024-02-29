@@ -1,8 +1,8 @@
 use std::fmt::Debug;
 
-use crate::network::protocol::ecg_sync::v0::MsgECGSync;
 use crate::network::protocol::ecg_sync::v0::client::ecg_sync_client;
 use crate::network::protocol::ecg_sync::v0::server::ecg_sync_server;
+use crate::network::protocol::ecg_sync::v0::MsgECGSync;
 use crate::network::ConnectionManager;
 use crate::store::ecg::{self, ECGHeader};
 use crate::util::Channel;
@@ -28,15 +28,13 @@ impl ECGHeader for TestHeader {
 fn run_ecg_sync<Header: ECGHeader + Send + Clone + Debug>(
     st1: &mut ecg::State<Header>,
     st2: &mut ecg::State<Header>,
-)
-where
+) where
     <Header as ECGHeader>::HeaderId: Send,
 {
     async fn future<Header: ECGHeader + Send + Clone + Debug>(
         st1: &mut ecg::State<Header>,
         st2: &mut ecg::State<Header>,
-    )
-    where
+    ) where
         <Header as ECGHeader>::HeaderId: Send,
     {
         let store_id = 0_u64;

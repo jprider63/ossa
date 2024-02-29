@@ -89,6 +89,7 @@ pub enum ProtocolError {
     SerializationError(serde_cbor::Error),
     DeserializationError(serde_cbor::Error),
     // StreamSendError(std::io::Error),
+    StreamSendError,
     ReceivedNoData, // Connection closed?
     // StreamReceiveError(std::io::Error),
     ProtocolDeviation, // Temporary?
