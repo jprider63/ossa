@@ -5,8 +5,12 @@ use rand::{RngCore, rngs::OsRng};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fmt::Debug;
+use std::marker::PhantomData;
+use std::pin::Pin;
+use futures::task::{Context, Poll};
 
 use crate::store::Nonce;
+use crate::network::protocol::ProtocolError;
 
 /// Generate a random nonce.
 pub(crate) fn generate_nonce() -> Nonce {
@@ -64,17 +68,92 @@ impl Hash for Sha256Hash {
 }
 
 // TODO: Generalize the error and stream.
-pub trait Stream<T>: futures::Stream<Item=Result<BytesMut,std::io::Error>>
-    + futures::Sink<T, Error=std::io::Error>
+pub trait Stream<T>: 
+      futures::Stream<Item=Result<T,ProtocolError>> // Result<BytesMut,std::io::Error>>
+    + futures::Sink<T, Error=ProtocolError>
     + Unpin
     + Sync // JP: This is needed for async_recursion. Not sure if this makes sense in practice.
 {}
-// impl<T> Stream<T> for T
+
+// #[derive(Unpin)]
+// #[derive(Sync)]
+// TODO: Move this somewhere else
+pub struct TypedStream<S, T> {
+    stream: S,
+    phantom: PhantomData<T>,
+}
+
+// TODO: Why is this necessary?
+unsafe impl<S, T> Send for TypedStream<S, T>
+where
+    S: Send,
+{}
+// TODO: Why is this necessary?
+unsafe impl<S, T> Sync for TypedStream<S, T>
+where
+    S: Sync,
+{}
+// TODO: Why is this necessary?
+impl<S, T> Unpin for TypedStream<S, T>
+where
+    S: Unpin,
+{}
+
+impl<S, T> TypedStream<S, T> {
+    pub fn new(stream: S) -> TypedStream<S, T> {
+        TypedStream {
+            stream,
+            phantom: PhantomData,
+        }
+    }
+
+    pub fn finalize(self) -> S {
+        self.stream
+    }
+}
+
+impl<S, T> futures::Stream for TypedStream<S, T>
+where
+    S:futures::Stream<Item=Result<BytesMut,std::io::Error>>,
+{
+    type Item = Result<T,ProtocolError>;
+    fn poll_next(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<std::option::Option<<Self as futures::Stream>::Item>> { todo!() }
+}
+
+impl<S, T> futures::Sink<T> for TypedStream<S, T>
+where
+    S:futures::Sink<Bytes, Error=std::io::Error>,
+{
+    type Error = ProtocolError;
+
+    fn poll_ready(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> { todo!() }
+    fn start_send(self: Pin<&mut Self>, _: T) -> Result<(), <Self as futures::Sink<T>>::Error> { todo!() }
+    fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> { todo!() }
+    fn poll_close(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> { todo!() }
+}
+
+impl<S, T> Stream<T> for TypedStream<S, T>
+where
+    S:futures::Stream<Item=Result<BytesMut,std::io::Error>>,
+    S:futures::Sink<Bytes, Error=std::io::Error>,
+    S:Unpin,
+    S:Sync,
+{}
+
+
+// impl<S, T> Stream<T> for TypedStream<S>
 // where
-//     T:futures::Stream<Item=Result<BytesMut,std::io::Error>>,
-//     T:futures::Sink<Bytes, Error=std::io::Error>,
-//     T:Unpin,
-//     T:Sync,
+//     S:futures::Stream<Item=Result<BytesMut,std::io::Error>>,
+//     S:futures::Sink<Bytes, Error=std::io::Error>,
+//     S:Unpin,
+//     S:Sync,
+
+// impl<S, T> Stream<T> for S
+// where
+//     S:futures::Stream<Item=Result<BytesMut,std::io::Error>>,
+//     S:futures::Sink<Bytes, Error=std::io::Error>,
+//     S:Unpin,
+//     S:Sync,
 // {}
 
 // use futures::task::{Context, Poll};

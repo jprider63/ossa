@@ -75,7 +75,7 @@ pub struct MsgECGSyncRequest<Header:ECGHeader> {
 pub struct MsgECGSyncResponse<Header:ECGHeader> {
     /// Number of tips the server has.
     tip_count: u16,
-    /// `MsgECGSync` sync response.
+    /// `MsgECGSyncData` sync response.
     sync: MsgECGSyncData<Header>,
 }
 
@@ -283,7 +283,7 @@ where
     }
 }
 
-fn handle_received_ecg_sync<Header:ECGHeader>(sync_msg: MsgECGSync<Header>, state: &ecg::State<Header>, their_tips_remaining: &mut usize, their_tips: &mut Vec<Header::HeaderId>, their_known: &mut BTreeSet<Header::HeaderId>, send_queue: &mut BinaryHeap<(u64,Header::HeaderId)>, queue: &mut BinaryHeap<(bool, u64, Header::HeaderId, u64)>, haves: &mut Vec<Header::HeaderId>, headers: &mut Vec<Header>, known_bitmap: &mut HeaderBitmap)
+fn handle_received_ecg_sync<Header:ECGHeader>(sync_msg: MsgECGSyncData<Header>, state: &ecg::State<Header>, their_tips_remaining: &mut usize, their_tips: &mut Vec<Header::HeaderId>, their_known: &mut BTreeSet<Header::HeaderId>, send_queue: &mut BinaryHeap<(u64,Header::HeaderId)>, queue: &mut BinaryHeap<(bool, u64, Header::HeaderId, u64)>, haves: &mut Vec<Header::HeaderId>, headers: &mut Vec<Header>, known_bitmap: &mut HeaderBitmap)
 where
     Header::HeaderId: Copy + Ord,
     Header: Clone,
@@ -317,7 +317,7 @@ trait ECGSyncMessage {
     fn is_done(&self) -> bool;
 }
 
-impl<Header:ECGHeader> ECGSyncMessage for MsgECGSync<Header> {
+impl<Header:ECGHeader> ECGSyncMessage for MsgECGSyncData<Header> {
     fn is_done(&self) -> bool {
         self.have.len() == 0 && self.headers.len() == 0
     }

@@ -20,13 +20,15 @@ pub mod keep_alive;
 //     V0,
 // }
 
-pub(crate) fn run_handshake_server<TypeId, StoreId, S:Stream<MsgStoreMetadataHeader<TypeId, StoreId>>>(stream: &S) -> Version {
+type MsgHandshake = ();
+
+pub(crate) fn run_handshake_server<S:Stream<MsgHandshake>>(stream: &S) -> Version {
     // TODO: Implement this and make it abstract.
 
     Version::V0
 }
 
-pub(crate) fn run_handshake_client<TypeId, StoreId, S:Stream<MsgStoreMetadataHeader<TypeId, StoreId>>>(stream: &S) -> Version {
+pub(crate) fn run_handshake_client<S:Stream<MsgHandshake>>(stream: &S) -> Version {
     // TODO: Implement this and make it abstract.
 
     Version::V0
@@ -76,30 +78,28 @@ pub enum ProtocolError {
 }
 
 /// Send a message as CBOR over the given stream.
-async fn send<T, S>(stream: &mut S, message: &T) -> Result<(), ProtocolError>
+async fn send<T, S>(stream: &mut S, message: T) -> Result<(), ProtocolError>
 where
     S: Stream<T>,
-    T: Serialize,
+    // T: Serialize,
 {
     // TODO: to_writer instead?
     // serde_cbor::to_writer(&stream, &response);
-    match serde_cbor::to_vec(&message) {
+    // match serde_cbor::to_vec(&message) {
+    //     Err(err) => {
+    //         // TODO: Push the error up the stack instead of recording it here?
+    //         log::error!("Failed to serialize {}: {}", type_name::<T>(), err);
+    //         // TODO: Respond with failure message?
+    //         Err(ProtocolError::SerializationError(err))
+    //     }
+    //     Ok(cbor) => {
+    match stream.send(message).await {
         Err(err) => {
             // TODO: Push the error up the stack instead of recording it here?
-            log::error!("Failed to serialize {}: {}", type_name::<T>(), err);
-            // TODO: Respond with failure message?
-            Err(ProtocolError::SerializationError(err))
+            log::error!("Failed to send {}: {}", type_name::<T>(), err);
+            Err(ProtocolError::StreamSendError(err))
         }
-        Ok(cbor) => {
-            match stream.send(cbor.into()).await {
-                Err(err) => {
-                    // TODO: Push the error up the stack instead of recording it here?
-                    log::error!("Failed to send {}: {}", type_name::<T>(), err);
-                    Err(ProtocolError::StreamSendError(err))
-                }
-                Ok(()) => Ok(()),
-            }
-        }
+        Ok(()) => Ok(()),
     }
 }
 
@@ -107,7 +107,7 @@ where
 async fn receive<S, T>(stream: &mut S) -> Result<T, ProtocolError>
 where
     S: Stream<T>,
-    T: for<'a> Deserialize<'a>,
+    // T: for<'a> Deserialize<'a>,
 {
     match stream.next().await {
         None => {
@@ -118,15 +118,16 @@ where
             log::error!("Failed to receive data from peer: {}", err);
             Err(ProtocolError::StreamReceiveError(err))
         }
-        Some(Ok(bytes)) => {
-            match serde_cbor::from_slice(&bytes) {
-                Err(err) => {
-                    log::error!("Failed to parse {}: {}", type_name::<T>(), err);
-                    // TODO: Respond with failure message.
-                    Err(ProtocolError::DeserializationError(err))
-                }
-                Ok(msg) => Ok(msg),
-            }
+        Some(Ok(msg)) => {
+            // match serde_cbor::from_slice(&bytes) {
+            //     Err(err) => {
+            //         log::error!("Failed to parse {}: {}", type_name::<T>(), err);
+            //         // TODO: Respond with failure message.
+            //         Err(ProtocolError::DeserializationError(err))
+            //     }
+            //     Ok(msg) => Ok(msg),
+            // }
+            Ok(msg)
         }
     }
 

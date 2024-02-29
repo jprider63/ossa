@@ -14,6 +14,7 @@ use tokio_tower::multiplex;
 
 use crate::protocol::Version;
 use crate::network::protocol::{run_handshake_server, run_store_metadata_server};
+use crate::util::TypedStream;
 
 pub struct P2PManager {
     p2p_thread: thread::JoinHandle<()>,
@@ -26,7 +27,7 @@ pub struct P2PSettings {
 }
 
 impl P2PManager {
-    pub fn initialize<StoreId>(settings: P2PSettings) -> P2PManager
+    pub fn initialize<TypeId, StoreId>(settings: P2PSettings) -> P2PManager
     where
         StoreId:for<'a> Deserialize<'a> + Send + Debug,
     {
@@ -70,9 +71,12 @@ impl P2PManager {
                         // Handshake.
                         // Diffie Hellman?
                         // Authenticate peer's public key?
+                        let stream = TypedStream::new(stream);
                         let Version::V0 = run_handshake_server(&stream);
 
-                        run_store_metadata_server::<StoreId, codec::Framed<TcpStream, LengthDelimitedCodec>>(&mut stream).await.expect("TODO");
+                        let stream = TypedStream::new(stream.finalize());
+                        run_store_metadata_server::<TypeId, StoreId, _>(&mut stream).await.expect("TODO");
+                        // run_store_metadata_server::<TypeId, StoreId, codec::Framed<TcpStream, LengthDelimitedCodec>>(&mut stream).await.expect("TODO");
 
                         // // Handle peer requests.
                         // let service = Echo;
