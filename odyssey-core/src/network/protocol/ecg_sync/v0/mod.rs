@@ -198,13 +198,22 @@ fn handle_received_have<Header: ECGHeader>(
 // Handle (and verify) headers they sent to us.
 // Returns if all the headers were valid.
 fn handle_received_headers<Header: ECGHeader>(
-    state: &ecg::State<Header>,
+    state: &mut ecg::State<Header>,
     headers: Vec<Header>,
 ) -> bool {
-    // TODO:
-    // Verify header.
-    // Add to state.
-    unimplemented! {}
+    let mut all_valid = true;
+    for header in headers {
+        // TODO: XXX
+        // XXX
+        // Verify header.
+        // all_valid = all_valid && true;
+        // XXX
+
+        // Add to state.
+        state.insert_header(header);
+    }
+
+    all_valid
 }
 
 // Precondition: `state` contains header_id.
@@ -325,7 +334,7 @@ fn handle_received_known<Header: ECGHeader>(
 
 fn handle_received_ecg_sync<Header: ECGHeader>(
     sync_msg: MsgECGSyncData<Header>,
-    state: &ecg::State<Header>,
+    state: &mut ecg::State<Header>,
     their_tips_remaining: &mut usize,
     their_tips: &mut Vec<Header::HeaderId>,
     their_known: &mut BTreeSet<Header::HeaderId>,

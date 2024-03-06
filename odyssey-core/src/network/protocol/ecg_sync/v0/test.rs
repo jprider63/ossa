@@ -9,6 +9,7 @@ use crate::util::Channel;
 
 #[derive(Clone, Debug)]
 struct TestHeader {
+    header_id: u32,
     parent_ids: Vec<u32>,
 }
 
@@ -16,8 +17,12 @@ struct TestHeader {
 impl ECGHeader for TestHeader {
     type HeaderId = u32;
 
-    fn get_parent_ids(self: &Self) -> &[u32] {
+    fn get_parent_ids(&self) -> &[u32] {
         &self.parent_ids
+    }
+
+    fn get_header_id(&self) -> u32 {
+       self.header_id
     }
 
     fn validate_header(&self, header_id: Self::HeaderId) -> bool {
@@ -62,10 +67,11 @@ fn run_ecg_sync<Header: ECGHeader + Send + Clone + Debug>(
 fn add_ops(st: &mut ecg::State<TestHeader>, ops: &[(u32, &[u32])]) {
     for (header_id, parent_ids) in ops {
         let header = TestHeader {
+            header_id: *header_id,
             parent_ids: parent_ids.to_vec(),
         };
         assert!(
-            st.insert_header(*header_id, header),
+            st.insert_header(header),
             "Failed to insert header"
         );
     }

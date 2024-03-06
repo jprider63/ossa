@@ -13,7 +13,7 @@ use std::fmt::Debug;
 pub(crate) async fn ecg_sync_server<S: Stream<MsgECGSync<Header>>, StoreId, Header>(
     conn: &mut ConnectionManager<S>,
     store_id: &StoreId,
-    state: &ecg::State<Header>,
+    state: &mut ecg::State<Header>,
 ) -> Result<(), ECGSyncError>
 where
     Header: Clone + ECGHeader + Debug,

@@ -1,3 +1,5 @@
+use daggy::petgraph::visit::{EdgeRef, IntoEdgeReferences, IntoNodeReferences, NodeRef};
+use daggy::stable_dag::StableDag;
 use daggy::Walker;
 use std::cmp;
 use std::collections::{BTreeMap, BTreeSet};
@@ -12,6 +14,9 @@ pub trait ECGHeader {
     /// Return the parents ids of a node. If an empty slice is returned, the root node is the
     /// parent.
     fn get_parent_ids(&self) -> &[Self::HeaderId];
+
+    /// Computes the identifier of the header.
+    fn get_header_id(&self) -> Self::HeaderId;
 
     fn validate_header(&self, header_id: Self::HeaderId) -> bool;
 }
@@ -28,7 +33,7 @@ struct NodeInfo<Header> {
 
 #[derive(Clone, Debug)]
 pub struct State<Header: ECGHeader> {
-    dependency_graph: daggy::stable_dag::StableDag<Header::HeaderId, ()>, // JP: Hold the operations? Depth? Do we need StableDag?
+    dependency_graph: StableDag<Header::HeaderId, ()>, // JP: Hold the operations? Depth? Do we need StableDag?
 
     /// Nodes at the top of the DAG that depend on the initial state.
     root_nodes: BTreeSet<Header::HeaderId>,
@@ -42,7 +47,7 @@ pub struct State<Header: ECGHeader> {
 
 impl<Header: ECGHeader> State<Header> {
     pub fn new() -> State<Header> {
-        let mut dependency_graph = daggy::stable_dag::StableDag::new();
+        let mut dependency_graph = StableDag::new();
 
         State {
             dependency_graph,
@@ -131,7 +136,9 @@ impl<Header: ECGHeader> State<Header> {
         self.node_info_map.get(n).map(|i| i.depth)
     }
 
-    pub fn insert_header(&mut self, header_id: Header::HeaderId, header: Header) -> bool {
+    pub fn insert_header(&mut self, header: Header) -> bool {
+        let header_id = header.get_header_id();
+
         // Validate header.
         if !header.validate_header(header_id) {
             return false;
@@ -205,6 +212,29 @@ impl<Header: ECGHeader> State<Header> {
 }
 
 /// Tests whether two ecg states have the same DAG.
-pub(crate) fn equal_dags<Header: ECGHeader>(l: &State<Header>, r: &State<Header>) -> bool {
-    unimplemented!()
+#[cfg(test)]
+pub(crate) fn equal_dags<Header: ECGHeader>(l: &State<Header>, r: &State<Header>) -> bool
+where
+    Header::HeaderId: Copy,
+{
+    let edges = |g: &StableDag<Header::HeaderId, ()>| {
+        g.edge_references().map(|e| {
+            let n1 = g.node_weight(e.source()).unwrap();
+            let n2 = g.node_weight(e.target()).unwrap();
+            (*n1, *n2)
+        }).collect()
+    };
+    let nodes = |g: &StableDag<Header::HeaderId, ()>| {
+        g.node_references().map(|n| *n.weight()).collect()
+    };
+
+    let node_set_left: BTreeSet<_> = nodes(&l.dependency_graph);
+    let node_set_right = nodes(&r.dependency_graph);
+    let edge_set_left: BTreeSet<_> = edges(&l.dependency_graph);
+    let edge_set_right = edges(&r.dependency_graph);
+
+       l.root_nodes == r.root_nodes
+    && l.tips == r.tips
+    && edge_set_left == edge_set_right
+    && node_set_left == node_set_right
 }
