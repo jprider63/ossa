@@ -176,7 +176,9 @@ impl<Header: ECGHeader> State<Header> {
                 .try_collect::<Vec<daggy::NodeIndex>>()
             {
                 // Update tip if any of the parents where previously a tip.
-                let any_parent_was_tip = parents.iter().any(|parent_id| self.tips.remove(parent_id));
+                let any_parent_was_tip = parents.iter().fold(false, |acc, parent_id| {
+                    self.tips.remove(parent_id) || acc
+                });
                 if any_parent_was_tip {
                     self.tips.insert(header_id);
                 }
