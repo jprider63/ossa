@@ -159,6 +159,9 @@ impl<Header: ECGHeader> State<Header> {
                 return false;
             }
 
+            // Update tips since the new node is a leaf.
+            self.tips.insert(header_id);
+
             (vec![], 1)
         } else {
             let mut depth = u64::MAX;
@@ -172,17 +175,17 @@ impl<Header: ECGHeader> State<Header> {
                 })
                 .try_collect::<Vec<daggy::NodeIndex>>()
             {
+                // Update tip if any of the parents where previously a tip.
+                let any_parent_was_tip = parents.iter().any(|parent_id| self.tips.remove(parent_id));
+                if any_parent_was_tip {
+                    self.tips.insert(header_id);
+                }
+
                 (parent_idxs, depth + 1)
             } else {
                 return false;
             }
         };
-
-        // Update tip if any of the parents where previously a tip.
-        let any_parent_was_tip = parents.iter().any(|parent_id| self.tips.remove(parent_id));
-        if any_parent_was_tip {
-            self.tips.insert(header_id);
-        }
 
         // Insert node and store its index in `node_idx_map`.
         // JP: We really want an `add_child` function that takes multiple parents.
