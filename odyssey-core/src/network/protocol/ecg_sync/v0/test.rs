@@ -86,7 +86,13 @@ fn test_helper(common: &[(u32, &[u32])], left: &[(u32, &[u32])], right: &[(u32, 
     add_ops(&mut left_tree, left);
     add_ops(&mut right_tree, right);
 
+    crate::store::ecg::print_dag(&left_tree);
+    crate::store::ecg::print_dag(&right_tree);
+
     run_ecg_sync(&mut left_tree, &mut right_tree);
+
+    crate::store::ecg::print_dag(&left_tree);
+    crate::store::ecg::print_dag(&right_tree);
 
     assert!(ecg::equal_dags(&left_tree, &right_tree));
 }

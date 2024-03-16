@@ -247,3 +247,25 @@ where
     && edge_set_left == edge_set_right
     && node_set_left == node_set_right
 }
+
+#[cfg(test)]
+pub(crate) fn print_dag<Header: ECGHeader>(s: &State<Header>) {
+    use petgraph::dot::{Dot, Config};
+    use petgraph::stable_graph::StableDiGraph;
+
+    let mut g = s.dependency_graph.map(|_i, n| {
+        format!("{:?}", n)
+    }, |_i, e| {
+        e
+    });
+
+    // Add root node.
+    let root = g.add_node("".to_string());
+    for n in &s.root_nodes {
+        g.add_edge(root, s.node_info_map[n].graph_index, &());
+    }
+
+    let g: StableDiGraph<_,_> = g.into();
+    let d = Dot::with_config(&g, &[Config::EdgeNoLabel]);
+    println!("{:?}", d);
+}
