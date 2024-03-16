@@ -331,10 +331,13 @@ fn handle_received_known<Header: ECGHeader>(
             // Send children if they know this node.
             let children = state.get_children_with_depth(&header_id).expect("Unreachable since we sent this header.");
             send_queue.extend(children);
-        } else if state.is_root_node(header_id) {
-            // Send the node if it's a root and they don't know it.
-            let depth = state.get_header_depth(header_id).expect("Unreachable since we sent this header.");
-            send_queue.push((Reverse(depth), *header_id));
+        } else {
+            let parents = state.get_parents(header_id).expect("Unreachable since we sent this header.");
+            // Send the node if they don't know it and they know all its parents (including if it's a root node).
+            if state.is_root_node(header_id) || parents.iter().all(|p| their_known.contains(p)) {
+                let depth = state.get_header_depth(header_id).expect("Unreachable since we sent this header.");
+                send_queue.push((Reverse(depth), *header_id));
+            }
         }
 
         // let is_root_node = state.is_root_node(header_id);
