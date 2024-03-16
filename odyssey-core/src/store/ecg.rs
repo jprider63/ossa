@@ -179,13 +179,12 @@ impl<Header: ECGHeader> State<Header> {
                 })
                 .try_collect::<Vec<daggy::NodeIndex>>()
             {
-                // Update tip if any of the parents were previously a tip.
-                let any_parent_was_tip = parents.iter().fold(false, |acc, parent_id| {
-                    self.tips.remove(parent_id) || acc
+                // If any parents were previously a tip, remove from tips.
+                parents.iter().for_each(|parent_id| {
+                    self.tips.remove(parent_id);
                 });
-                if any_parent_was_tip {
-                    self.tips.insert(header_id);
-                }
+                // Insert as tip since received headers must (currently) be a leaf.
+                self.tips.insert(header_id);
 
                 (parent_idxs, depth + 1)
             } else {
