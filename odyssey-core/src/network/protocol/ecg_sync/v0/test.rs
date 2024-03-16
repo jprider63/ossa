@@ -22,7 +22,7 @@ impl ECGHeader for TestHeader {
     }
 
     fn get_header_id(&self) -> u32 {
-       self.header_id
+        self.header_id
     }
 
     fn validate_header(&self, header_id: Self::HeaderId) -> bool {
@@ -70,10 +70,7 @@ fn add_ops(st: &mut ecg::State<TestHeader>, ops: &[(u32, &[u32])]) {
             header_id: *header_id,
             parent_ids: parent_ids.to_vec(),
         };
-        assert!(
-            st.insert_header(header),
-            "Failed to insert header"
-        );
+        assert!(st.insert_header(header), "Failed to insert header");
     }
 }
 

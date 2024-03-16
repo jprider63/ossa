@@ -294,7 +294,9 @@ fn prepare_headers<Header: ECGHeader>(
             }
 
             // Add children to queue.
-            let children = state.get_children_with_depth(&header_id).expect("Unreachable since we proposed this header.");
+            let children = state
+                .get_children_with_depth(&header_id)
+                .expect("Unreachable since we proposed this header.");
             send_queue.extend(children);
 
             go(state, send_queue, their_known, headers)
@@ -327,15 +329,21 @@ fn handle_received_known<Header: ECGHeader>(
         if they_know {
             // Mark header as known by them.
             mark_as_known(state, their_known, *header_id);
-            
+
             // Send children if they know this node.
-            let children = state.get_children_with_depth(&header_id).expect("Unreachable since we sent this header.");
+            let children = state
+                .get_children_with_depth(&header_id)
+                .expect("Unreachable since we sent this header.");
             send_queue.extend(children);
         } else {
-            let parents = state.get_parents(header_id).expect("Unreachable since we sent this header.");
+            let parents = state
+                .get_parents(header_id)
+                .expect("Unreachable since we sent this header.");
             // Send the node if they don't know it and they know all its parents (including if it's a root node).
             if state.is_root_node(header_id) || parents.iter().all(|p| their_known.contains(p)) {
-                let depth = state.get_header_depth(header_id).expect("Unreachable since we sent this header.");
+                let depth = state
+                    .get_header_depth(header_id)
+                    .expect("Unreachable since we sent this header.");
                 send_queue.push((Reverse(depth), *header_id));
             }
         }

@@ -227,37 +227,36 @@ where
     Header::HeaderId: Copy,
 {
     let edges = |g: &StableDag<Header::HeaderId, ()>| {
-        g.edge_references().map(|e| {
-            let n1 = g.node_weight(e.source()).unwrap();
-            let n2 = g.node_weight(e.target()).unwrap();
-            (*n1, *n2)
-        }).collect()
+        g.edge_references()
+            .map(|e| {
+                let n1 = g.node_weight(e.source()).unwrap();
+                let n2 = g.node_weight(e.target()).unwrap();
+                (*n1, *n2)
+            })
+            .collect()
     };
-    let nodes = |g: &StableDag<Header::HeaderId, ()>| {
-        g.node_references().map(|n| *n.weight()).collect()
-    };
+    let nodes =
+        |g: &StableDag<Header::HeaderId, ()>| g.node_references().map(|n| *n.weight()).collect();
 
     let node_set_left: BTreeSet<_> = nodes(&l.dependency_graph);
     let node_set_right = nodes(&r.dependency_graph);
     let edge_set_left: BTreeSet<_> = edges(&l.dependency_graph);
     let edge_set_right = edges(&r.dependency_graph);
 
-       l.root_nodes == r.root_nodes
-    && l.tips == r.tips
-    && edge_set_left == edge_set_right
-    && node_set_left == node_set_right
+    l.root_nodes == r.root_nodes
+        && l.tips == r.tips
+        && edge_set_left == edge_set_right
+        && node_set_left == node_set_right
 }
 
 #[cfg(test)]
 pub(crate) fn print_dag<Header: ECGHeader>(s: &State<Header>) {
-    use petgraph::dot::{Dot, Config};
+    use petgraph::dot::{Config, Dot};
     use petgraph::stable_graph::StableDiGraph;
 
-    let mut g = s.dependency_graph.map(|_i, n| {
-        format!("{:?}", n)
-    }, |_i, e| {
-        e
-    });
+    let mut g = s
+        .dependency_graph
+        .map(|_i, n| format!("{:?}", n), |_i, e| e);
 
     // Add root node.
     let root = g.add_node("".to_string());
@@ -265,7 +264,7 @@ pub(crate) fn print_dag<Header: ECGHeader>(s: &State<Header>) {
         g.add_edge(root, s.node_info_map[n].graph_index, &());
     }
 
-    let g: StableDiGraph<_,_> = g.into();
+    let g: StableDiGraph<_, _> = g.into();
     let d = Dot::with_config(&g, &[Config::EdgeNoLabel]);
     println!("{:?}", d);
 }
