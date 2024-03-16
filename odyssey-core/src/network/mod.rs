@@ -65,7 +65,9 @@ impl<S> ConnectionManager<S> {
     where
         S: Stream<T>,
         U: Into<T>,
+        U: Debug,
     {
+        println!("send: {:?}", val);
         send(&mut self.connection, val).await.expect("TODO")
     }
 
@@ -75,7 +77,9 @@ impl<S> ConnectionManager<S> {
         T: TryInto<U>,
         U: Debug,
     {
-        receive(&mut self.connection).await.expect("TODO")
+        let x = receive(&mut self.connection).await.expect("TODO");
+        println!("receive: {:?}", x);
+        x
     }
 }
 

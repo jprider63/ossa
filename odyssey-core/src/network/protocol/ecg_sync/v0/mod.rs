@@ -335,6 +335,7 @@ fn handle_received_known<Header: ECGHeader>(
             let parents = state.get_parents(header_id).expect("Unreachable since we sent this header.");
             // Send the node if they don't know it and they know all its parents (including if it's a root node).
             if state.is_root_node(header_id) || parents.iter().all(|p| their_known.contains(p)) {
+                // TODO: Send all children of the parents XXX
                 let depth = state.get_header_depth(header_id).expect("Unreachable since we sent this header.");
                 send_queue.push((Reverse(depth), *header_id));
             }
