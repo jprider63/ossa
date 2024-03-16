@@ -43,7 +43,7 @@ where
         &mut their_tips_remaining,
         &mut their_tips,
         &mut their_known,
-        &mut send_queue,
+        // &mut send_queue,
         &request.have,
         &mut known_bitmap,
     );

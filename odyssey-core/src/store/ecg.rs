@@ -1,7 +1,7 @@
 use daggy::petgraph::visit::{EdgeRef, IntoEdgeReferences, IntoNodeReferences, NodeRef};
 use daggy::stable_dag::StableDag;
 use daggy::Walker;
-use std::cmp;
+use std::cmp::{self, Reverse};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
 
@@ -61,6 +61,10 @@ impl<Header: ECGHeader> State<Header> {
         &self.tips
     }
 
+    pub fn is_root_node(&self, h: &Header::HeaderId) -> bool {
+        self.root_nodes.contains(h)
+    }
+
     /// Returns the parents of the given node (with their depths) if it exists. If the returned array is
     /// empty, the node is a root node.
     pub fn get_parents_with_depth(
@@ -99,7 +103,7 @@ impl<Header: ECGHeader> State<Header> {
     pub fn get_children_with_depth(
         &self,
         h: &Header::HeaderId,
-    ) -> Option<Vec<(u64, Header::HeaderId)>> {
+    ) -> Option<Vec<(Reverse<u64>, Header::HeaderId)>> {
         let node_info = self.node_info_map.get(h)?;
         self.dependency_graph
             .children(node_info.graph_index)
@@ -110,7 +114,7 @@ impl<Header: ECGHeader> State<Header> {
                     .and_then(|child_id| {
                         self.node_info_map
                             .get(child_id)
-                            .map(|i| (i.depth, *child_id))
+                            .map(|i| (Reverse(i.depth), *child_id))
                     })
             })
             .try_collect()
@@ -175,7 +179,7 @@ impl<Header: ECGHeader> State<Header> {
                 })
                 .try_collect::<Vec<daggy::NodeIndex>>()
             {
-                // Update tip if any of the parents where previously a tip.
+                // Update tip if any of the parents were previously a tip.
                 let any_parent_was_tip = parents.iter().fold(false, |acc, parent_id| {
                     self.tips.remove(parent_id) || acc
                 });
@@ -185,6 +189,7 @@ impl<Header: ECGHeader> State<Header> {
 
                 (parent_idxs, depth + 1)
             } else {
+                // They sent us a header when we don't know the parent.
                 return false;
             }
         };

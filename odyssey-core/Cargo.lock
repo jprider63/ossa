@@ -441,6 +441,7 @@ dependencies = [
  "futures",
  "futures-channel",
  "log",
+ "petgraph",
  "rand",
  "serde",
  "serde_cbor",

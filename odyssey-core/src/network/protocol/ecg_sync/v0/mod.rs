@@ -1,6 +1,7 @@
 use crate::store::ecg::{self, ECGHeader};
 use async_session_types::{Eps, Recv, Send};
 use bitvec::{order::Msb0, BitArr};
+use std::cmp::Reverse;
 use std::num::TryFromIntError;
 
 pub mod client;
@@ -163,7 +164,7 @@ fn handle_received_have<Header: ECGHeader>(
     their_tips_remaining: &mut usize,
     their_tips: &mut Vec<Header::HeaderId>,
     their_known: &mut BTreeSet<Header::HeaderId>,
-    send_queue: &mut BinaryHeap<(u64, Header::HeaderId)>,
+    // send_queue: &mut BinaryHeap<(u64, Header::HeaderId)>,
     have: &Vec<Header::HeaderId>,
     known_bitmap: &mut HeaderBitmap,
 ) where
@@ -184,13 +185,14 @@ fn handle_received_have<Header: ECGHeader>(
             // Respond with which headers we know.
             known_bitmap.set(i, true);
 
-            // If we know the header, potentially send the children of that header.
-            if let Some(children) = state.get_children_with_depth(&header_id) {
-                send_queue.extend(children);
-            } else {
-                // TODO XXX
-                todo!("Do we need to do anything?")
-            }
+            // TODO: Do we actually need this? XXX
+            // // If we know the header, potentially send the children of that header.
+            // if let Some(children) = state.get_children_with_depth(&header_id) {
+            //     send_queue.extend(children);
+            // } else {
+            //     // TODO XXX
+            //     todo!("Do we need to do anything?")
+            // }
         }
     }
 }
@@ -255,7 +257,7 @@ fn mark_as_known<Header: ECGHeader>(
 // Build the headers we will send to the peer.
 fn prepare_headers<Header: ECGHeader>(
     state: &ecg::State<Header>,
-    send_queue: &mut BinaryHeap<(u64, Header::HeaderId)>,
+    send_queue: &mut BinaryHeap<(Reverse<u64>, Header::HeaderId)>,
     their_known: &mut BTreeSet<Header::HeaderId>,
     headers: &mut Vec<Header>,
 ) where
@@ -264,7 +266,7 @@ fn prepare_headers<Header: ECGHeader>(
 {
     fn go<Header: ECGHeader>(
         state: &ecg::State<Header>,
-        send_queue: &mut BinaryHeap<(u64, Header::HeaderId)>,
+        send_queue: &mut BinaryHeap<(Reverse<u64>, Header::HeaderId)>,
         their_known: &mut BTreeSet<Header::HeaderId>,
         headers: &mut Vec<Header>,
     ) where
@@ -292,12 +294,8 @@ fn prepare_headers<Header: ECGHeader>(
             }
 
             // Add children to queue.
-            if let Some(children) = state.get_children_with_depth(&header_id) {
-                send_queue.extend(children);
-            } else {
-                // TODO XXX
-                todo!("unreachable?")
-            }
+            let children = state.get_children_with_depth(&header_id).expect("Unreachable since we proposed this header.");
+            send_queue.extend(children);
 
             go(state, send_queue, their_known, headers)
         }
@@ -317,18 +315,45 @@ fn handle_received_known<Header: ECGHeader>(
     their_known: &mut BTreeSet<Header::HeaderId>,
     sent_haves: &Vec<Header::HeaderId>,
     received_known: &HeaderBitmap,
+    send_queue: &mut BinaryHeap<(Reverse<u64>, Header::HeaderId)>,
 ) where
     Header::HeaderId: Copy + Ord,
 {
     for (i, header_id) in sent_haves.iter().enumerate() {
         // Check if they claimed they know this header.
-        if *received_known
+        let they_know = *received_known
             .get(i)
-            .expect("Unreachable since we're iterating of the headers we sent.")
-        {
+            .expect("Unreachable since we're iterating on the headers we sent.");
+        if they_know {
             // Mark header as known by them.
             mark_as_known(state, their_known, *header_id);
+            
+            // Send children if they know this node.
+            let children = state.get_children_with_depth(&header_id).expect("Unreachable since we sent this header.");
+            send_queue.extend(children);
+        } else if state.is_root_node(header_id) {
+            // Send the node if it's a root and they don't know it.
+            let depth = state.get_header_depth(header_id).expect("Unreachable since we sent this header.");
+            send_queue.push((Reverse(depth), *header_id));
         }
+
+        // let is_root_node = state.is_root_node(header_id);
+        // match (they_know, is_root_node) {
+        //     (false, true) => {
+        //         // Send the node if it's a root and they don't know it.
+        //         send_queue.push(header_id);
+        //     }
+        //     (true, true) => {
+        //         // Send children if it's a root node and they know it.
+        //         send children
+        //     }
+        //     (true, false) => {
+        //         // send children if they know this
+        //     }
+        //     (false, false) => {
+        //         // Do nothing.
+        //     }
+        // }
     }
 }
 
@@ -338,7 +363,7 @@ fn handle_received_ecg_sync<Header: ECGHeader>(
     their_tips_remaining: &mut usize,
     their_tips: &mut Vec<Header::HeaderId>,
     their_known: &mut BTreeSet<Header::HeaderId>,
-    send_queue: &mut BinaryHeap<(u64, Header::HeaderId)>,
+    send_queue: &mut BinaryHeap<(Reverse<u64>, Header::HeaderId)>,
     queue: &mut BinaryHeap<(bool, u64, Header::HeaderId, u64)>,
     haves: &mut Vec<Header::HeaderId>,
     headers: &mut Vec<Header>,
@@ -353,7 +378,7 @@ fn handle_received_ecg_sync<Header: ECGHeader>(
     // XXX
 
     // Record which headers they say they already know.
-    handle_received_known(state, their_known, haves, &sync_msg.known);
+    handle_received_known(state, their_known, haves, &sync_msg.known, send_queue);
 
     // Receive (and verify) the headers they sent to us
     let all_valid = handle_received_headers(state, sync_msg.headers);
@@ -367,7 +392,7 @@ fn handle_received_ecg_sync<Header: ECGHeader>(
         their_tips_remaining,
         their_tips,
         their_known,
-        send_queue,
+        // send_queue,
         &sync_msg.have,
         known_bitmap,
     );
