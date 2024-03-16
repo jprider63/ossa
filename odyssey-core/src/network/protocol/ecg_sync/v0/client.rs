@@ -1,20 +1,27 @@
-
-use crate::network::{ConnectionManager};
-use crate::network::protocol::ecg_sync::v0::{ECGSyncMessage, ECGSyncError, HeaderBitmap, MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS, MsgECGSync, MsgECGSyncRequest, MsgECGSyncResponse, handle_received_ecg_sync, handle_received_have, handle_received_headers, handle_received_known, prepare_haves, prepare_headers, ecg};
+use crate::network::protocol::ecg_sync::v0::{
+    ecg, handle_received_ecg_sync, handle_received_have, handle_received_headers,
+    handle_received_known, prepare_haves, prepare_headers, ECGSyncError, ECGSyncMessage,
+    HeaderBitmap, MsgECGSync, MsgECGSyncData, MsgECGSyncRequest, MsgECGSyncResponse,
+    MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS,
+};
+use crate::network::ConnectionManager;
 use crate::store::ecg::ECGHeader;
 use crate::util::Stream;
 use std::cmp::min;
-use std::collections::{BinaryHeap, BTreeSet};
-
-
+use std::collections::{BTreeSet, BinaryHeap};
+use std::fmt::Debug;
 
 // TODO: Have this utilize session types.
 /// Sync the headers of the eventual consistency graph.
 /// Finds the least common ancestor (meet) of the graphs.
 /// Then we share/receive all the known headers after that point (in batches of size 32).
-pub(crate) async fn ecg_sync_client<S:Stream, StoreId, Header>(conn: &ConnectionManager<S>, store_id: &StoreId, state: &ecg::State<Header>) -> Result<(), ECGSyncError>
+pub(crate) async fn ecg_sync_client<S: Stream<MsgECGSync<Header>>, StoreId, Header>(
+    conn: &mut ConnectionManager<S>,
+    store_id: &StoreId,
+    state: &mut ecg::State<Header>,
+) -> Result<(), ECGSyncError>
 where
-    Header: Clone + ECGHeader,
+    Header: Clone + ECGHeader + Debug,
 {
     // TODO:
     // - Get cached peer state.
@@ -50,12 +57,11 @@ where
     // let mut sync_state = ECGSyncState::new(our_tips);
     // let haves = sync_state.initial_request();
 
-
     // Send any remaining tips. This is a no-op when our_tips_c_remaining is 0;
     // let i = usize::from(our_tips_c) - our_tips_c_remaining;
     // haves.extend_from_slice(&our_tips[i..i+MAX_HAVE_HEADERS]);
     // our_tips_c_remaining = our_tips_c_remaining - haves.len();
-    
+
     // TODO: Fill remaining slots in `haves` with ancestors.
     // - Order tips by depth (priority queue?).
     // - BFS to send ancestors (at exponential depths, ex: 0, 1, 2, 4, 8) until slots are
@@ -80,7 +86,7 @@ where
     done = done && response.is_done();
 
     let their_tips_c = response.tip_count;
-    let mut their_tips:Vec<Header::HeaderId> = Vec::with_capacity(usize::from(their_tips_c));
+    let mut their_tips: Vec<Header::HeaderId> = Vec::with_capacity(usize::from(their_tips_c));
     let mut their_tips_remaining = usize::from(their_tips_c);
 
     // Queue of headers to potentially send.
@@ -88,10 +94,20 @@ where
     let mut send_queue = BinaryHeap::new();
 
     let mut headers = Vec::with_capacity(MAX_DELIVER_HEADERS.into());
-    let mut known_bitmap = HeaderBitmap::new([0;4]); // TODO: MAX_HAVE_HEADERS/8?
+    let mut known_bitmap = HeaderBitmap::new([0; 4]); // TODO: MAX_HAVE_HEADERS/8?
 
-    handle_received_ecg_sync(response.sync, state, &mut their_tips_remaining, &mut their_tips, &mut their_known, &mut send_queue, &mut queue, &mut haves, &mut headers, &mut known_bitmap);
-
+    handle_received_ecg_sync(
+        response.sync,
+        state,
+        &mut their_tips_remaining,
+        &mut their_tips,
+        &mut their_known,
+        &mut send_queue,
+        &mut queue,
+        &mut haves,
+        &mut headers,
+        &mut known_bitmap,
+    );
 
     // // Receive (and verify) the headers they sent to us
     // let all_valid = handle_received_headers(state, response.sync.headers);
@@ -108,25 +124,33 @@ where
     // // Propose headers we have.
     // prepare_haves(state, &mut queue, &their_known, &mut haves);
 
-
     while !done {
-
         // Send sync msg
-        let send_sync_msg: MsgECGSync<Header> = MsgECGSync {
+        let send_sync_msg: MsgECGSyncData<Header> = MsgECGSyncData {
             have: haves.clone(), // TODO: Avoid this clone. // .iter().map(|x| x.0).collect(),
             known: known_bitmap,
             headers: headers.clone(), // TODO: Skip this clone.
         };
         done = send_sync_msg.is_done();
         conn.send(send_sync_msg).await;
-        
+
         // Receive sync msg
-        let received_sync_msg: MsgECGSync<Header> = conn.receive().await;
+        let received_sync_msg: MsgECGSyncData<Header> = conn.receive().await;
         done = done && received_sync_msg.is_done();
 
-        handle_received_ecg_sync(received_sync_msg, state, &mut their_tips_remaining, &mut their_tips, &mut their_known, &mut send_queue, &mut queue, &mut haves, &mut headers, &mut known_bitmap);
+        handle_received_ecg_sync(
+            received_sync_msg,
+            state,
+            &mut their_tips_remaining,
+            &mut their_tips,
+            &mut their_known,
+            &mut send_queue,
+            &mut queue,
+            &mut haves,
+            &mut headers,
+            &mut known_bitmap,
+        );
     }
 
     Ok(())
 }
-

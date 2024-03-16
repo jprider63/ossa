@@ -1,11 +1,13 @@
 pub mod p2p;
 pub mod protocol;
 
+use std::fmt::Debug;
+
+use crate::network::protocol::{receive, send};
 use crate::store;
 use crate::util::Stream;
 
-pub struct ManagerSettings {
-}
+pub struct ManagerSettings {}
 
 /// Network manager.
 pub struct Manager {
@@ -18,18 +20,20 @@ impl Manager {
         // Start listening on port.
         // Start DHT.
 
-        Manager {
-            settings
-        }
+        Manager { settings }
     }
 
-    // 
-    pub fn createAndConnectToStore<TypeId, H>(store_metadata: store::MetadataHeader<TypeId, H>) -> Result<(), String> { // TODO: async API that pushes errors, applied operations, connection/peer info, etc to a queue?
-        unimplemented!{}
+    //
+    pub fn createAndConnectToStore<TypeId, H>(
+        store_metadata: store::MetadataHeader<TypeId, H>,
+    ) -> Result<(), String> {
+        // TODO: async API that pushes errors, applied operations, connection/peer info, etc to a queue?
+        unimplemented! {}
     }
 
-    pub fn connectToStoreById<Id>(store_metadata: Id) -> Result<(), String> { // TODO: async API that pushes errors to a queue?
-        // TODO: 
+    pub fn connectToStoreById<Id>(store_metadata: Id) -> Result<(), String> {
+        // TODO: async API that pushes errors to a queue?
+        // TODO:
         // Lookup id on DHT to retrieve peers
         // Manage peers
         // Retrieve MetadataHeader if we don't have it.
@@ -37,32 +41,41 @@ impl Manager {
         // Sync any data
         // Propagate that data asyncronously
         // Store any updates to the file system
-        unimplemented!{}
+        unimplemented! {}
     }
 }
 
 // Manage a connection with a peer.
-pub struct ConnectionManager<S:Stream> {
+// TODO: Switch everything to use a ConnectionManager or get rid of it.
+pub struct ConnectionManager<S> {
+    // }:Stream> {
     connection: S,
 }
 
-impl<S:Stream> ConnectionManager<S> {
+impl<S> ConnectionManager<S> {
     pub fn new(connection: S) -> ConnectionManager<S> {
-        ConnectionManager {
-            connection,
-        }
+        ConnectionManager { connection }
     }
     /// Retrieve the connection status.
     pub async fn connection_status(&self) -> ConnectionStatus {
         ConnectionStatus::Active
     }
 
-    pub async fn send<T>(&self, val: T) {
-        println!("TODO: send");
+    pub async fn send<T, U>(&mut self, val: U)
+    where
+        S: Stream<T>,
+        U: Into<T>,
+    {
+        send(&mut self.connection, val).await.expect("TODO")
     }
 
-    pub async fn receive<T>(&self) -> T {
-        unimplemented!();
+    pub async fn receive<T, U>(&mut self) -> U
+    where
+        S: Stream<T>,
+        T: TryInto<U>,
+        U: Debug,
+    {
+        receive(&mut self.connection).await.expect("TODO")
     }
 }
 
@@ -71,4 +84,3 @@ pub enum ConnectionStatus {
     Active,
     Done,
 }
-

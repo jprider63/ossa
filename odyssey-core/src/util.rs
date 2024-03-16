@@ -1,11 +1,14 @@
-
-use bytes::{Bytes,BytesMut};
+use bytes::{Bytes, BytesMut};
 use futures;
-use rand::{RngCore, rngs::OsRng};
+use futures::task::{Context, Poll};
+use rand::{rngs::OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fmt::Debug;
+use std::marker::PhantomData;
+use std::pin::Pin;
 
+use crate::network::protocol::ProtocolError;
 use crate::store::Nonce;
 
 /// Generate a random nonce.
@@ -64,28 +67,111 @@ impl Hash for Sha256Hash {
 }
 
 // TODO: Generalize the error and stream.
-pub trait Stream: futures::Stream<Item=Result<BytesMut,std::io::Error>>
-    + futures::Sink<Bytes, Error=std::io::Error>
+pub trait Stream<T>:
+      futures::Stream<Item=Result<T,ProtocolError>> // Result<BytesMut,std::io::Error>>
+    + futures::Sink<T, Error=ProtocolError>
     + Unpin
+    + Send // JP: This is needed for async_recursion. Not sure if this makes sense in practice.
     + Sync // JP: This is needed for async_recursion. Not sure if this makes sense in practice.
 {}
-impl<T> Stream for T
+
+// #[derive(Unpin)]
+// #[derive(Sync)]
+// TODO: Move this somewhere else
+pub struct TypedStream<S, T> {
+    stream: S,
+    phantom: PhantomData<T>,
+}
+
+// TODO: Why is this necessary?
+unsafe impl<S, T> Send for TypedStream<S, T> where S: Send {}
+// TODO: Why is this necessary?
+unsafe impl<S, T> Sync for TypedStream<S, T> where S: Sync {}
+// TODO: Why is this necessary?
+impl<S, T> Unpin for TypedStream<S, T> where S: Unpin {}
+
+impl<S, T> TypedStream<S, T> {
+    pub fn new(stream: S) -> TypedStream<S, T> {
+        TypedStream {
+            stream,
+            phantom: PhantomData,
+        }
+    }
+
+    pub fn finalize(self) -> S {
+        self.stream
+    }
+}
+
+impl<S, T> futures::Stream for TypedStream<S, T>
 where
-    T:futures::Stream<Item=Result<BytesMut,std::io::Error>>,
-    T:futures::Sink<Bytes, Error=std::io::Error>,
-    T:Unpin,
-    T:Sync,
-{}
+    S: futures::Stream<Item = Result<BytesMut, std::io::Error>>,
+{
+    type Item = Result<T, ProtocolError>;
+    fn poll_next(
+        self: Pin<&mut Self>,
+        _: &mut Context<'_>,
+    ) -> Poll<std::option::Option<<Self as futures::Stream>::Item>> {
+        todo!()
+    }
+}
+
+impl<S, T> futures::Sink<T> for TypedStream<S, T>
+where
+    S: futures::Sink<Bytes, Error = std::io::Error>,
+{
+    type Error = ProtocolError;
+
+    fn poll_ready(
+        self: Pin<&mut Self>,
+        _: &mut Context<'_>,
+    ) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> {
+        todo!()
+    }
+    fn start_send(self: Pin<&mut Self>, _: T) -> Result<(), <Self as futures::Sink<T>>::Error> {
+        todo!()
+    }
+    fn poll_flush(
+        self: Pin<&mut Self>,
+        _: &mut Context<'_>,
+    ) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> {
+        todo!()
+    }
+    fn poll_close(
+        self: Pin<&mut Self>,
+        _: &mut Context<'_>,
+    ) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> {
+        todo!()
+    }
+}
+
+impl<S, T> Stream<T> for TypedStream<S, T>
+where
+    S: futures::Stream<Item = Result<BytesMut, std::io::Error>> + Send,
+    S: futures::Sink<Bytes, Error = std::io::Error>,
+    S: Unpin,
+    S: Sync,
+{
+}
+
+// impl<S, T> Stream<T> for TypedStream<S>
+// where
+//     S:futures::Stream<Item=Result<BytesMut,std::io::Error>>,
+//     S:futures::Sink<Bytes, Error=std::io::Error>,
+//     S:Unpin,
+//     S:Sync,
+
+// impl<S, T> Stream<T> for S
+// where
+//     S:futures::Stream<Item=Result<BytesMut,std::io::Error>>,
+//     S:futures::Sink<Bytes, Error=std::io::Error>,
+//     S:Unpin,
+//     S:Sync,
+// {}
 
 // use futures::task::{Context, Poll};
 #[cfg(test)]
 use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
-#[cfg(test)]
-use core::pin::Pin;
-#[cfg(test)]
-use core::task::Context;
-#[cfg(test)]
-use core::task::Poll;
 
 #[cfg(test)]
 pub struct Channel<T> {
@@ -95,25 +181,91 @@ pub struct Channel<T> {
 
 #[cfg(test)]
 impl<T> Channel<T> {
-    pub fn new() -> Channel<T> {
-        todo!()
+    pub fn new_pair() -> (Channel<T>, Channel<T>) {
+        let (send1, recv1) = futures_channel::mpsc::unbounded();
+        let (send2, recv2) = futures_channel::mpsc::unbounded();
+        let c1 = Channel {
+            send: send1,
+            recv: recv2,
+        };
+        let c2 = Channel {
+            send: send2,
+            recv: recv1,
+        };
+        (c1, c2)
     }
 }
 
 #[cfg(test)]
-impl<T> futures::Stream for Channel<T> {
-    type Item = <UnboundedReceiver<T> as futures::Stream>::Item;
-    fn poll_next(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<<Self as futures::Stream>::Item>> { todo!() }
+impl<T> Stream<T> for Channel<T>
+where
+    // //     S: futures::Stream<Item = Result<BytesMut, std::io::Error>>,
+    // //     S: futures::Sink<Bytes, Error = std::io::Error>,
+    // //     S: Unpin,
+    Channel<T>: Sync,
+    Channel<T>: Send,
+{
 }
 
 #[cfg(test)]
-// impl<T> futures::Sink<bytes::Bytes> for Channel<T> {
-impl<T> futures::Sink<T> for Channel<T> {
-    type Error = <UnboundedSender<T> as futures::Sink<T>>::Error;
+impl<T> futures::Stream for Channel<T> {
+    type Item = Result<T, ProtocolError>;
 
-    fn poll_ready(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> { todo!() }
-    fn start_send(self: Pin<&mut Self>, _: T) -> Result<(), <Self as futures::Sink<T>>::Error> { todo!() }
-    fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> { todo!() }
-    fn poll_close(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> { todo!() }
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        ctx: &mut Context<'_>,
+    ) -> Poll<Option<Result<T, ProtocolError>>> {
+        let p = futures::Stream::poll_next(Pin::new(&mut self.recv), ctx);
+        p.map(|o| o.map(|t| Ok(t)))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.recv.size_hint()
+    }
 }
 
+#[cfg(test)]
+impl<T> futures::Sink<T> for Channel<T> {
+    type Error = ProtocolError;
+
+    fn poll_ready(
+        mut self: Pin<&mut Self>,
+        ctx: &mut Context<'_>,
+    ) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> {
+        let p = Pin::new(&mut self.send).poll_ready(ctx);
+        p.map(|r| {
+            r.map_err(|e| {
+                log::error!("Send error: {:?}", e);
+                ProtocolError::StreamSendError
+            })
+        })
+    }
+    fn start_send(
+        mut self: Pin<&mut Self>,
+        ctx: T,
+    ) -> Result<(), <Self as futures::Sink<T>>::Error> {
+        let p = Pin::new(&mut self.send).start_send(ctx);
+        p.map_err(|e| {
+            log::error!("Send error: {:?}", e);
+            ProtocolError::StreamSendError
+        })
+    }
+    fn poll_flush(
+        mut self: Pin<&mut Self>,
+        ctx: &mut Context<'_>,
+    ) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> {
+        let p = Pin::new(&mut self.send).poll_flush(ctx);
+        p.map(|r| {
+            r.map_err(|e| {
+                log::error!("Send error: {:?}", e);
+                ProtocolError::StreamSendError
+            })
+        })
+    }
+    fn poll_close(
+        self: Pin<&mut Self>,
+        _: &mut Context<'_>,
+    ) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> {
+        todo!()
+    }
+}

@@ -23,3 +23,6 @@ tokio-tower = "*"
 tokio-util = {version="*", features=["codec"]}
 tokio-serde = {version="*", features=["cbor"]}
 tower-service = "*"
+
+[dev-dependencies]
+petgraph = "*"

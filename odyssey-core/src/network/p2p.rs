@@ -1,23 +1,22 @@
-
 /// Manage p2p network connections.
-
 use log;
+use serde::Deserialize;
 use std::fmt::Debug;
 use std::marker::Send;
-use std::net::{SocketAddrV4};
+use std::net::SocketAddrV4;
 use std::thread;
-use serde::Deserialize;
-use tokio::net::{TcpListener,TcpStream};
-use tokio_util::codec::{self, LengthDelimitedCodec};
+use tokio::net::{TcpListener, TcpStream};
 use tokio_serde::formats;
 use tokio_tower::multiplex;
+use tokio_util::codec::{self, LengthDelimitedCodec};
 
-use crate::protocol::Version;
 use crate::network::protocol::{run_handshake_server, run_store_metadata_server};
+use crate::protocol::v0::MsgStoreMetadataHeader;
+use crate::protocol::Version;
+use crate::util::TypedStream;
 
 pub struct P2PManager {
     p2p_thread: thread::JoinHandle<()>,
-
     // Store peer info and store metadata/raw data?
 }
 
@@ -26,9 +25,10 @@ pub struct P2PSettings {
 }
 
 impl P2PManager {
-    pub fn initialize<StoreId>(settings: P2PSettings) -> P2PManager
+    pub fn initialize<TypeId, StoreId>(settings: P2PSettings) -> P2PManager
     where
-        StoreId:for<'a> Deserialize<'a> + Send + Debug,
+        StoreId: for<'a> Deserialize<'a> + Send + Debug,
+        TypeId: Send,
     {
         // Spawn thread.
         let p2p_thread = thread::spawn(move || {
@@ -36,8 +36,11 @@ impl P2PManager {
             let runtime = match tokio::runtime::Runtime::new() {
                 Ok(r) => r,
                 Err(err) => {
-                    log::error!("Failed to initialize tokio runtime for P2P connections: {}", err);
-                    return
+                    log::error!(
+                        "Failed to initialize tokio runtime for P2P connections: {}",
+                        err
+                    );
+                    return;
                 }
             };
             runtime.block_on(async {
@@ -46,7 +49,7 @@ impl P2PManager {
                     Ok(l) => l,
                     Err(err) => {
                         log::error!("Failed to bind to port ({}): {}", &settings.address, err);
-                        return
+                        return;
                     }
                 };
 
@@ -56,7 +59,7 @@ impl P2PManager {
                         Ok(r) => r,
                         Err(err) => {
                             log::error!("Failed to accept connection: {}", err);
-                            continue
+                            continue;
                         }
                     };
                     log::info!("Accepted connection from peer: {}", peer);
@@ -64,15 +67,21 @@ impl P2PManager {
                     // Spawn async.
                     tokio::spawn(async {
                         // let (read_stream, write_stream) = tcpstream.split();
-                        let mut stream = codec::Framed::new(tcpstream, LengthDelimitedCodec::new()); 
+                        let stream = codec::Framed::new(tcpstream, LengthDelimitedCodec::new());
 
                         // TODO XXX
                         // Handshake.
                         // Diffie Hellman?
                         // Authenticate peer's public key?
+                        let stream = TypedStream::new(stream);
                         let Version::V0 = run_handshake_server(&stream);
 
-                        run_store_metadata_server::<StoreId, codec::Framed<TcpStream, LengthDelimitedCodec>>(&mut stream).await.expect("TODO");
+                        let mut stream: TypedStream<_, MsgStoreMetadataHeader<TypeId, StoreId>> =
+                            TypedStream::new(stream.finalize());
+                        run_store_metadata_server::<TypeId, StoreId, _>(&mut stream)
+                            .await
+                            .expect("TODO");
+                        // run_store_metadata_server::<TypeId, StoreId, codec::Framed<TcpStream, LengthDelimitedCodec>>(&mut stream).await.expect("TODO");
 
                         // // Handle peer requests.
                         // let service = Echo;
@@ -82,45 +91,37 @@ impl P2PManager {
                 }
             });
         });
-    
+
         // Return handle to thread and channel.
-        P2PManager {
-            p2p_thread
-        }
+        P2PManager { p2p_thread }
     }
 }
-
-
-
-
-
-
 
 // // TMP:
 // use std::task::{Context, Poll};
 // use std::pin::Pin;
 // use std::future::Future;
 // use serde::{Deserialize, Serialize};
-// 
+//
 // /// A service that tokio-tower should serve over the transport.
 // /// This one just echoes whatever it gets.
 // struct Echo;
-// 
+//
 // #[derive(Serialize, Deserialize, Debug)]
 // struct MyMessage {
 //     field: Vec<u8>,
 // }
-// 
+//
 // impl tower_service::Service<MyMessage> for Echo {
 //     type Response = MyMessage; // T;
 //     type Error = ();
 //     // type Future = Ready<Result<Self::Response, Self::Error>>;
 //     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
-// 
+//
 //     fn poll_ready(&mut self, cx: &mut Context) -> Poll<Result<(), Self::Error>> {
 //         Poll::Ready(Ok(()))
 //     }
-// 
+//
 //     fn call(&mut self, req: MyMessage) -> Self::Future {
 //         println!("Received: {:?}", req);
 //         // ready(Ok(req))
@@ -132,4 +133,4 @@ impl P2PManager {
 //         Box::pin(fut)
 //     }
 // }
-// 
+//
