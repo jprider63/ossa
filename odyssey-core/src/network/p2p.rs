@@ -1,6 +1,6 @@
 /// Manage p2p network connections.
 use log;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::marker::Send;
 use std::net::SocketAddrV4;
@@ -27,8 +27,8 @@ pub struct P2PSettings {
 impl P2PManager {
     pub fn initialize<TypeId, StoreId>(settings: P2PSettings) -> P2PManager
     where
-        StoreId: for<'a> Deserialize<'a> + Send + Debug,
-        TypeId: for<'a> Deserialize<'a> + Send,
+        StoreId: for<'a> Deserialize<'a> + Serialize + Send + Debug,
+        TypeId: for<'a> Deserialize<'a> + Serialize + Send,
     {
         // Spawn thread.
         let p2p_thread = thread::spawn(move || {
