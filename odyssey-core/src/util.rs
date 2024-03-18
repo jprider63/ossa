@@ -115,13 +115,15 @@ where
         ctx: &mut Context<'_>,
     ) -> Poll<std::option::Option<<Self as futures::Stream>::Item>> {
         let p = futures::Stream::poll_next(Pin::new(&mut self.stream), ctx);
-        p.map(|o| o.map(|t| match t {
-            Ok(bytes) => serde_cbor::from_slice(&bytes).map_err(|err| {
-                // log::error!("Failed to parse type {}: {}", type_name::<T>(), err);
-                ProtocolError::DeserializationError(err)
-            }),
-            Err(err) => Err(ProtocolError::StreamReceiveError(err)),
-        }))
+        p.map(|o| {
+            o.map(|t| match t {
+                Ok(bytes) => serde_cbor::from_slice(&bytes).map_err(|err| {
+                    // log::error!("Failed to parse type {}: {}", type_name::<T>(), err);
+                    ProtocolError::DeserializationError(err)
+                }),
+                Err(err) => Err(ProtocolError::StreamReceiveError(err)),
+            })
+        })
     }
 }
 
@@ -252,10 +254,7 @@ impl<T> futures::Sink<T> for Channel<T> {
         })
     }
 
-    fn start_send(
-        mut self: Pin<&mut Self>,
-        x: T,
-    ) -> Result<(), <Self as futures::Sink<T>>::Error> {
+    fn start_send(mut self: Pin<&mut Self>, x: T) -> Result<(), <Self as futures::Sink<T>>::Error> {
         let p = Pin::new(&mut self.send).start_send(x);
         p.map_err(|e| {
             log::error!("Send error: {:?}", e);
