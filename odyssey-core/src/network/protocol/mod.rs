@@ -88,30 +88,18 @@ where
 pub enum ProtocolError {
     SerializationError(serde_cbor::Error),
     DeserializationError(serde_cbor::Error),
-    // StreamSendError(std::io::Error),
-    StreamSendError,
     ReceivedNoData, // Connection closed?
-    // StreamReceiveError(std::io::Error),
+    StreamSendError(std::io::Error),
+    StreamReceiveError(std::io::Error),
     ProtocolDeviation, // Temporary?
 }
 
-/// Send a message as CBOR over the given stream.
+/// Send a message over the given stream.
 pub(crate) async fn send<S, T, U>(stream: &mut S, message: T) -> Result<(), ProtocolError>
 where
     S: Stream<U>,
     T: Into<U>,
-    // T: Serialize,
 {
-    // TODO: to_writer instead?
-    // serde_cbor::to_writer(&stream, &response);
-    // match serde_cbor::to_vec(&message) {
-    //     Err(err) => {
-    //         // TODO: Push the error up the stack instead of recording it here?
-    //         log::error!("Failed to serialize {}: {}", type_name::<T>(), err);
-    //         // TODO: Respond with failure message?
-    //         Err(ProtocolError::SerializationError(err))
-    //     }
-    //     Ok(cbor) => {
     match stream.send(message.into()).await {
         Err(err) => {
             // TODO: Push the error up the stack instead of recording it here?
@@ -122,13 +110,12 @@ where
     }
 }
 
-/// Receive a message as CBOR from the given stream.
+/// Receive a message from the given stream.
 pub(crate) async fn receive<S, T, U>(stream: &mut S) -> Result<U, ProtocolError>
 where
     S: Stream<T>,
-    // U: TryFrom<T> + Debug,
     U: Debug,
-    T: TryInto<U>, // T: for<'a> Deserialize<'a>,
+    T: TryInto<U>,
 {
     match stream.next().await {
         None => {
@@ -140,14 +127,6 @@ where
             Err(err)
         }
         Some(Ok(msg)) => {
-            // match serde_cbor::from_slice(&bytes) {
-            //     Err(err) => {
-            //         log::error!("Failed to parse {}: {}", type_name::<T>(), err);
-            //         // TODO: Respond with failure message.
-            //         Err(ProtocolError::DeserializationError(err))
-            //     }
-            //     Ok(msg) => Ok(msg),
-            // }
             match msg.try_into() {
                 Err(err) => {
                     log::error!("Received unexpected data from peer"); // : {:?}", err);

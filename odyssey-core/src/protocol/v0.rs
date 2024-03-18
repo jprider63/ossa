@@ -18,7 +18,7 @@ pub type StoreMetadataBody =
 //
 
 // # Messages sent by protocols.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum MsgStoreMetadataHeader<TypeId, StoreId> {
     Request(StoreMetadataHeaderRequest<StoreId>),
     Response(StoreMetadataHeaderResponse<TypeId, StoreId>),

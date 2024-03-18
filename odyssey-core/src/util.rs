@@ -4,6 +4,7 @@ use futures::task::{Context, Poll};
 use rand::{rngs::OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::any::type_name;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::pin::Pin;
@@ -105,43 +106,73 @@ impl<S, T> TypedStream<S, T> {
 
 impl<S, T> futures::Stream for TypedStream<S, T>
 where
-    S: futures::Stream<Item = Result<BytesMut, std::io::Error>>,
+    S: futures::Stream<Item = Result<BytesMut, std::io::Error>> + Unpin,
+    T: for<'a> Deserialize<'a>,
 {
     type Item = Result<T, ProtocolError>;
     fn poll_next(
-        self: Pin<&mut Self>,
-        _: &mut Context<'_>,
+        mut self: Pin<&mut Self>,
+        ctx: &mut Context<'_>,
     ) -> Poll<std::option::Option<<Self as futures::Stream>::Item>> {
-        todo!()
+        let p = futures::Stream::poll_next(Pin::new(&mut self.stream), ctx);
+        p.map(|o| {
+            o.map(|t| match t {
+                Ok(bytes) => serde_cbor::from_slice(&bytes).map_err(|err| {
+                    // log::error!("Failed to parse type {}: {}", type_name::<T>(), err);
+                    ProtocolError::DeserializationError(err)
+                }),
+                Err(err) => Err(ProtocolError::StreamReceiveError(err)),
+            })
+        })
     }
 }
 
 impl<S, T> futures::Sink<T> for TypedStream<S, T>
 where
-    S: futures::Sink<Bytes, Error = std::io::Error>,
+    S: futures::Sink<Bytes, Error = std::io::Error> + Unpin,
+    T: Serialize,
 {
     type Error = ProtocolError;
 
     fn poll_ready(
-        self: Pin<&mut Self>,
-        _: &mut Context<'_>,
+        mut self: Pin<&mut Self>,
+        ctx: &mut Context<'_>,
     ) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> {
-        todo!()
+        let p = Pin::new(&mut self.stream).poll_ready(ctx);
+        p.map(|r| {
+            r.map_err(|e| {
+                // log::error!("Send error: {:?}", e);
+                ProtocolError::StreamSendError(e)
+            })
+        })
     }
-    fn start_send(self: Pin<&mut Self>, _: T) -> Result<(), <Self as futures::Sink<T>>::Error> {
-        todo!()
+
+    fn start_send(mut self: Pin<&mut Self>, x: T) -> Result<(), <Self as futures::Sink<T>>::Error> {
+        // TODO: to_writer instead?
+        // serde_cbor::to_writer(&stream, &response);
+        match serde_cbor::to_vec(&x) {
+            Err(err) => Err(ProtocolError::SerializationError(err)),
+            Ok(cbor) => {
+                let p = Pin::new(&mut self.stream).start_send(cbor.into());
+                p.map_err(|e| ProtocolError::StreamSendError(e))
+            }
+        }
     }
+
     fn poll_flush(
-        self: Pin<&mut Self>,
-        _: &mut Context<'_>,
+        mut self: Pin<&mut Self>,
+        ctx: &mut Context<'_>,
     ) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> {
-        todo!()
+        let p = Pin::new(&mut self.stream).poll_flush(ctx);
+        p.map_err(|e| ProtocolError::StreamSendError(e))
     }
+
     fn poll_close(
-        self: Pin<&mut Self>,
-        _: &mut Context<'_>,
+        mut self: Pin<&mut Self>,
+        ctx: &mut Context<'_>,
     ) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> {
-        todo!()
+        let p = Pin::new(&mut self.stream).poll_close(ctx);
+        p.map_err(|e| ProtocolError::StreamSendError(e))
     }
 }
 
@@ -151,25 +182,10 @@ where
     S: futures::Sink<Bytes, Error = std::io::Error>,
     S: Unpin,
     S: Sync,
+    T: for<'a> Deserialize<'a> + Serialize,
 {
 }
 
-// impl<S, T> Stream<T> for TypedStream<S>
-// where
-//     S:futures::Stream<Item=Result<BytesMut,std::io::Error>>,
-//     S:futures::Sink<Bytes, Error=std::io::Error>,
-//     S:Unpin,
-//     S:Sync,
-
-// impl<S, T> Stream<T> for S
-// where
-//     S:futures::Stream<Item=Result<BytesMut,std::io::Error>>,
-//     S:futures::Sink<Bytes, Error=std::io::Error>,
-//     S:Unpin,
-//     S:Sync,
-// {}
-
-// use futures::task::{Context, Poll};
 #[cfg(test)]
 use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
 
@@ -199,9 +215,6 @@ impl<T> Channel<T> {
 #[cfg(test)]
 impl<T> Stream<T> for Channel<T>
 where
-    // //     S: futures::Stream<Item = Result<BytesMut, std::io::Error>>,
-    // //     S: futures::Sink<Bytes, Error = std::io::Error>,
-    // //     S: Unpin,
     Channel<T>: Sync,
     Channel<T>: Send,
 {
@@ -236,20 +249,19 @@ impl<T> futures::Sink<T> for Channel<T> {
         p.map(|r| {
             r.map_err(|e| {
                 log::error!("Send error: {:?}", e);
-                ProtocolError::StreamSendError
+                ProtocolError::StreamSendError(std::io::Error::other("poll_ready error"))
             })
         })
     }
-    fn start_send(
-        mut self: Pin<&mut Self>,
-        ctx: T,
-    ) -> Result<(), <Self as futures::Sink<T>>::Error> {
-        let p = Pin::new(&mut self.send).start_send(ctx);
+
+    fn start_send(mut self: Pin<&mut Self>, x: T) -> Result<(), <Self as futures::Sink<T>>::Error> {
+        let p = Pin::new(&mut self.send).start_send(x);
         p.map_err(|e| {
             log::error!("Send error: {:?}", e);
-            ProtocolError::StreamSendError
+            ProtocolError::StreamSendError(std::io::Error::other("start_send error"))
         })
     }
+
     fn poll_flush(
         mut self: Pin<&mut Self>,
         ctx: &mut Context<'_>,
@@ -258,14 +270,21 @@ impl<T> futures::Sink<T> for Channel<T> {
         p.map(|r| {
             r.map_err(|e| {
                 log::error!("Send error: {:?}", e);
-                ProtocolError::StreamSendError
+                ProtocolError::StreamSendError(std::io::Error::other("poll_flush error"))
             })
         })
     }
+
     fn poll_close(
-        self: Pin<&mut Self>,
-        _: &mut Context<'_>,
+        mut self: Pin<&mut Self>,
+        ctx: &mut Context<'_>,
     ) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> {
-        todo!()
+        let p = Pin::new(&mut self.send).poll_close(ctx);
+        p.map(|r| {
+            r.map_err(|e| {
+                log::error!("Send error: {:?}", e);
+                ProtocolError::StreamSendError(std::io::Error::other("poll_close error"))
+            })
+        })
     }
 }
