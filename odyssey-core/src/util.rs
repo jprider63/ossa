@@ -158,16 +158,19 @@ where
     }
 
     fn poll_flush(
-        self: Pin<&mut Self>,
-        _: &mut Context<'_>,
+        mut self: Pin<&mut Self>,
+        ctx: &mut Context<'_>,
     ) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> {
-        todo!()
+        let p = Pin::new(&mut self.stream).poll_flush(ctx);
+        p.map_err(|e| ProtocolError::StreamSendError(e))
     }
+
     fn poll_close(
-        self: Pin<&mut Self>,
-        _: &mut Context<'_>,
+        mut self: Pin<&mut Self>,
+        ctx: &mut Context<'_>,
     ) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> {
-        todo!()
+        let p = Pin::new(&mut self.stream).poll_close(ctx);
+        p.map_err(|e| ProtocolError::StreamSendError(e))
     }
 }
 
