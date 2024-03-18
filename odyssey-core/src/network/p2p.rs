@@ -28,7 +28,7 @@ impl P2PManager {
     pub fn initialize<TypeId, StoreId>(settings: P2PSettings) -> P2PManager
     where
         StoreId: for<'a> Deserialize<'a> + Send + Debug,
-        TypeId: Send,
+        TypeId: for<'a> Deserialize<'a> + Send,
     {
         // Spawn thread.
         let p2p_thread = thread::spawn(move || {

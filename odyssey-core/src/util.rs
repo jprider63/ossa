@@ -4,6 +4,7 @@ use futures::task::{Context, Poll};
 use rand::{rngs::OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::any::type_name;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::pin::Pin;
@@ -105,14 +106,22 @@ impl<S, T> TypedStream<S, T> {
 
 impl<S, T> futures::Stream for TypedStream<S, T>
 where
-    S: futures::Stream<Item = Result<BytesMut, std::io::Error>>,
+    S: futures::Stream<Item = Result<BytesMut, std::io::Error>> + Unpin,
+    T: for<'a> Deserialize<'a>,
 {
     type Item = Result<T, ProtocolError>;
     fn poll_next(
-        self: Pin<&mut Self>,
-        _: &mut Context<'_>,
+        mut self: Pin<&mut Self>,
+        ctx: &mut Context<'_>,
     ) -> Poll<std::option::Option<<Self as futures::Stream>::Item>> {
-        todo!()
+        let p = futures::Stream::poll_next(Pin::new(&mut self.stream), ctx);
+        p.map(|o| o.map(|t| match t {
+            Ok(bytes) => serde_cbor::from_slice(&bytes).map_err(|err| {
+                log::error!("Failed to parse type {}: {}", type_name::<T>(), err);
+                ProtocolError::DeserializationError(err)
+            }),
+            Err(err) => Err(ProtocolError::StreamReceiveError(err)),
+        }))
     }
 }
 
@@ -151,6 +160,7 @@ where
     S: futures::Sink<Bytes, Error = std::io::Error>,
     S: Unpin,
     S: Sync,
+    T: for<'a> Deserialize<'a>,
 {
 }
 
@@ -199,9 +209,6 @@ impl<T> Channel<T> {
 #[cfg(test)]
 impl<T> Stream<T> for Channel<T>
 where
-    // //     S: futures::Stream<Item = Result<BytesMut, std::io::Error>>,
-    // //     S: futures::Sink<Bytes, Error = std::io::Error>,
-    // //     S: Unpin,
     Channel<T>: Sync,
     Channel<T>: Send,
 {

@@ -91,7 +91,7 @@ pub enum ProtocolError {
     // StreamSendError(std::io::Error),
     StreamSendError,
     ReceivedNoData, // Connection closed?
-    // StreamReceiveError(std::io::Error),
+    StreamReceiveError(std::io::Error),
     ProtocolDeviation, // Temporary?
 }
 
