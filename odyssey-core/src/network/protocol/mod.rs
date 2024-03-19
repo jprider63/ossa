@@ -43,6 +43,8 @@ pub(crate) async fn run_store_metadata_server<
     S: Stream<MsgStoreMetadataHeader<TypeId, StoreId>>,
 >(
     stream: &mut S,
+    tmp2: TypeId,
+    tmp: StoreId,
 ) -> Result<(), ProtocolError>
 where
     StoreId: for<'a> Deserialize<'a> + Send + Debug,
@@ -56,9 +58,9 @@ where
         header: MetadataHeader {
             nonce: [0; 32],
             protocol_version: Version::V0,
-            store_type: todo!(), // [1;32],
+            store_type: tmp2, // [1;32],
             body_size: 0,
-            body_hash: todo!(), // [2;32],
+            body_hash: tmp, // [2;32],
         },
         body: None,
     };

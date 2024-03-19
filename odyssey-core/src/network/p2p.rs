@@ -76,12 +76,13 @@ impl P2PManager {
                         let stream = TypedStream::new(stream);
                         let Version::V0 = run_handshake_server(&stream);
 
-                        let mut stream: TypedStream<_, MsgStoreMetadataHeader<TypeId, StoreId>> =
+                        let mut stream: TypedStream<_, MsgStoreMetadataHeader<_, _>> =
                             TypedStream::new(stream.finalize());
-                        run_store_metadata_server::<TypeId, StoreId, _>(&mut stream)
+                        // TODO: Switch back to this...
+                        // run_store_metadata_server::<TypeId, StoreId, _>(&mut stream, [1;32], [2;32])
+                        run_store_metadata_server::<_, _, _>(&mut stream, [1;32], [2;32])
                             .await
                             .expect("TODO");
-                        // run_store_metadata_server::<TypeId, StoreId, codec::Framed<TcpStream, LengthDelimitedCodec>>(&mut stream).await.expect("TODO");
 
                         // // Handle peer requests.
                         // let service = Echo;
