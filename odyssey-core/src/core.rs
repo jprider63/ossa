@@ -13,16 +13,17 @@ use tokio_util::codec::{self, LengthDelimitedCodec};
 use crate::network::protocol::run_handshake_server;
 use crate::protocol::Version;
 use crate::storage::Storage;
+use crate::store;
 use crate::util::TypedStream;
 
-pub struct Odyssey<StoreId> {
+pub struct Odyssey<OT> {
     thread: thread::JoinHandle<()>,
     // command_channel: UnboundedSender<OdysseyCommand>,
     tokio_runtime: Runtime,
-    phantom: PhantomData<StoreId>,
+    phantom: PhantomData<OT>,
 }
 
-impl<StoreId> Odyssey<StoreId> {
+impl<OT: OdysseyType> Odyssey<OT> {
     // Start odyssey.
     pub fn start(config: OdysseyConfig) -> Self {
         // // Create channels to communicate with Odyssey thread.
@@ -99,14 +100,26 @@ impl<StoreId> Odyssey<StoreId> {
         }
     }
 
-    pub fn create_store<T, S: Storage>(&self, initial_state: T, storage: S) -> StoreHandle<StoreId, T> {
+    pub fn create_store<O: OdysseyType, T, S: Storage>(&self, initial_state: T, storage: S) -> StoreHandle<O, T> {
         // TODO:
         // Create store by generating nonce, etc.
+        let store = store::State::<O::ECGHeader, T>::new(initial_state);
+        todo!();
+
         // Initialize storage for this store.
+
         // Create channels to handle requests and send updates.
+        let (send_commands, mut recv_commands) = futures_channel::mpsc::unbounded();
+
         // Add to DHT
         let future_handle = self.tokio_runtime.spawn(async {
             println!("Creating store");
+            while let Some(cmd) = recv_commands.next().await {
+                match cmd {
+                    StoreCommand::Apply{..} => {
+                    }
+                }
+            }
         });
 
         StoreHandle {
@@ -115,7 +128,7 @@ impl<StoreId> Odyssey<StoreId> {
         }
     }
 
-    pub fn load_store<T, S: Storage>(&self, store_id: StoreId, storage: S) -> StoreHandle<StoreId, T> {
+    pub fn load_store<T, S: Storage>(&self, store_id: OT::StoreId, storage: S) -> StoreHandle<OT, T> {
         todo!()
     }
 
@@ -135,18 +148,29 @@ pub struct OdysseyConfig {
     pub port: u16,
 }
 
-pub struct StoreHandle<StoreId, T> {
+pub struct StoreHandle<O: OdysseyType, T> {
     future_handle: JoinHandle<()>,
-    phantom: PhantomData<(StoreId, T)>,
+    phantom: PhantomData<(O, T)>,
 }
 
-pub enum OdysseyCommand {
-    CreateStore {
-        // Since Rust doesn't have existentials...
-        initial_state: (), // Box<Dynamic>, // T
-        storage: Box<dyn Storage + Send>,
-    },
+/// Trait to define newtype wrapers that instantiate type families required by Odyssey.
+pub trait OdysseyType {
+    type StoreId;
+    type ECGHeader: store::ecg::ECGHeader;
 }
+
+enum StoreCommand {
+    Apply {
+    }
+}
+
+// pub enum OdysseyCommand {
+//     CreateStore {
+//         // Since Rust doesn't have existentials...
+//         initial_state: (), // Box<Dynamic>, // T
+//         storage: Box<dyn Storage + Send>,
+//     },
+// }
 
 // fn handle_odyssey_command() {
 // }
