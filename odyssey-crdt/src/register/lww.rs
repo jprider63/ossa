@@ -1,5 +1,9 @@
+use std::cmp::Ordering;
 
-use crate::{CRDT, time::CausalOrder};
+use crate::{
+    CRDT,
+    time::{CausalOrder, compare_with_tiebreak},
+};
 
 #[derive(Clone, Debug)]
 /// Last writer wins (LWW) register.
@@ -29,26 +33,17 @@ impl<T:CausalOrder + Ord, A> CRDT for LWW<T, A> {
     type Op = A;
     type Time = T;
 
-    fn apply<'a>(self, op_time: T, op: Self::Op) -> Self {
-        if CausalOrder::happens_before(&self.time, &op_time) {
-            LWW {
-                time: op_time,
-                value: op,
-            }
-        } else if CausalOrder::happens_before(&op_time, &self.time) {
-            self
-        } else {
-            // For concurrent operations, fall back to total order on time.
-            if self.time < op_time {
+    fn apply(self, op_time: T, op: Self::Op) -> Self {
+        match compare_with_tiebreak(&self.time, &op_time) {
+            Ordering::Less =>
                 LWW {
                     time: op_time,
                     value: op,
-                }
-            } else if op_time < self.time {
-                self
-            } else {
-                unreachable!("Precondition of `apply` violated. Applied `logical_time`s must be unique.")
-            }
+                },
+            Ordering::Greater =>
+                self,
+            Ordering::Equal =>
+                unreachable!("Precondition of `apply` violated: Applied `logical_time`s must be unique."),
         }
     }
 }

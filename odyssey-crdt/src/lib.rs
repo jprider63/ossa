@@ -1,6 +1,7 @@
 
 pub mod register;
 pub mod set;
+pub mod text;
 pub mod time;
 
 use crate::time::CausalOrder;
