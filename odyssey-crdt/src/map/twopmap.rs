@@ -7,6 +7,7 @@ use crate::CRDT;
 use crate::time::CausalOrder;
 
 /// Two phase map.
+#[derive(Clone)]
 pub struct TwoPMap<K, V> { // JP: Drop `K`?
     map: OrdMap<K, V>,
     tombstones: OrdSet<K>,
@@ -73,3 +74,23 @@ impl<K: Ord + Clone + CausalOrder, V: CRDT<Time = K> + Clone> CRDT for TwoPMap<K
     }
 }
 
+impl<K: Ord, V: CRDT> TwoPMap<K, V> {
+    pub fn new() -> TwoPMap<K, V> {
+        TwoPMap {
+            map: OrdMap::new(),
+            tombstones: OrdSet::new(),
+        }
+    }
+
+    pub fn get(&self, key: &K) -> Option<&V> {
+        self.map.get(key)
+    }
+
+    pub fn iter(&self) -> im::ordmap::Iter<'_, K, V> {
+        self.map.iter()
+    }
+
+    pub fn insert(value: V) -> TwoPMapOp<K, V> {
+        TwoPMapOp::Insert{ value }
+    }
+}
