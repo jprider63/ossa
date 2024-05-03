@@ -100,10 +100,10 @@ impl<OT: OdysseyType> Odyssey<OT> {
         }
     }
 
-    pub fn create_store<O: OdysseyType, T, S: Storage>(&self, initial_state: T, storage: S) -> StoreHandle<O, T> {
+    pub fn create_store<T, S: Storage>(&self, initial_state: T, storage: S) -> StoreHandle<OT, T> {
         // TODO:
         // Create store by generating nonce, etc.
-        let store = store::State::<O::ECGHeader, T>::new(initial_state);
+        let store = store::State::<OT::ECGHeader, T>::new(initial_state);
         todo!();
 
         // Initialize storage for this store.

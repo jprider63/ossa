@@ -8,7 +8,6 @@ pub use lamport::LamportTimestamp;
 // TODO: hashes from DAG history
 
 
-// JP: Just use PartialOrd?
 pub trait CausalOrder {
     // JP: Should this return Option<bool>? Ex, LamportTimestamp doesn't always know the causal ordering.
     fn happens_before(t1: &Self, t2: &Self) -> bool;
