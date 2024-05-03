@@ -4,6 +4,7 @@ use im::{
 };
 
 use crate::CRDT;
+use crate::time::CausalOrder;
 
 /// Two phase map.
 pub struct TwoPMap<K, V> {
@@ -13,7 +14,6 @@ pub struct TwoPMap<K, V> {
 
 pub enum TwoPMapOp<K, V: CRDT> {
     Insert {
-        key: K,
         value: V,
     },
     Apply {
@@ -26,30 +26,32 @@ pub enum TwoPMapOp<K, V: CRDT> {
 }
 
 impl<K, V: CRDT> TwoPMapOp<K, V> {
-    fn key(&self) -> &K {
+    fn key<'a>(&'a self, op_time: &'a K) -> &K {
         match self {
-            TwoPMapOp::Insert{key, ..} => key,
+            TwoPMapOp::Insert{..} => op_time,
             TwoPMapOp::Apply{key, ..} => key,
             TwoPMapOp::Delete{key} => key,
         }
     }
 }
 
-impl<K: Ord + Clone, V: CRDT + Clone> CRDT for TwoPMap<K, V> {
+impl<K: Ord + Clone + CausalOrder, V: CRDT<Time = K> + Clone> CRDT for TwoPMap<K, V> {
     type Op = TwoPMapOp<K, V>;
     type Time = V::Time;
 
     fn apply(self, op_time: Self::Time, op: Self::Op) -> Self {
-        let key = op.key();
-
         // Check if deleted.
-        if self.tombstones.contains(key) {
+        let is_deleted = {
+            let key = op.key(&op_time);
+            self.tombstones.contains(key)
+        };
+        if is_deleted {
             self
         } else {
             match op {
-                TwoPMapOp::Insert{key, value} => {
+                TwoPMapOp::Insert{value} => {
                     let TwoPMap {mut map, mut tombstones} = self;
-                    map.insert(key, value);
+                    map.insert(op_time, value);
 
                     TwoPMap { map, tombstones }
                 }
