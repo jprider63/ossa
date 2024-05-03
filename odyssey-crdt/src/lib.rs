@@ -1,4 +1,5 @@
 
+pub mod map;
 pub mod register;
 pub mod set;
 pub mod text;
