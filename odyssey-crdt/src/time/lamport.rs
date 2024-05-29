@@ -3,7 +3,7 @@ use std::time::SystemTime;
 
 use crate::time::CausalOrder;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LamportTimestamp<Id> {
     timestamp: SystemTime,
     id: Id,

@@ -1,12 +1,15 @@
 
 use dynamic::Dynamic;
-use futures::StreamExt;
-use futures_channel::mpsc::UnboundedSender;
+// use futures::{SinkExt, StreamExt};
+// use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
+use odyssey_crdt::CRDT;
+use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::thread;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::runtime::Runtime;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
 use tokio_util::codec::{self, LengthDelimitedCodec};
 
@@ -14,6 +17,8 @@ use crate::network::protocol::run_handshake_server;
 use crate::protocol::Version;
 use crate::storage::Storage;
 use crate::store;
+use crate::store::ecg::ECGHeader;
+use crate::store::ecg::v0::{zip_operations_with_time, Body, Header, OperationId};
 use crate::util::TypedStream;
 
 pub struct Odyssey<OT> {
@@ -100,35 +105,71 @@ impl<OT: OdysseyType> Odyssey<OT> {
         }
     }
 
-    pub fn create_store<T, S: Storage>(&self, initial_state: T, storage: S) -> StoreHandle<OT, T> {
+    pub fn create_store<T: CRDT + Clone + Send + 'static, S: Storage>(&self, initial_state: T, storage: S) -> StoreHandle<OT, T>
+    where
+        T::Op: Send,
+        // T: CRDT<Time = OperationId<OT::ECGHeader>>,
+        T: CRDT<Time = OperationId<Header<OT::Hash, T>>>,
+        <OT as OdysseyType>::Hash: 'static,
+    {
         // TODO:
+        // Check if this store already exists and return that.
+
         // Create store by generating nonce, etc.
-        let store = store::State::<OT::ECGHeader, T>::new(initial_state);
-        todo!();
+        let store = store::State::<OT::ECGHeader, T>::new(initial_state.clone());
 
         // Initialize storage for this store.
 
         // Create channels to handle requests and send updates.
-        let (send_commands, mut recv_commands) = futures_channel::mpsc::unbounded();
+        let (send_commands, mut recv_commands) = tokio::sync::mpsc::unbounded_channel();
 
         // Add to DHT
-        let future_handle = self.tokio_runtime.spawn(async {
+
+        // Spawn routine that owns this store.
+        let future_handle = self.tokio_runtime.spawn(async move {
+            let mut state = initial_state;
+            let mut listeners: Vec<UnboundedSender<T>> = vec![];
+
             println!("Creating store");
-            while let Some(cmd) = recv_commands.next().await {
+            // TODO: Create ECGState, ...
+            while let Some(cmd) = recv_commands.recv().await {
                 match cmd {
-                    StoreCommand::Apply{..} => {
+                    StoreCommand::Apply{operation_header, operation_body} => {
+                        // Update state.
+                        // TODO: Get new time?.. Or take it as an argument
+                        // Operation ID/time is function of tips, current operation, ...? How do we
+                        // do batching? (HeaderId(h) | Self, Index(u8)) ? This requires having all
+                        // the batched operations?
+                        for (time, operation) in zip_operations_with_time(&operation_header, operation_body) {
+                            state = state.apply(time, operation);
+                        }
+
+                        // Send state to subscribers.
+                        for mut l in &listeners {
+                            l.send(state.clone());
+                        }
+                    }
+                    StoreCommand::SubscribeState{mut send_state} => {
+                        // Send current state.
+                        send_state.send(state.clone());
+
+                        // Register this subscriber.
+                        listeners.push(send_state);
                     }
                 }
             }
         });
 
+        // Register this store.
+
         StoreHandle {
             future_handle,
+            send_command_chan: send_commands,
             phantom: PhantomData,
         }
     }
 
-    pub fn load_store<T, S: Storage>(&self, store_id: OT::StoreId, storage: S) -> StoreHandle<OT, T> {
+    pub fn load_store<T: CRDT, S: Storage>(&self, store_id: OT::StoreId, storage: S) -> StoreHandle<OT, T> {
         todo!()
     }
 
@@ -143,24 +184,60 @@ impl<OT: OdysseyType> Odyssey<OT> {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct OdysseyConfig {
     // IPv4 port to run Odyssey on.
     pub port: u16,
 }
 
-pub struct StoreHandle<O: OdysseyType, T> {
-    future_handle: JoinHandle<()>,
-    phantom: PhantomData<(O, T)>,
+pub struct StoreHandle<O: OdysseyType, T: CRDT> {
+    future_handle: JoinHandle<()>, // JP: Maybe this should be owned by `Odyssey`?
+    send_command_chan: UnboundedSender<StoreCommand<O::Hash, T>>,
+    phantom: PhantomData<O>,
 }
 
 /// Trait to define newtype wrapers that instantiate type families required by Odyssey.
 pub trait OdysseyType {
     type StoreId;
     type ECGHeader: store::ecg::ECGHeader;
+    type Hash: Clone + Copy + Debug + Ord + Send;
 }
 
-enum StoreCommand {
+enum StoreCommand<Hash, T: CRDT> {
     Apply {
+        operation_header: Header<Hash, T>,
+        operation_body: Body<Hash, T>
+    },
+    SubscribeState {
+        send_state: UnboundedSender<T>,
+    },
+}
+
+impl<O: OdysseyType, T: CRDT> StoreHandle<O, T> {
+    pub fn apply(&mut self, op: T::Op) {
+        self.batch_apply(vec![op])
+    }
+
+    pub fn batch_apply(&mut self, op: Vec<T::Op>) { // TODO: Return Vec<OperationId>?
+        // TODO: Get parent_tips.
+        let parent_tips = todo!();
+
+        // Create ECG header and body.
+        let body = Body::new(op);
+        let header = Header::new_header(parent_tips, &body);
+        self.send_command_chan.send(StoreCommand::Apply {
+            operation_header: header,
+            operation_body: body,
+        });
+    }
+
+    pub fn subscribe_to_state(&mut self) -> UnboundedReceiver<T> {
+        let (send_state, mut recv_state) = tokio::sync::mpsc::unbounded_channel();
+        self.send_command_chan.send(StoreCommand::SubscribeState{
+            send_state,
+        });
+
+        recv_state
     }
 }
 

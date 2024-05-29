@@ -13,8 +13,8 @@ bytes = "*"
 daggy = {version="*", features=["stable_dag"]}
 dynamic = "*"
 futures = "*"
-futures-channel = "*"
 log = "*"
+odyssey-crdt = {path="../odyssey-crdt"}
 rand = "*"
 serde = {version="*", features=["derive"]}
 serde_cbor = {version="*", features=[]}

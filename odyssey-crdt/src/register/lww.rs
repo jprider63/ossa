@@ -5,7 +5,7 @@ use crate::{
     time::{CausalOrder, compare_with_tiebreak},
 };
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 /// Last writer wins (LWW) register.
 pub struct LWW<T, A> {
     time: T,

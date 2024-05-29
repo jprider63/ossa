@@ -10,6 +10,7 @@ pub mod v0;
 /// Trait that ECG headers (nodes?) must implement.
 pub trait ECGHeader {
     type HeaderId: Ord + Copy + Debug;
+    type Body;
 
     /// Return the parents ids of a node. If an empty slice is returned, the root node is the
     /// parent.
@@ -19,6 +20,22 @@ pub trait ECGHeader {
     fn get_header_id(&self) -> Self::HeaderId;
 
     fn validate_header(&self, header_id: Self::HeaderId) -> bool;
+
+    fn new_header(parents: Vec<Self::HeaderId>, body: &Self::Body) -> Self;
+}
+
+pub trait ECGBody {
+    type Hash;
+    type Operation;
+
+    // The operations in this body.
+    fn operations(self) -> impl Iterator<Item = Self::Operation>;
+
+    // The number of operations in this body.
+    fn operations_count(&self) -> u8;
+
+    // The hash of this body.
+    fn get_hash(&self) -> Self::Hash; // JP: TODO: associated type? XXX
 }
 
 #[derive(Clone, Debug)]
