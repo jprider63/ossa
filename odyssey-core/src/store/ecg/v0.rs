@@ -72,8 +72,12 @@ impl<Hash: Clone + Copy + Debug + Ord, T: CRDT> ECGHeader for Header<Hash, T> {
 
 
 const MAX_OPERATION_COUNT: usize = 256;
-impl<Hash, T: CRDT> Body<Hash, T> {
-    pub fn new(operations: Vec<T::Op>) -> Self {
+
+impl<Hash, T:CRDT> ECGBody for Body<Hash, T> {
+    type Operation = T::Op;
+    type Hash = Hash;
+
+    fn new_body(operations: Vec<T::Op>) -> Self {
         if operations.len() > MAX_OPERATION_COUNT {
             panic!("Exceeded the maximum number of batched operations.");
         }
@@ -83,11 +87,6 @@ impl<Hash, T: CRDT> Body<Hash, T> {
             phantom: PhantomData
         }
     }
-}
-
-impl<Hash, T:CRDT> ECGBody for Body<Hash, T> {
-    type Operation = T::Op;
-    type Hash = Hash;
 
     fn operations(self) -> impl Iterator<Item = Self::Operation> {
         self.operations.into_iter()
@@ -109,6 +108,7 @@ pub struct OperationId<H: ECGHeader> {
 }
 
 // JP: Should this be added to the ECGHeader trait?
+// Replace OperationId<H> with T::Time? Or add another associated type to ECGHeader?
 pub fn zip_operations_with_time<H: ECGHeader>(header: &H, body: H::Body) -> impl Iterator<Item = (OperationId<H>, <H::Body as ECGBody>::Operation)>
 where
     H::Body: ECGBody,

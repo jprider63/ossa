@@ -17,7 +17,7 @@ use crate::network::protocol::run_handshake_server;
 use crate::protocol::Version;
 use crate::storage::Storage;
 use crate::store;
-use crate::store::ecg::ECGHeader;
+use crate::store::ecg::{ECGBody, ECGHeader};
 use crate::store::ecg::v0::{zip_operations_with_time, Body, Header, OperationId};
 use crate::util::TypedStream;
 
@@ -107,10 +107,14 @@ impl<OT: OdysseyType> Odyssey<OT> {
 
     pub fn create_store<T: CRDT + Clone + Send + 'static, S: Storage>(&self, initial_state: T, storage: S) -> StoreHandle<OT, T>
     where
-        T::Op: Send,
-        // T: CRDT<Time = OperationId<OT::ECGHeader>>,
-        T: CRDT<Time = OperationId<Header<OT::Hash, T>>>,
-        <OT as OdysseyType>::Hash: 'static,
+        // T::Op: Send,
+        <OT as OdysseyType>::ECGHeader: Send + 'static,
+        <<OT as OdysseyType>::ECGHeader as ECGHeader>::Body: Send,
+        <<OT as OdysseyType>::ECGHeader as ECGHeader>::Body: ECGBody,
+        T: CRDT<Op = <<<OT as OdysseyType>::ECGHeader as ECGHeader>::Body as ECGBody>::Operation>,
+        T: CRDT<Time = OperationId<OT::ECGHeader>>,
+        // T: CRDT<Time = OperationId<Header<OT::Hash, T>>>,
+        // <OT as OdysseyType>::Hash: 'static,
     {
         // TODO:
         // Check if this store already exists and return that.
@@ -192,7 +196,7 @@ pub struct OdysseyConfig {
 
 pub struct StoreHandle<O: OdysseyType, T: CRDT> {
     future_handle: JoinHandle<()>, // JP: Maybe this should be owned by `Odyssey`?
-    send_command_chan: UnboundedSender<StoreCommand<O::Hash, T>>,
+    send_command_chan: UnboundedSender<StoreCommand<O::ECGHeader, T>>,
     phantom: PhantomData<O>,
 }
 
@@ -200,13 +204,14 @@ pub struct StoreHandle<O: OdysseyType, T: CRDT> {
 pub trait OdysseyType {
     type StoreId;
     type ECGHeader: store::ecg::ECGHeader;
-    type Hash: Clone + Copy + Debug + Ord + Send;
+    // type OperationId;
+    // type Hash: Clone + Copy + Debug + Ord + Send;
 }
 
-enum StoreCommand<Hash, T: CRDT> {
+enum StoreCommand<Header: ECGHeader, T> { // <Hash, T: CRDT> {
     Apply {
-        operation_header: Header<Hash, T>,
-        operation_body: Body<Hash, T>
+        operation_header: Header, // <Hash, T>,
+        operation_body: Header::Body, // <Hash, T>,
     },
     SubscribeState {
         send_state: UnboundedSender<T>,
@@ -214,17 +219,23 @@ enum StoreCommand<Hash, T: CRDT> {
 }
 
 impl<O: OdysseyType, T: CRDT> StoreHandle<O, T> {
-    pub fn apply(&mut self, op: T::Op) {
+    pub fn apply(&mut self, op: T::Op)
+    where
+        <<O as OdysseyType>::ECGHeader as ECGHeader>::Body: ECGBody<Operation = T::Op>,
+    {
         self.batch_apply(vec![op])
     }
 
-    pub fn batch_apply(&mut self, op: Vec<T::Op>) { // TODO: Return Vec<OperationId>?
+    pub fn batch_apply(&mut self, op: Vec<T::Op>)
+    where
+        <<O as OdysseyType>::ECGHeader as ECGHeader>::Body: ECGBody<Operation = T::Op>,
+    { // TODO: Return Vec<T::Time>?
         // TODO: Get parent_tips.
         let parent_tips = todo!();
 
         // Create ECG header and body.
-        let body = Body::new(op);
-        let header = Header::new_header(parent_tips, &body);
+        let body = <<<O as OdysseyType>::ECGHeader as ECGHeader>::Body as ECGBody>::new_body(op);
+        let header = O::ECGHeader::new_header(parent_tips, &body);
         self.send_command_chan.send(StoreCommand::Apply {
             operation_header: header,
             operation_body: body,

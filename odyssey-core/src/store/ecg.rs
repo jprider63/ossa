@@ -28,13 +28,16 @@ pub trait ECGBody {
     type Hash;
     type Operation;
 
-    // The operations in this body.
+    /// Create a new body from a vector of operations.
+    fn new_body(operations: Vec<Self::Operation>) -> Self;
+
+    /// The operations in this body.
     fn operations(self) -> impl Iterator<Item = Self::Operation>;
 
-    // The number of operations in this body.
+    /// The number of operations in this body.
     fn operations_count(&self) -> u8;
 
-    // The hash of this body.
+    /// The hash of this body.
     fn get_hash(&self) -> Self::Hash; // JP: TODO: associated type? XXX
 }
 
