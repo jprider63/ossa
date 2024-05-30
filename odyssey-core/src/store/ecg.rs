@@ -36,7 +36,7 @@ pub trait ECGHeader {
 
 pub trait ECGBody {
     type Hash;
-    type Operation;
+    type Operation; // Do we need this? Drop and add <T> to ECGBody?
 
     /// Create a new body from a vector of operations.
     fn new_body(operations: Vec<Self::Operation>) -> Self;

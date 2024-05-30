@@ -108,11 +108,11 @@ impl<OT: OdysseyType> Odyssey<OT> {
     pub fn create_store<T: CRDT + Clone + Send + 'static, S: Storage>(&self, initial_state: T, storage: S) -> StoreHandle<OT, T>
     where
         // T::Op: Send,
-        <OT as OdysseyType>::ECGHeader: Send + 'static,
-        <<OT as OdysseyType>::ECGHeader as ECGHeader>::Body: Send,
-        <<OT as OdysseyType>::ECGHeader as ECGHeader>::Body: ECGBody,
-        T: CRDT<Op = <<<OT as OdysseyType>::ECGHeader as ECGHeader>::Body as ECGBody>::Operation>,
-        T: CRDT<Time = <<OT as OdysseyType>::ECGHeader as ECGHeader>::OperationId>,
+        <OT as OdysseyType>::ECGHeader<T>: Send + 'static,
+        <<OT as OdysseyType>::ECGHeader<T> as ECGHeader>::Body: Send,
+        <<OT as OdysseyType>::ECGHeader<T> as ECGHeader>::Body: ECGBody,
+        T: CRDT<Op = <<<OT as OdysseyType>::ECGHeader<T> as ECGHeader>::Body as ECGBody>::Operation>,
+        T: CRDT<Time = <<OT as OdysseyType>::ECGHeader<T> as ECGHeader>::OperationId>,
         // T: CRDT<Time = OperationId<Header<OT::Hash, T>>>,
         // <OT as OdysseyType>::Hash: 'static,
     {
@@ -120,12 +120,12 @@ impl<OT: OdysseyType> Odyssey<OT> {
         // Check if this store already exists and return that.
 
         // Create store by generating nonce, etc.
-        let store = store::State::<OT::ECGHeader, T>::new(initial_state.clone());
+        let store = store::State::<OT::ECGHeader<T>, T>::new(initial_state.clone());
 
         // Initialize storage for this store.
 
         // Create channels to handle requests and send updates.
-        let (send_commands, mut recv_commands) = tokio::sync::mpsc::unbounded_channel::<StoreCommand<OT::ECGHeader, T>>();
+        let (send_commands, mut recv_commands) = tokio::sync::mpsc::unbounded_channel::<StoreCommand<OT::ECGHeader<T>, T>>();
 
         // Add to DHT
 
@@ -196,14 +196,14 @@ pub struct OdysseyConfig {
 
 pub struct StoreHandle<O: OdysseyType, T: CRDT> {
     future_handle: JoinHandle<()>, // JP: Maybe this should be owned by `Odyssey`?
-    send_command_chan: UnboundedSender<StoreCommand<O::ECGHeader, T>>,
+    send_command_chan: UnboundedSender<StoreCommand<O::ECGHeader<T>, T>>,
     phantom: PhantomData<O>,
 }
 
 /// Trait to define newtype wrapers that instantiate type families required by Odyssey.
 pub trait OdysseyType {
-    type StoreId;
-    type ECGHeader: store::ecg::ECGHeader;
+    type StoreId; // <T>
+    type ECGHeader<T>: store::ecg::ECGHeader;
     // type OperationId;
     // type Hash: Clone + Copy + Debug + Ord + Send;
 }
@@ -221,21 +221,21 @@ enum StoreCommand<Header: ECGHeader, T> { // <Hash, T: CRDT> {
 impl<O: OdysseyType, T: CRDT> StoreHandle<O, T> {
     pub fn apply(&mut self, op: T::Op)
     where
-        <<O as OdysseyType>::ECGHeader as ECGHeader>::Body: ECGBody<Operation = T::Op>,
+        <<O as OdysseyType>::ECGHeader<T> as ECGHeader>::Body: ECGBody<Operation = T::Op>,
     {
         self.apply_batch(vec![op])
     }
 
     pub fn apply_batch(&mut self, op: Vec<T::Op>)
     where
-        <<O as OdysseyType>::ECGHeader as ECGHeader>::Body: ECGBody<Operation = T::Op>,
+        <<O as OdysseyType>::ECGHeader<T> as ECGHeader>::Body: ECGBody<Operation = T::Op>,
     { // TODO: Return Vec<T::Time>?
         // TODO: Divide into 256 operation chunks.
         // TODO: Get parent_tips.
         let parent_tips = todo!();
 
         // Create ECG header and body.
-        let body = <<<O as OdysseyType>::ECGHeader as ECGHeader>::Body as ECGBody>::new_body(op);
+        let body = <<<O as OdysseyType>::ECGHeader<T> as ECGHeader>::Body as ECGBody>::new_body(op);
         let header = O::ECGHeader::new_header(parent_tips, &body);
         self.send_command_chan.send(StoreCommand::Apply {
             operation_header: header,
