@@ -18,7 +18,7 @@ use crate::protocol::Version;
 use crate::storage::Storage;
 use crate::store;
 use crate::store::ecg::{ECGBody, ECGHeader};
-use crate::store::ecg::v0::{zip_operations_with_time, Body, Header, OperationId};
+use crate::store::ecg::v0::{Body, Header, OperationId};
 use crate::util::TypedStream;
 
 pub struct Odyssey<OT> {
@@ -112,7 +112,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
         <<OT as OdysseyType>::ECGHeader as ECGHeader>::Body: Send,
         <<OT as OdysseyType>::ECGHeader as ECGHeader>::Body: ECGBody,
         T: CRDT<Op = <<<OT as OdysseyType>::ECGHeader as ECGHeader>::Body as ECGBody>::Operation>,
-        T: CRDT<Time = OperationId<OT::ECGHeader>>,
+        T: CRDT<Time = <<OT as OdysseyType>::ECGHeader as ECGHeader>::OperationId>,
         // T: CRDT<Time = OperationId<Header<OT::Hash, T>>>,
         // <OT as OdysseyType>::Hash: 'static,
     {
@@ -125,7 +125,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
         // Initialize storage for this store.
 
         // Create channels to handle requests and send updates.
-        let (send_commands, mut recv_commands) = tokio::sync::mpsc::unbounded_channel();
+        let (send_commands, mut recv_commands) = tokio::sync::mpsc::unbounded_channel::<StoreCommand<OT::ECGHeader, T>>();
 
         // Add to DHT
 
@@ -144,7 +144,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
                         // Operation ID/time is function of tips, current operation, ...? How do we
                         // do batching? (HeaderId(h) | Self, Index(u8)) ? This requires having all
                         // the batched operations?
-                        for (time, operation) in zip_operations_with_time(&operation_header, operation_body) {
+                        for (time, operation) in operation_header.zip_operations_with_time(operation_body) {
                             state = state.apply(time, operation);
                         }
 
@@ -223,13 +223,14 @@ impl<O: OdysseyType, T: CRDT> StoreHandle<O, T> {
     where
         <<O as OdysseyType>::ECGHeader as ECGHeader>::Body: ECGBody<Operation = T::Op>,
     {
-        self.batch_apply(vec![op])
+        self.apply_batch(vec![op])
     }
 
-    pub fn batch_apply(&mut self, op: Vec<T::Op>)
+    pub fn apply_batch(&mut self, op: Vec<T::Op>)
     where
         <<O as OdysseyType>::ECGHeader as ECGHeader>::Body: ECGBody<Operation = T::Op>,
     { // TODO: Return Vec<T::Time>?
+        // TODO: Divide into 256 operation chunks.
         // TODO: Get parent_tips.
         let parent_tips = todo!();
 

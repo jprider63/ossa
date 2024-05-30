@@ -10,6 +10,11 @@ pub mod v0;
 /// Trait that ECG headers (nodes?) must implement.
 pub trait ECGHeader {
     type HeaderId: Ord + Copy + Debug;
+
+    /// Type identifying operations that implements CausalOrder so that it can be used as CRDT::Time.
+    type OperationId;
+
+    /// Type associated with this header that implements ECGBody.
     type Body;
 
     /// Return the parents ids of a node. If an empty slice is returned, the root node is the
@@ -22,6 +27,11 @@ pub trait ECGHeader {
     fn validate_header(&self, header_id: Self::HeaderId) -> bool;
 
     fn new_header(parents: Vec<Self::HeaderId>, body: &Self::Body) -> Self;
+
+    fn zip_operations_with_time(&self, body: Self::Body) -> impl Iterator<Item = (Self::OperationId, <Self::Body as ECGBody>::Operation)>
+    where
+        <Self as ECGHeader>::Body: ECGBody,
+    ;
 }
 
 pub trait ECGBody {

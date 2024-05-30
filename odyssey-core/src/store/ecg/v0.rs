@@ -25,6 +25,8 @@ pub struct Header<Hash, T> {
     /// TODO: Eventually this should be of the encrypted body..
     operations_hash: Hash,
 
+    // TODO: DeviceId and UserId of device signing? Maybe whole auth chain?
+
     phantom: PhantomData<T>,
 }
 
@@ -37,6 +39,7 @@ pub struct Body<Hash, T: CRDT> {
 
 impl<Hash: Clone + Copy + Debug + Ord, T: CRDT> ECGHeader for Header<Hash, T> {
     type HeaderId = HeaderId<Hash>;
+    type OperationId = OperationId<Self::HeaderId>;
     type Body = Body<Hash, T>;
 
     fn get_parent_ids(&self) -> &[HeaderId<Hash>] {
@@ -67,6 +70,21 @@ impl<Hash: Clone + Copy + Debug + Ord, T: CRDT> ECGHeader for Header<Hash, T> {
             phantom: PhantomData,
         }
     }
+
+    // Replace OperationId<H> with T::Time? Or add another associated type to ECGHeader?
+    fn zip_operations_with_time(&self, body: Self::Body) -> impl Iterator<Item = (Self::OperationId, <Self::Body as ECGBody>::Operation)>
+    {
+        let header_id = self.get_header_id();
+        let operations_c = body.operations_count();
+        (0..operations_c).zip(body.operations()).map(move |(i, op)| {
+            let operation_id = OperationId {
+                header_id,
+                operation_position: i,
+            };
+            (operation_id, op)
+        })
+    }
+
 }
 
 
@@ -102,39 +120,28 @@ impl<Hash, T:CRDT> ECGBody for Body<Hash, T> {
 }
 
 // TODO: OperationID's are header ids and index (HeaderId, u8)
-pub struct OperationId<H: ECGHeader> {
-    header_id: H::HeaderId,
+pub struct OperationId<HeaderId> {
+    header_id: HeaderId,
     operation_position: u8,
-}
-
-// JP: Should this be added to the ECGHeader trait?
-// Replace OperationId<H> with T::Time? Or add another associated type to ECGHeader?
-pub fn zip_operations_with_time<H: ECGHeader>(header: &H, body: H::Body) -> impl Iterator<Item = (OperationId<H>, <H::Body as ECGBody>::Operation)>
-where
-    H::Body: ECGBody,
-{
-    let header_id = header.get_header_id();
-    let operations_c = body.operations_count();
-    (0..operations_c).zip(body.operations()).map(move |(i, op)| {
-        let operation_id = OperationId {
-            header_id, 
-            operation_position: i,
-        };
-        (operation_id, op)
-    })
 }
 
 
 #[derive(Clone, Debug)]
-pub struct TestHeader {
+pub struct TestHeader<T> {
     header_id: u32,
     parent_ids: Vec<u32>,
+    phantom: PhantomData<T>,
+}
+
+pub struct TestBody<T: CRDT> {
+    operations: Vec<T::Op>,
 }
 
 // For testing, just have the header store the parent ids.
-impl ECGHeader for TestHeader {
+impl<T: CRDT> ECGHeader for TestHeader<T> {
     type HeaderId = u32;
-    type Body = ();
+    type OperationId = ();
+    type Body = TestBody<T>;
 
     fn get_parent_ids(&self) -> &[u32] {
         &self.parent_ids
@@ -148,7 +155,15 @@ impl ECGHeader for TestHeader {
         true
     }
 
-    fn new_header(parents: Vec<Self::HeaderId>, _body: &()) -> Self {
+    fn new_header(parents: Vec<Self::HeaderId>, _body: &Self::Body) -> Self {
         todo!()
+    }
+
+    fn zip_operations_with_time(&self, body: Self::Body) -> impl Iterator<Item = (Self::OperationId, <Self::Body as ECGBody>::Operation)>
+    where
+        Self::Body: ECGBody,
+    {
+        let v: Vec<_> = todo!();
+        v.into_iter()
     }
 }
