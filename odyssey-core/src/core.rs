@@ -203,7 +203,7 @@ pub struct StoreHandle<O: OdysseyType, T: CRDT> {
 /// Trait to define newtype wrapers that instantiate type families required by Odyssey.
 pub trait OdysseyType {
     type StoreId; // <T>
-    type ECGHeader<T>: store::ecg::ECGHeader;
+    type ECGHeader<T: CRDT>: store::ecg::ECGHeader;
     // type OperationId;
     // type Hash: Clone + Copy + Debug + Ord + Send;
 }
