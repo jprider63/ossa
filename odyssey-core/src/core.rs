@@ -208,7 +208,7 @@ pub trait OdysseyType {
     // type Hash: Clone + Copy + Debug + Ord + Send;
 }
 
-enum StoreCommand<Header: ECGHeader, T> { // <Hash, T: CRDT> {
+enum StoreCommand<Header: ECGHeader<T>, T: CRDT> {
     Apply {
         operation_header: Header, // <Hash, T>,
         operation_body: Header::Body, // <Hash, T>,

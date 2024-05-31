@@ -3,8 +3,9 @@ use async_session_types::{Eps, Recv, Send};
 use bitvec::{order::Msb0, BitArr};
 use odyssey_crdt::CRDT;
 use std::cmp::Reverse;
-std::marker::PhantomData;
+use std::marker::PhantomData;
 use std::num::TryFromIntError;
+use std::fmt::{self, Debug};
 
 pub mod client;
 pub mod server;
@@ -59,34 +60,49 @@ pub enum ECGSyncError {
     // TODO: Timeout, IO error, connection terminated, etc...
 }
 
-pub enum MsgECGSync<H: ECGHeader> {
-    Request(MsgECGSyncRequest<H>),
-    Response(MsgECGSyncResponse<H>),
-    Sync(MsgECGSyncData<H>),
+pub enum MsgECGSync<H: ECGHeader<T>, T: CRDT> {
+    Request(MsgECGSyncRequest<H, T>),
+    Response(MsgECGSyncResponse<H, T>),
+    Sync(MsgECGSyncData<H, T>),
 }
 
-#[derive(Debug)]
-pub struct MsgECGSyncRequest<Header: ECGHeader> {
+pub struct MsgECGSyncRequest<Header: ECGHeader<T>, T: CRDT> {
     /// Number of tips the client has.
     tip_count: u16,
     /// Hashes of headers the client has.
     /// The first `tip_count` hashes (potentially split across multiple messages) are tip headers.
     /// The maximum length is `MAX_HAVE_HEADERS`.
     have: Vec<Header::HeaderId>, // Should this include ancestors? Yes.
-}
-
-#[derive(Debug)]
-pub struct MsgECGSyncResponse<Header: ECGHeader, T> {
-    /// Number of tips the server has.
-    tip_count: u16,
-    /// `MsgECGSyncData` sync response.
-    sync: MsgECGSyncData<Header>,
     phantom: PhantomData<T>,
 }
 
+impl<Header: ECGHeader<T> + Debug, T: CRDT> Debug for MsgECGSyncRequest<Header, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MsgECGSyncRequest")
+            .field("tip_count", &self.tip_count)
+            .field("have", &self.have)
+            .finish()
+    }
+}
+
+pub struct MsgECGSyncResponse<Header: ECGHeader<T>, T: CRDT> {
+    /// Number of tips the server has.
+    tip_count: u16,
+    /// `MsgECGSyncData` sync response.
+    sync: MsgECGSyncData<Header, T>,
+}
+
+impl<Header: ECGHeader<T> + Debug, T: CRDT> Debug for MsgECGSyncResponse<Header, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MsgECGSyncResponse")
+            .field("tip_count", &self.tip_count)
+            .field("sync", &self.sync)
+            .finish()
+    }
+}
+
 pub type HeaderBitmap = BitArr!(for MAX_HAVE_HEADERS as usize, in u8, Msb0);
-#[derive(Debug)]
-pub struct MsgECGSyncData<Header: ECGHeader> {
+pub struct MsgECGSyncData<Header: ECGHeader<T>, T: CRDT> {
     /// Hashes of headers the server has.
     /// The first `tip_count` hashes (potentially split across multiple messages) are tip headers.
     /// The maximum length is `MAX_HAVE_HEADERS`.
@@ -96,6 +112,17 @@ pub struct MsgECGSyncData<Header: ECGHeader> {
     /// Headers being delivered to the other party.
     /// The maximum length is `MAX_DELIVER_HEADERS`.
     headers: Vec<Header>,
+    phantom: PhantomData<T>,
+}
+
+impl<Header: ECGHeader<T> + Debug, T: CRDT> Debug for MsgECGSyncData<Header, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MsgECGSyncData")
+            .field("have", &self.have)
+            .field("known", &self.known)
+            .field("headers", &self.headers)
+            .finish()
+    }
 }
 
 // pub struct ECGSyncState<HeaderId> {
@@ -112,16 +139,16 @@ pub struct MsgECGSyncData<Header: ECGHeader> {
 
 use std::cmp::min;
 use std::collections::{BTreeSet, BinaryHeap, VecDeque};
-fn prepare_haves<Header: ECGHeader>(
-    state: &ecg::State<Header>,
+fn prepare_haves<Header: ECGHeader<T>, T: CRDT>(
+    state: &ecg::State<Header, T>,
     queue: &mut BinaryHeap<(bool, u64, Header::HeaderId, u64)>,
     their_known: &BTreeSet<Header::HeaderId>,
     haves: &mut Vec<Header::HeaderId>,
 ) where
     Header::HeaderId: Copy + Ord,
 {
-    fn go<Header: ECGHeader>(
-        state: &ecg::State<Header>,
+    fn go<Header: ECGHeader<T>, T: CRDT>(
+        state: &ecg::State<Header, T>,
         queue: &mut BinaryHeap<(bool, u64, Header::HeaderId, u64)>,
         their_known: &BTreeSet<Header::HeaderId>,
         haves: &mut Vec<Header::HeaderId>,
@@ -162,8 +189,8 @@ fn prepare_haves<Header: ECGHeader>(
 
 // Handle the haves that the peer sent to us.
 // Returns the bitmap of which haves we know.
-fn handle_received_have<Header: ECGHeader>(
-    state: &ecg::State<Header>,
+fn handle_received_have<Header: ECGHeader<T>, T: CRDT>(
+    state: &ecg::State<Header, T>,
     their_tips_remaining: &mut usize,
     their_tips: &mut Vec<Header::HeaderId>,
     their_known: &mut BTreeSet<Header::HeaderId>,
@@ -202,8 +229,8 @@ fn handle_received_have<Header: ECGHeader>(
 
 // Handle (and verify) headers they sent to us.
 // Returns if all the headers were valid.
-fn handle_received_headers<Header: ECGHeader>(
-    state: &mut ecg::State<Header>,
+fn handle_received_headers<Header: ECGHeader<T>, T: CRDT>(
+    state: &mut ecg::State<Header, T>,
     headers: Vec<Header>,
 ) -> bool {
     let mut all_valid = true;
@@ -223,15 +250,15 @@ fn handle_received_headers<Header: ECGHeader>(
 
 // Precondition: `state` contains header_id.
 // Invariant: if a header is in `their_known`, all the header's ancestors are in `their_known`.
-fn mark_as_known<Header: ECGHeader>(
-    state: &ecg::State<Header>,
+fn mark_as_known<Header: ECGHeader<T>, T: CRDT>(
+    state: &ecg::State<Header, T>,
     their_known: &mut BTreeSet<Header::HeaderId>,
     header_id: Header::HeaderId,
 ) where
     Header::HeaderId: Copy + Ord,
 {
-    fn go<Header: ECGHeader>(
-        state: &ecg::State<Header>,
+    fn go<Header: ECGHeader<T>, T: CRDT>(
+        state: &ecg::State<Header, T>,
         their_known: &mut BTreeSet<Header::HeaderId>,
         mut queue: VecDeque<Header::HeaderId>,
     ) where
@@ -258,8 +285,8 @@ fn mark_as_known<Header: ECGHeader>(
 }
 
 // Build the headers we will send to the peer.
-fn prepare_headers<Header: ECGHeader>(
-    state: &ecg::State<Header>,
+fn prepare_headers<Header: ECGHeader<T>, T: CRDT>(
+    state: &ecg::State<Header, T>,
     send_queue: &mut BinaryHeap<(Reverse<u64>, Header::HeaderId)>,
     their_known: &mut BTreeSet<Header::HeaderId>,
     headers: &mut Vec<Header>,
@@ -267,8 +294,8 @@ fn prepare_headers<Header: ECGHeader>(
     Header::HeaderId: Copy + Ord,
     Header: Clone,
 {
-    fn go<Header: ECGHeader>(
-        state: &ecg::State<Header>,
+    fn go<Header: ECGHeader<T>, T: CRDT>(
+        state: &ecg::State<Header, T>,
         send_queue: &mut BinaryHeap<(Reverse<u64>, Header::HeaderId)>,
         their_known: &mut BTreeSet<Header::HeaderId>,
         headers: &mut Vec<Header>,
@@ -315,8 +342,8 @@ fn is_power_of_two(x: u64) -> bool {
     0 == (x & (x.wrapping_sub(1)))
 }
 
-fn handle_received_known<Header: ECGHeader>(
-    state: &ecg::State<Header>,
+fn handle_received_known<Header: ECGHeader<T>, T: CRDT>(
+    state: &ecg::State<Header, T>,
     their_known: &mut BTreeSet<Header::HeaderId>,
     sent_haves: &Vec<Header::HeaderId>,
     received_known: &HeaderBitmap,
@@ -371,9 +398,9 @@ fn handle_received_known<Header: ECGHeader>(
     }
 }
 
-fn handle_received_ecg_sync<Header: ECGHeader>(
-    sync_msg: MsgECGSyncData<Header>,
-    state: &mut ecg::State<Header>,
+fn handle_received_ecg_sync<Header: ECGHeader<T>, T: CRDT>(
+    sync_msg: MsgECGSyncData<Header, T>,
+    state: &mut ecg::State<Header, T>,
     their_tips_remaining: &mut usize,
     their_tips: &mut Vec<Header::HeaderId>,
     their_known: &mut BTreeSet<Header::HeaderId>,
@@ -423,42 +450,42 @@ trait ECGSyncMessage {
     fn is_done(&self) -> bool;
 }
 
-impl<Header: ECGHeader> ECGSyncMessage for MsgECGSyncData<Header> {
+impl<Header: ECGHeader<T>, T: CRDT> ECGSyncMessage for MsgECGSyncData<Header, T> {
     fn is_done(&self) -> bool {
         self.have.len() == 0 && self.headers.len() == 0
     }
 }
 
-impl<Header: ECGHeader> ECGSyncMessage for MsgECGSyncRequest<Header> {
+impl<Header: ECGHeader<T>, T: CRDT> ECGSyncMessage for MsgECGSyncRequest<Header, T> {
     fn is_done(&self) -> bool {
         self.have.len() == 0
     }
 }
 
-impl<Header: ECGHeader<T>, T: CRDT> ECGSyncMessage for MsgECGSyncResponse<Header> {
+impl<Header: ECGHeader<T>, T: CRDT> ECGSyncMessage for MsgECGSyncResponse<Header, T> {
     fn is_done(&self) -> bool {
         self.sync.is_done()
     }
 }
 
-impl<H: ECGHeader> Into<MsgECGSync<H>> for MsgECGSyncRequest<H> {
-    fn into(self) -> MsgECGSync<H> {
+impl<H: ECGHeader<T>, T: CRDT> Into<MsgECGSync<H, T>> for MsgECGSyncRequest<H, T> {
+    fn into(self) -> MsgECGSync<H, T> {
         MsgECGSync::Request(self)
     }
 }
-impl<H: ECGHeader> Into<MsgECGSync<H>> for MsgECGSyncResponse<H> {
-    fn into(self) -> MsgECGSync<H> {
+impl<H: ECGHeader<T>, T: CRDT> Into<MsgECGSync<H, T>> for MsgECGSyncResponse<H, T> {
+    fn into(self) -> MsgECGSync<H, T> {
         MsgECGSync::Response(self)
     }
 }
-impl<H: ECGHeader> Into<MsgECGSync<H>> for MsgECGSyncData<H> {
-    fn into(self) -> MsgECGSync<H> {
+impl<H: ECGHeader<T>, T: CRDT> Into<MsgECGSync<H, T>> for MsgECGSyncData<H, T> {
+    fn into(self) -> MsgECGSync<H, T> {
         MsgECGSync::Sync(self)
     }
 }
-impl<H: ECGHeader> TryInto<MsgECGSyncRequest<H>> for MsgECGSync<H> {
+impl<H: ECGHeader<T>, T: CRDT> TryInto<MsgECGSyncRequest<H, T>> for MsgECGSync<H, T> {
     type Error = ();
-    fn try_into(self) -> Result<MsgECGSyncRequest<H>, ()> {
+    fn try_into(self) -> Result<MsgECGSyncRequest<H, T>, ()> {
         match self {
             MsgECGSync::Request(r) => Ok(r),
             MsgECGSync::Response(_) => Err(()),
@@ -466,9 +493,9 @@ impl<H: ECGHeader> TryInto<MsgECGSyncRequest<H>> for MsgECGSync<H> {
         }
     }
 }
-impl<H: ECGHeader> TryInto<MsgECGSyncResponse<H>> for MsgECGSync<H> {
+impl<H: ECGHeader<T>, T: CRDT> TryInto<MsgECGSyncResponse<H, T>> for MsgECGSync<H, T> {
     type Error = ();
-    fn try_into(self) -> Result<MsgECGSyncResponse<H>, ()> {
+    fn try_into(self) -> Result<MsgECGSyncResponse<H, T>, ()> {
         match self {
             MsgECGSync::Request(_) => Err(()),
             MsgECGSync::Response(r) => Ok(r),
@@ -476,9 +503,9 @@ impl<H: ECGHeader> TryInto<MsgECGSyncResponse<H>> for MsgECGSync<H> {
         }
     }
 }
-impl<H: ECGHeader> TryInto<MsgECGSyncData<H>> for MsgECGSync<H> {
+impl<H: ECGHeader<T>, T: CRDT> TryInto<MsgECGSyncData<H, T>> for MsgECGSync<H, T> {
     type Error = ();
-    fn try_into(self) -> Result<MsgECGSyncData<H>, ()> {
+    fn try_into(self) -> Result<MsgECGSyncData<H, T>, ()> {
         match self {
             MsgECGSync::Request(_) => Err(()),
             MsgECGSync::Response(_) => Err(()),

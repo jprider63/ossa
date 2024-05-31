@@ -8,11 +8,11 @@ pub use v0::{MetadataBody, MetadataHeader, Nonce};
 use std::collections::BTreeSet;
 
 pub struct State<Header: ecg::ECGHeader<T>, T: CRDT> {
-    ecg_state: ecg::State<Header>,
+    ecg_state: ecg::State<Header, T>,
     decrypted_state: Option<DecryptedState<Header, T>>,
 }
 
-pub struct DecryptedState<Header: ecg::ECGHeader, T> {
+pub struct DecryptedState<Header: ecg::ECGHeader<T>, T: CRDT> {
     /// Latest ECG application state we've seen.
     latest_state: T,
 

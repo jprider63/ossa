@@ -80,7 +80,7 @@ pub struct State<Header: ECGHeader<T>, T: CRDT> {
 }
 
 impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
-    pub fn new() -> State<Header> {
+    pub fn new() -> State<Header, T> {
         let mut dependency_graph = StableDag::new();
 
         State {
