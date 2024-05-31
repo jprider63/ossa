@@ -37,9 +37,8 @@ pub struct Body<Hash, T: CRDT> {
     phantom: PhantomData<Hash>,
 }
 
-impl<Hash: Clone + Copy + Debug + Ord, T: CRDT> ECGHeader for Header<Hash, T> {
+impl<Hash: Clone + Copy + Debug + Ord, T: CRDT<Time = OperationId<HeaderId<Hash>>>> ECGHeader<T> for Header<Hash, T> {
     type HeaderId = HeaderId<Hash>;
-    type OperationId = OperationId<Self::HeaderId>;
     type Body = Body<Hash, T>;
 
     fn get_parent_ids(&self) -> &[HeaderId<Hash>] {
@@ -72,7 +71,7 @@ impl<Hash: Clone + Copy + Debug + Ord, T: CRDT> ECGHeader for Header<Hash, T> {
     }
 
     // Replace OperationId<H> with T::Time? Or add another associated type to ECGHeader?
-    fn zip_operations_with_time(&self, body: Self::Body) -> impl Iterator<Item = (Self::OperationId, <Self::Body as ECGBody>::Operation)>
+    fn zip_operations_with_time(&self, body: Self::Body) -> impl Iterator<Item = (T::Time, T::Op)>
     {
         let header_id = self.get_header_id();
         let operations_c = body.operations_count();
@@ -91,8 +90,7 @@ impl<Hash: Clone + Copy + Debug + Ord, T: CRDT> ECGHeader for Header<Hash, T> {
 
 const MAX_OPERATION_COUNT: usize = 256;
 
-impl<Hash, T:CRDT> ECGBody for Body<Hash, T> {
-    type Operation = T::Op;
+impl<Hash, T:CRDT> ECGBody<T> for Body<Hash, T> {
     type Hash = Hash;
 
     fn new_body(operations: Vec<T::Op>) -> Self {
@@ -106,7 +104,7 @@ impl<Hash, T:CRDT> ECGBody for Body<Hash, T> {
         }
     }
 
-    fn operations(self) -> impl Iterator<Item = Self::Operation> {
+    fn operations(self) -> impl Iterator<Item = T::Op> {
         self.operations.into_iter()
     }
     
@@ -138,9 +136,8 @@ pub struct TestBody<T: CRDT> {
 }
 
 // For testing, just have the header store the parent ids.
-impl<T: CRDT> ECGHeader for TestHeader<T> {
+impl<T: CRDT> ECGHeader<T> for TestHeader<T> {
     type HeaderId = u32;
-    type OperationId = ();
     type Body = TestBody<T>;
 
     fn get_parent_ids(&self) -> &[u32] {
@@ -159,9 +156,9 @@ impl<T: CRDT> ECGHeader for TestHeader<T> {
         todo!()
     }
 
-    fn zip_operations_with_time(&self, body: Self::Body) -> impl Iterator<Item = (Self::OperationId, <Self::Body as ECGBody>::Operation)>
+    fn zip_operations_with_time(&self, body: Self::Body) -> impl Iterator<Item = (T::Time, T::Op)>
     where
-        Self::Body: ECGBody,
+        Self::Body: ECGBody<T>,
     {
         let v: Vec<_> = todo!();
         v.into_iter()

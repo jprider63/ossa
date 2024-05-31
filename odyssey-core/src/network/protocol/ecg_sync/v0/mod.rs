@@ -1,7 +1,9 @@
 use crate::store::ecg::{self, ECGHeader};
 use async_session_types::{Eps, Recv, Send};
 use bitvec::{order::Msb0, BitArr};
+use odyssey_crdt::CRDT;
 use std::cmp::Reverse;
+std::marker::PhantomData;
 use std::num::TryFromIntError;
 
 pub mod client;
@@ -74,11 +76,12 @@ pub struct MsgECGSyncRequest<Header: ECGHeader> {
 }
 
 #[derive(Debug)]
-pub struct MsgECGSyncResponse<Header: ECGHeader> {
+pub struct MsgECGSyncResponse<Header: ECGHeader, T> {
     /// Number of tips the server has.
     tip_count: u16,
     /// `MsgECGSyncData` sync response.
     sync: MsgECGSyncData<Header>,
+    phantom: PhantomData<T>,
 }
 
 pub type HeaderBitmap = BitArr!(for MAX_HAVE_HEADERS as usize, in u8, Msb0);
@@ -432,7 +435,7 @@ impl<Header: ECGHeader> ECGSyncMessage for MsgECGSyncRequest<Header> {
     }
 }
 
-impl<Header: ECGHeader> ECGSyncMessage for MsgECGSyncResponse<Header> {
+impl<Header: ECGHeader<T>, T: CRDT> ECGSyncMessage for MsgECGSyncResponse<Header> {
     fn is_done(&self) -> bool {
         self.sync.is_done()
     }

@@ -1,3 +1,5 @@
+use odyssey_crdt::CRDT;
+
 pub mod ecg;
 pub mod v0; // TODO: Move this to network::protocol
 
@@ -5,7 +7,7 @@ pub use v0::{MetadataBody, MetadataHeader, Nonce};
 
 use std::collections::BTreeSet;
 
-pub struct State<Header: ecg::ECGHeader, T> {
+pub struct State<Header: ecg::ECGHeader<T>, T: CRDT> {
     ecg_state: ecg::State<Header>,
     decrypted_state: Option<DecryptedState<Header, T>>,
 }
@@ -18,7 +20,7 @@ pub struct DecryptedState<Header: ecg::ECGHeader, T> {
     latest_headers: BTreeSet<Header::HeaderId>,
 }
 
-impl<Header: ecg::ECGHeader, T> State<Header, T> {
+impl<Header: ecg::ECGHeader<T>, T: CRDT> State<Header, T> {
     pub fn new(initial_state: T) -> State<Header, T> {
         let decrypted_state = DecryptedState {
             latest_state: initial_state,

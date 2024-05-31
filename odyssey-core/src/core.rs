@@ -109,10 +109,10 @@ impl<OT: OdysseyType> Odyssey<OT> {
     where
         // T::Op: Send,
         <OT as OdysseyType>::ECGHeader<T>: Send + 'static,
-        <<OT as OdysseyType>::ECGHeader<T> as ECGHeader>::Body: Send,
-        <<OT as OdysseyType>::ECGHeader<T> as ECGHeader>::Body: ECGBody,
-        T: CRDT<Op = <<<OT as OdysseyType>::ECGHeader<T> as ECGHeader>::Body as ECGBody>::Operation>,
-        T: CRDT<Time = <<OT as OdysseyType>::ECGHeader<T> as ECGHeader>::OperationId>,
+        <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: Send,
+        <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: ECGBody<T>,
+        // T: CRDT<Op = <<<OT as OdysseyType>::ECGHeader<T> as ECGHeader>::Body as ECGBody>::Operation>,
+        // T: CRDT<Time = <<OT as OdysseyType>::ECGHeader<T> as ECGHeader>::OperationId>,
         // T: CRDT<Time = OperationId<Header<OT::Hash, T>>>,
         // <OT as OdysseyType>::Hash: 'static,
     {
@@ -203,7 +203,7 @@ pub struct StoreHandle<O: OdysseyType, T: CRDT> {
 /// Trait to define newtype wrapers that instantiate type families required by Odyssey.
 pub trait OdysseyType {
     type StoreId; // <T>
-    type ECGHeader<T: CRDT>: store::ecg::ECGHeader;
+    type ECGHeader<T: CRDT>: store::ecg::ECGHeader<T>;
     // type OperationId;
     // type Hash: Clone + Copy + Debug + Ord + Send;
 }
@@ -221,21 +221,21 @@ enum StoreCommand<Header: ECGHeader, T> { // <Hash, T: CRDT> {
 impl<O: OdysseyType, T: CRDT> StoreHandle<O, T> {
     pub fn apply(&mut self, op: T::Op)
     where
-        <<O as OdysseyType>::ECGHeader<T> as ECGHeader>::Body: ECGBody<Operation = T::Op>,
+        <<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: ECGBody<T>,
     {
         self.apply_batch(vec![op])
     }
 
     pub fn apply_batch(&mut self, op: Vec<T::Op>)
     where
-        <<O as OdysseyType>::ECGHeader<T> as ECGHeader>::Body: ECGBody<Operation = T::Op>,
+        <<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: ECGBody<T>,
     { // TODO: Return Vec<T::Time>?
         // TODO: Divide into 256 operation chunks.
         // TODO: Get parent_tips.
         let parent_tips = todo!();
 
         // Create ECG header and body.
-        let body = <<<O as OdysseyType>::ECGHeader<T> as ECGHeader>::Body as ECGBody>::new_body(op);
+        let body = <<<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body as ECGBody<T>>::new_body(op);
         let header = O::ECGHeader::new_header(parent_tips, &body);
         self.send_command_chan.send(StoreCommand::Apply {
             operation_header: header,

@@ -6,17 +6,18 @@ use crate::network::protocol::ecg_sync::v0::{
 use crate::network::ConnectionManager;
 use crate::store::ecg::ECGHeader;
 use crate::util::Stream;
+use odyssey_crdt::CRDT;
 use std::cmp::min;
 use std::collections::{BTreeSet, BinaryHeap, VecDeque};
 use std::fmt::Debug;
 
-pub(crate) async fn ecg_sync_server<S: Stream<MsgECGSync<Header>>, StoreId, Header>(
+pub(crate) async fn ecg_sync_server<S: Stream<MsgECGSync<Header>>, StoreId, Header, T: CRDT>(
     conn: &mut ConnectionManager<S>,
     store_id: &StoreId,
     state: &mut ecg::State<Header>,
 ) -> Result<(), ECGSyncError>
 where
-    Header: Clone + ECGHeader + Debug,
+    Header: Clone + ECGHeader<T> + Debug,
 {
     let request: MsgECGSyncRequest<Header> = conn.receive().await;
     // JP: Set (and check) max value for tips?
@@ -69,13 +70,14 @@ where
     let mut haves = Vec::with_capacity(MAX_HAVE_HEADERS.into());
     prepare_haves(state, &mut queue, &their_known, &mut haves);
 
-    let response: MsgECGSyncResponse<Header> = MsgECGSyncResponse {
+    let response: MsgECGSyncResponse<Header, T> = MsgECGSyncResponse {
         tip_count: our_tips_c,
         sync: MsgECGSyncData {
             have: haves.clone(), // TODO: Skip this clone
             known: known_bitmap,
             headers: headers.clone(), // TODO: Skip this clone
         },
+        phantom: PhantomData,
     };
 
     // Check if we're done.

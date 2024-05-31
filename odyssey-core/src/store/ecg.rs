@@ -1,18 +1,20 @@
 use daggy::petgraph::visit::{EdgeRef, IntoEdgeReferences, IntoNodeReferences, NodeRef};
 use daggy::stable_dag::StableDag;
 use daggy::Walker;
+use odyssey_crdt::CRDT;
 use std::cmp::{self, Reverse};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
+use std::marker::PhantomData;
 
 pub mod v0;
 
 /// Trait that ECG headers (nodes?) must implement.
-pub trait ECGHeader {
+pub trait ECGHeader<T:CRDT> {
     type HeaderId: Ord + Copy + Debug;
 
-    /// Type identifying operations that implements CausalOrder so that it can be used as CRDT::Time.
-    type OperationId;
+    // /// Type identifying operations that implements CausalOrder so that it can be used as CRDT::Time.
+    // type OperationId;
 
     /// Type associated with this header that implements ECGBody.
     type Body;
@@ -28,21 +30,21 @@ pub trait ECGHeader {
 
     fn new_header(parents: Vec<Self::HeaderId>, body: &Self::Body) -> Self;
 
-    fn zip_operations_with_time(&self, body: Self::Body) -> impl Iterator<Item = (Self::OperationId, <Self::Body as ECGBody>::Operation)>
+    fn zip_operations_with_time(&self, body: Self::Body) -> impl Iterator<Item = (T::Time, T::Op)>
     where
-        <Self as ECGHeader>::Body: ECGBody,
+        <Self as ECGHeader<T>>::Body: ECGBody<T>,
     ;
 }
 
-pub trait ECGBody {
+pub trait ECGBody<T:CRDT> {
     type Hash;
-    type Operation; // Do we need this? Drop and add <T> to ECGBody?
+    // type Operation; // Do we need this? Drop and add <T> to ECGBody?
 
     /// Create a new body from a vector of operations.
-    fn new_body(operations: Vec<Self::Operation>) -> Self;
+    fn new_body(operations: Vec<T::Op>) -> Self;
 
     /// The operations in this body.
-    fn operations(self) -> impl Iterator<Item = Self::Operation>;
+    fn operations(self) -> impl Iterator<Item = T::Op>;
 
     /// The number of operations in this body.
     fn operations_count(&self) -> u8;
@@ -62,7 +64,7 @@ struct NodeInfo<Header> {
 }
 
 #[derive(Clone, Debug)]
-pub struct State<Header: ECGHeader> {
+pub struct State<Header: ECGHeader<T>, T: CRDT> {
     dependency_graph: StableDag<Header::HeaderId, ()>, // JP: Hold the operations? Depth? Do we need StableDag?
 
     /// Nodes at the top of the DAG that depend on the initial state.
@@ -73,9 +75,11 @@ pub struct State<Header: ECGHeader> {
 
     /// Tips of the ECG (hashes of their headers).
     tips: BTreeSet<Header::HeaderId>,
+
+    phantom: PhantomData<T>,
 }
 
-impl<Header: ECGHeader> State<Header> {
+impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
     pub fn new() -> State<Header> {
         let mut dependency_graph = StableDag::new();
 
@@ -84,6 +88,7 @@ impl<Header: ECGHeader> State<Header> {
             root_nodes: BTreeSet::new(),
             node_info_map: BTreeMap::new(),
             tips: BTreeSet::new(),
+            phantom: PhantomData,
         }
     }
 

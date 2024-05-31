@@ -7,6 +7,7 @@ use crate::network::protocol::ecg_sync::v0::{
 use crate::network::ConnectionManager;
 use crate::store::ecg::ECGHeader;
 use crate::util::Stream;
+use odyssey_crdt::CRDT;
 use std::cmp::min;
 use std::collections::{BTreeSet, BinaryHeap};
 use std::fmt::Debug;
@@ -15,13 +16,13 @@ use std::fmt::Debug;
 /// Sync the headers of the eventual consistency graph.
 /// Finds the least common ancestor (meet) of the graphs.
 /// Then we share/receive all the known headers after that point (in batches of size 32).
-pub(crate) async fn ecg_sync_client<S: Stream<MsgECGSync<Header>>, StoreId, Header>(
+pub(crate) async fn ecg_sync_client<S: Stream<MsgECGSync<Header>>, StoreId, Header, T: CRDT>(
     conn: &mut ConnectionManager<S>,
     store_id: &StoreId,
     state: &mut ecg::State<Header>,
 ) -> Result<(), ECGSyncError>
 where
-    Header: Clone + ECGHeader + Debug,
+    Header: Clone + ECGHeader<T> + Debug,
 {
     // TODO:
     // - Get cached peer state.
@@ -79,7 +80,7 @@ where
 
     conn.send(request).await;
 
-    let response: MsgECGSyncResponse<Header> = conn.receive().await;
+    let response: MsgECGSyncResponse<Header, T> = conn.receive().await;
     // JP: Set (and check) max value for tips?
 
     // Check if we're done.
