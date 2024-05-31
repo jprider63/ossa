@@ -33,7 +33,6 @@ pub struct Header<Hash, T> {
 pub struct Body<Hash, T: CRDT> {
     /// The operations in this ECG body.
     operations: Vec<T::Op>,
-
     phantom: PhantomData<Hash>,
 }
 
@@ -100,7 +99,7 @@ impl<Hash, T:CRDT> ECGBody<T> for Body<Hash, T> {
 
         Body {
             operations,
-            phantom: PhantomData
+            phantom: PhantomData,
         }
     }
 
@@ -133,6 +132,28 @@ pub struct TestHeader<T> {
 
 pub struct TestBody<T: CRDT> {
     operations: Vec<T::Op>,
+}
+
+impl<T:CRDT> ECGBody<T> for TestBody<T> {
+    type Hash = (); // JP: Maybe ECGBody should not have Hash since it's not used by all impls???
+
+    fn new_body(operations: Vec<T::Op>) -> Self {
+        TestBody {
+            operations,
+        }
+    }
+
+    fn operations(self) -> impl Iterator<Item = T::Op> {
+        self.operations.into_iter()
+    }
+
+    fn operations_count(&self) -> u8 {
+        self.operations.len().try_into().expect("Unreachable: Length is bound by MAX_OPERATION_COUNT.")
+    }
+
+    fn get_hash(&self) -> Self::Hash {
+        ()
+    }
 }
 
 // For testing, just have the header store the parent ids.
