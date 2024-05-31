@@ -90,8 +90,6 @@ impl<Hash: Clone + Copy + Debug + Ord, T: CRDT<Time = OperationId<HeaderId<Hash>
 const MAX_OPERATION_COUNT: usize = 256;
 
 impl<Hash, T:CRDT> ECGBody<T> for Body<Hash, T> {
-    type Hash = Hash;
-
     fn new_body(operations: Vec<T::Op>) -> Self {
         if operations.len() > MAX_OPERATION_COUNT {
             panic!("Exceeded the maximum number of batched operations.");
@@ -110,16 +108,18 @@ impl<Hash, T:CRDT> ECGBody<T> for Body<Hash, T> {
     fn operations_count(&self) -> u8 {
         self.operations.len().try_into().expect("Unreachable: Length is bound by MAX_OPERATION_COUNT.")
     }
-    
-    fn get_hash(&self) -> Self::Hash {
+}
+
+impl<Hash, T: CRDT> Body<Hash, T> {
+    fn get_hash(&self) -> Hash {
         todo!()
     }
 }
 
 // TODO: OperationID's are header ids and index (HeaderId, u8)
 pub struct OperationId<HeaderId> {
-    header_id: HeaderId,
-    operation_position: u8,
+    pub(crate) header_id: HeaderId,
+    pub(crate) operation_position: u8,
 }
 
 
@@ -135,8 +135,6 @@ pub struct TestBody<T: CRDT> {
 }
 
 impl<T:CRDT> ECGBody<T> for TestBody<T> {
-    type Hash = (); // JP: Maybe ECGBody should not have Hash since it's not used by all impls???
-
     fn new_body(operations: Vec<T::Op>) -> Self {
         TestBody {
             operations,
@@ -149,10 +147,6 @@ impl<T:CRDT> ECGBody<T> for TestBody<T> {
 
     fn operations_count(&self) -> u8 {
         self.operations.len().try_into().expect("Unreachable: Length is bound by MAX_OPERATION_COUNT.")
-    }
-
-    fn get_hash(&self) -> Self::Hash {
-        ()
     }
 }
 

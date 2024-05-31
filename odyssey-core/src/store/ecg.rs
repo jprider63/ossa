@@ -37,9 +37,6 @@ pub trait ECGHeader<T:CRDT> {
 }
 
 pub trait ECGBody<T:CRDT> {
-    type Hash;
-    // type Operation; // Do we need this? Drop and add <T> to ECGBody?
-
     /// Create a new body from a vector of operations.
     fn new_body(operations: Vec<T::Op>) -> Self;
 
@@ -48,9 +45,6 @@ pub trait ECGBody<T:CRDT> {
 
     /// The number of operations in this body.
     fn operations_count(&self) -> u8;
-
-    /// The hash of this body.
-    fn get_hash(&self) -> Self::Hash; // JP: TODO: associated type? XXX
 }
 
 #[derive(Clone, Debug)]
