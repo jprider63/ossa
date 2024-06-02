@@ -34,6 +34,9 @@ pub trait ECGHeader<T:CRDT> {
     where
         <Self as ECGHeader<T>>::Body: ECGBody<T>,
     ;
+
+    /// Retrieve the times for each operation in this ECG header and body.
+    fn get_operation_times(&self, body: &Self::Body) -> impl Iterator<Item = T::Time>;
 }
 
 pub trait ECGBody<T:CRDT> {

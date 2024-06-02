@@ -72,17 +72,22 @@ impl<Hash: Clone + Copy + Debug + Ord, T: CRDT<Time = OperationId<HeaderId<Hash>
     // Replace OperationId<H> with T::Time? Or add another associated type to ECGHeader?
     fn zip_operations_with_time(&self, body: Self::Body) -> impl Iterator<Item = (T::Time, T::Op)>
     {
-        let header_id = self.get_header_id();
-        let operations_c = body.operations_count();
-        (0..operations_c).zip(body.operations()).map(move |(i, op)| {
-            let operation_id = OperationId {
-                header_id,
-                operation_position: i,
-            };
-            (operation_id, op)
-        })
+        let times: Vec<_> = self.get_operation_times(&body).collect(); // TODO: Can we avoid this
+                                                                       // collect?
+        let ops = body.operations();
+        times.into_iter().zip(ops)
     }
 
+    fn get_operation_times(&self, body: &Self::Body) -> impl Iterator<Item = T::Time> {
+        let header_id = self.get_header_id();
+        let operations_c = body.operations_count();
+        (0..operations_c).map(move |i| {
+            OperationId {
+                header_id,
+                operation_position: i,
+            }
+        })
+    }
 }
 
 
@@ -175,6 +180,11 @@ impl<T: CRDT> ECGHeader<T> for TestHeader<T> {
     where
         Self::Body: ECGBody<T>,
     {
+        let v: Vec<_> = todo!();
+        v.into_iter()
+    }
+
+    fn get_operation_times(&self, body: &Self::Body) -> impl Iterator<Item = T::Time> {
         let v: Vec<_> = todo!();
         v.into_iter()
     }

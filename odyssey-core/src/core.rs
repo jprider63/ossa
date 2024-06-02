@@ -219,17 +219,17 @@ enum StoreCommand<Header: ECGHeader<T>, T: CRDT> {
 }
 
 impl<O: OdysseyType, T: CRDT> StoreHandle<O, T> {
-    pub fn apply(&mut self, op: T::Op)
+    pub fn apply(&mut self, op: T::Op) -> T::Time
     where
         <<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: ECGBody<T>,
     {
-        self.apply_batch(vec![op])
+        self.apply_batch(vec![op]).next().unwrap()
     }
 
-    pub fn apply_batch(&mut self, op: Vec<T::Op>)
+    pub fn apply_batch(&mut self, op: Vec<T::Op>) -> impl Iterator<Item = T::Time>
     where
         <<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: ECGBody<T>,
-    { // TODO: Return Vec<T::Time>?
+    {
         // TODO: Divide into 256 operation chunks.
         // TODO: Get parent_tips.
         let parent_tips = todo!();
@@ -237,10 +237,14 @@ impl<O: OdysseyType, T: CRDT> StoreHandle<O, T> {
         // Create ECG header and body.
         let body = <<<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body as ECGBody<T>>::new_body(op);
         let header = O::ECGHeader::new_header(parent_tips, &body);
+        let times = header.get_operation_times(&body);
+
         self.send_command_chan.send(StoreCommand::Apply {
             operation_header: header,
             operation_body: body,
         });
+
+        times
     }
 
     pub fn subscribe_to_state(&mut self) -> UnboundedReceiver<T> {
