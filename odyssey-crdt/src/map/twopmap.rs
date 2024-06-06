@@ -13,6 +13,7 @@ pub struct TwoPMap<K, V> { // JP: Drop `K`?
     tombstones: OrdSet<K>,
 }
 
+#[derive(Debug)]
 pub enum TwoPMapOp<K, V: CRDT> {
     Insert {
         value: V,

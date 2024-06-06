@@ -106,7 +106,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
         }
     }
 
-    pub fn create_store<T: CRDT + Clone + Send + 'static, S: Storage>(&self, initial_state: T, storage: S) -> StoreHandle<OT, T>
+    pub fn create_store<T: CRDT<Time = OT::Time> + Clone + Send + 'static, S: Storage>(&self, initial_state: T, storage: S) -> StoreHandle<OT, T>
     where
         // T::Op: Send,
         <OT as OdysseyType>::ECGHeader<T>: Send + Clone + 'static,
@@ -183,7 +183,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
         }
     }
 
-    pub fn load_store<T: CRDT, S: Storage>(&self, store_id: OT::StoreId, storage: S) -> StoreHandle<OT, T> {
+    pub fn load_store<T: CRDT<Time = OT::Time>, S: Storage>(&self, store_id: OT::StoreId, storage: S) -> StoreHandle<OT, T> {
         todo!()
     }
 
@@ -204,7 +204,7 @@ pub struct OdysseyConfig {
     pub port: u16,
 }
 
-pub struct StoreHandle<O: OdysseyType, T: CRDT> {
+pub struct StoreHandle<O: OdysseyType, T: CRDT<Time = O::Time>> {
     future_handle: JoinHandle<()>, // JP: Maybe this should be owned by `Odyssey`?
     send_command_chan: UnboundedSender<StoreCommand<O::ECGHeader<T>, T>>,
     phantom: PhantomData<O>,
@@ -213,7 +213,8 @@ pub struct StoreHandle<O: OdysseyType, T: CRDT> {
 /// Trait to define newtype wrapers that instantiate type families required by Odyssey.
 pub trait OdysseyType {
     type StoreId; // <T>
-    type ECGHeader<T: CRDT>: store::ecg::ECGHeader<T>;
+    type ECGHeader<T: CRDT<Time = Self::Time>>: store::ecg::ECGHeader<T>;
+    type Time;
     // type OperationId;
     // type Hash: Clone + Copy + Debug + Ord + Send;
 }
@@ -236,7 +237,7 @@ pub enum StateUpdate<Header: ECGHeader<T>, T: CRDT> {
     },
 }
 
-impl<O: OdysseyType, T: CRDT> StoreHandle<O, T> {
+impl<O: OdysseyType, T: CRDT<Time = O::Time>> StoreHandle<O, T> {
     pub fn apply(&mut self, parents: BTreeSet<<<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::HeaderId>, op: T::Op) -> T::Time
     where
         <<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: ECGBody<T>,
@@ -249,6 +250,9 @@ impl<O: OdysseyType, T: CRDT> StoreHandle<O, T> {
         <<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: ECGBody<T>,
     {
         // TODO: Divide into 256 operation chunks.
+        if op.len() == 0 {
+            return vec![];
+        }
 
         // Create ECG header and body.
         let body = <<<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body as ECGBody<T>>::new_body(op);
