@@ -36,7 +36,7 @@ pub trait Hash: PartialEq + AsRef<[u8]> {
     fn finalize(state: Self::HashState) -> Self;
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialOrd, Serialize)]
 pub struct Sha256Hash(pub [u8; 32]);
 
 impl AsRef<[u8]> for Sha256Hash {

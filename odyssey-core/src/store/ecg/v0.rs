@@ -123,12 +123,18 @@ impl<Hash, T: CRDT> Body<Hash, T> {
     }
 }
 
-// TODO: OperationID's are header ids and index (HeaderId, u8)
+// OperationID's are header ids and index (HeaderId, u8)
+// TODO: Move this to odyssey-crdt::time??
+#[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct OperationId<HeaderId> {
     pub(crate) header_id: HeaderId,
     pub(crate) operation_position: u8,
 }
 
+use odyssey_crdt::time::CausalOrder;
+impl<HeaderId> CausalOrder for OperationId<HeaderId> {
+    fn happens_before(_: &Self, _: &Self) -> bool { todo!() }
+}
 
 #[derive(Clone, Debug)]
 pub struct TestHeader<T> {
