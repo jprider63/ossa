@@ -28,15 +28,17 @@ pub trait ECGHeader<T:CRDT> {
 
     fn validate_header(&self, header_id: Self::HeaderId) -> bool;
 
-    fn new_header(parents: Vec<Self::HeaderId>, body: &Self::Body) -> Self;
+    fn new_header(parents: BTreeSet<Self::HeaderId>, body: &Self::Body) -> Self;
 
-    fn zip_operations_with_time(&self, body: Self::Body) -> impl Iterator<Item = (T::Time, T::Op)>
+    // TODO: Can we return the following instead? impl Iterator<(T::Time, Item = T::Time)>
+    fn zip_operations_with_time(&self, body: Self::Body) -> Vec<(T::Time, T::Op)>
     where
         <Self as ECGHeader<T>>::Body: ECGBody<T>,
     ;
 
     /// Retrieve the times for each operation in this ECG header and body.
-    fn get_operation_times(&self, body: &Self::Body) -> impl Iterator<Item = T::Time>;
+    // TODO: Can we return the following instead? impl Iterator<Item = T::Time>
+    fn get_operation_times(&self, body: &Self::Body) -> Vec<T::Time>;
 }
 
 pub trait ECGBody<T:CRDT> {
@@ -60,7 +62,7 @@ struct NodeInfo<Header> {
     header: Header,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct State<Header: ECGHeader<T>, T: CRDT> {
     dependency_graph: StableDag<Header::HeaderId, ()>, // JP: Hold the operations? Depth? Do we need StableDag?
 
@@ -74,6 +76,18 @@ pub struct State<Header: ECGHeader<T>, T: CRDT> {
     tips: BTreeSet<Header::HeaderId>,
 
     phantom: PhantomData<T>,
+}
+
+impl<Header: ECGHeader<T> + Clone, T: CRDT> Clone for State<Header, T> {
+    fn clone(&self) -> Self {
+        State {
+            dependency_graph: self.dependency_graph.clone(),
+            root_nodes: self.root_nodes.clone(),
+            node_info_map: self.node_info_map.clone(),
+            tips: self.tips.clone(),
+            phantom: PhantomData,
+        }
+    }
 }
 
 impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {

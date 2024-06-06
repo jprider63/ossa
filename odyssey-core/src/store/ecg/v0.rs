@@ -1,6 +1,6 @@
 use odyssey_crdt::CRDT;
 use rand::Rng;
-use std::{fmt::Debug, marker::PhantomData};
+use std::{collections::{BTreeMap, BTreeSet}, fmt::Debug, marker::PhantomData};
 
 use crate::store::ecg::{ECGBody, ECGHeader};
 
@@ -54,9 +54,12 @@ impl<Hash: Clone + Copy + Debug + Ord, T: CRDT<Time = OperationId<HeaderId<Hash>
     }
 
     // TODO: Move this to ECG state?
-    fn new_header(parents: Vec<Self::HeaderId>, body: &Body<Hash, T>) -> Self {
+    fn new_header(parents: BTreeSet<Self::HeaderId>, body: &Body<Hash, T>) -> Self {
         let mut rng = rand::thread_rng();
         let nonce = rng.gen();
+
+        // Sort parent headers.
+        let parents = parents.into_iter().collect();
 
         // TODO: Check for hash conflicts and generate another nonce?
 
@@ -70,15 +73,14 @@ impl<Hash: Clone + Copy + Debug + Ord, T: CRDT<Time = OperationId<HeaderId<Hash>
     }
 
     // Replace OperationId<H> with T::Time? Or add another associated type to ECGHeader?
-    fn zip_operations_with_time(&self, body: Self::Body) -> impl Iterator<Item = (T::Time, T::Op)>
+    fn zip_operations_with_time(&self, body: Self::Body) -> Vec<(T::Time, T::Op)>
     {
-        let times: Vec<_> = self.get_operation_times(&body).collect(); // TODO: Can we avoid this
-                                                                       // collect?
+        let times = self.get_operation_times(&body);
         let ops = body.operations();
-        times.into_iter().zip(ops)
+        times.into_iter().zip(ops).collect()
     }
 
-    fn get_operation_times(&self, body: &Self::Body) -> impl Iterator<Item = T::Time> {
+    fn get_operation_times(&self, body: &Self::Body) -> Vec<T::Time> {
         let header_id = self.get_header_id();
         let operations_c = body.operations_count();
         (0..operations_c).map(move |i| {
@@ -86,7 +88,7 @@ impl<Hash: Clone + Copy + Debug + Ord, T: CRDT<Time = OperationId<HeaderId<Hash>
                 header_id,
                 operation_position: i,
             }
-        })
+        }).collect()
     }
 }
 
@@ -172,20 +174,20 @@ impl<T: CRDT> ECGHeader<T> for TestHeader<T> {
         true
     }
 
-    fn new_header(parents: Vec<Self::HeaderId>, _body: &Self::Body) -> Self {
+    fn new_header(parents: BTreeSet<Self::HeaderId>, _body: &Self::Body) -> Self {
         todo!()
     }
 
-    fn zip_operations_with_time(&self, body: Self::Body) -> impl Iterator<Item = (T::Time, T::Op)>
+    fn zip_operations_with_time(&self, body: Self::Body) -> Vec<(T::Time, T::Op)>
     where
         Self::Body: ECGBody<T>,
     {
         let v: Vec<_> = todo!();
-        v.into_iter()
+        v
     }
 
-    fn get_operation_times(&self, body: &Self::Body) -> impl Iterator<Item = T::Time> {
+    fn get_operation_times(&self, body: &Self::Body) -> Vec<T::Time> {
         let v: Vec<_> = todo!();
-        v.into_iter()
+        v
     }
 }

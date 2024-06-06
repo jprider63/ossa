@@ -8,8 +8,8 @@ pub use v0::{MetadataBody, MetadataHeader, Nonce};
 use std::collections::BTreeSet;
 
 pub struct State<Header: ecg::ECGHeader<T>, T: CRDT> {
-    ecg_state: ecg::State<Header, T>,
-    decrypted_state: Option<DecryptedState<Header, T>>,
+    pub(crate) ecg_state: ecg::State<Header, T>,
+    pub(crate) decrypted_state: Option<DecryptedState<Header, T>>,
 }
 
 pub struct DecryptedState<Header: ecg::ECGHeader<T>, T: CRDT> {

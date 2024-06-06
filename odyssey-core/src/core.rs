@@ -3,6 +3,7 @@ use dynamic::Dynamic;
 // use futures::{SinkExt, StreamExt};
 // use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use odyssey_crdt::CRDT;
+use std::collections::BTreeSet;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddrV4};
@@ -17,7 +18,7 @@ use crate::network::protocol::run_handshake_server;
 use crate::protocol::Version;
 use crate::storage::Storage;
 use crate::store;
-use crate::store::ecg::{ECGBody, ECGHeader};
+use crate::store::ecg::{self, ECGBody, ECGHeader};
 use crate::store::ecg::v0::{Body, Header, OperationId};
 use crate::util::TypedStream;
 
@@ -108,9 +109,10 @@ impl<OT: OdysseyType> Odyssey<OT> {
     pub fn create_store<T: CRDT + Clone + Send + 'static, S: Storage>(&self, initial_state: T, storage: S) -> StoreHandle<OT, T>
     where
         // T::Op: Send,
-        <OT as OdysseyType>::ECGHeader<T>: Send + 'static,
+        <OT as OdysseyType>::ECGHeader<T>: Send + Clone + 'static,
         <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: Send,
         <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: ECGBody<T>,
+        <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::HeaderId: Send,
         // T: CRDT<Op = <<<OT as OdysseyType>::ECGHeader<T> as ECGHeader>::Body as ECGBody>::Operation>,
         // T: CRDT<Time = <<OT as OdysseyType>::ECGHeader<T> as ECGHeader>::OperationId>,
         // T: CRDT<Time = OperationId<Header<OT::Hash, T>>>,
@@ -132,7 +134,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
         // Spawn routine that owns this store.
         let future_handle = self.tokio_runtime.spawn(async move {
             let mut state = initial_state;
-            let mut listeners: Vec<UnboundedSender<T>> = vec![];
+            let mut listeners: Vec<UnboundedSender<StateUpdate<OT::ECGHeader<T>, T>>> = vec![];
 
             println!("Creating store");
             // TODO: Create ECGState, ...
@@ -150,12 +152,20 @@ impl<OT: OdysseyType> Odyssey<OT> {
 
                         // Send state to subscribers.
                         for mut l in &listeners {
-                            l.send(state.clone());
+                            let snapshot = StateUpdate::Snapshot {
+                                snapshot: state.clone(),
+                                ecg_state: store.ecg_state.clone(),
+                            };
+                            l.send(snapshot);
                         }
                     }
                     StoreCommand::SubscribeState{mut send_state} => {
                         // Send current state.
-                        send_state.send(state.clone());
+                        let snapshot = StateUpdate::Snapshot {
+                            snapshot: state.clone(),
+                            ecg_state: store.ecg_state.clone(),
+                        };
+                        send_state.send(snapshot);
 
                         // Register this subscriber.
                         listeners.push(send_state);
@@ -214,29 +224,35 @@ enum StoreCommand<Header: ECGHeader<T>, T: CRDT> {
         operation_body: Header::Body, // <Hash, T>,
     },
     SubscribeState {
-        send_state: UnboundedSender<T>,
+        send_state: UnboundedSender<StateUpdate<Header, T>>,
+    },
+}
+
+pub enum StateUpdate<Header: ECGHeader<T>, T: CRDT> {
+    Snapshot {
+        snapshot: T,
+        ecg_state: ecg::State<Header, T>,
+        // TODO: ECG DAG
     },
 }
 
 impl<O: OdysseyType, T: CRDT> StoreHandle<O, T> {
-    pub fn apply(&mut self, op: T::Op) -> T::Time
+    pub fn apply(&mut self, parents: BTreeSet<<<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::HeaderId>, op: T::Op) -> T::Time
     where
         <<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: ECGBody<T>,
     {
-        self.apply_batch(vec![op]).next().unwrap()
+        self.apply_batch(parents, vec![op]).pop().unwrap()
     }
 
-    pub fn apply_batch(&mut self, op: Vec<T::Op>) -> impl Iterator<Item = T::Time>
+    pub fn apply_batch(&mut self, parents: BTreeSet<<<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::HeaderId>, op: Vec<T::Op>) -> Vec<T::Time>
     where
         <<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: ECGBody<T>,
     {
         // TODO: Divide into 256 operation chunks.
-        // TODO: Get parent_tips.
-        let parent_tips = todo!();
 
         // Create ECG header and body.
         let body = <<<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body as ECGBody<T>>::new_body(op);
-        let header = O::ECGHeader::new_header(parent_tips, &body);
+        let header = O::ECGHeader::new_header(parents, &body);
         let times = header.get_operation_times(&body);
 
         self.send_command_chan.send(StoreCommand::Apply {
@@ -247,9 +263,9 @@ impl<O: OdysseyType, T: CRDT> StoreHandle<O, T> {
         times
     }
 
-    pub fn subscribe_to_state(&mut self) -> UnboundedReceiver<T> {
+    pub fn subscribe_to_state(&mut self) -> UnboundedReceiver<StateUpdate<O::ECGHeader<T>, T>> {
         let (send_state, mut recv_state) = tokio::sync::mpsc::unbounded_channel();
-        self.send_command_chan.send(StoreCommand::SubscribeState{
+        self.send_command_chan.send(StoreCommand::SubscribeState {
             send_state,
         });
 
