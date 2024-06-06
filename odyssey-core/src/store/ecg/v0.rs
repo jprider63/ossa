@@ -81,7 +81,7 @@ impl<Hash: Clone + Copy + Debug + Ord, T: CRDT<Time = OperationId<HeaderId<Hash>
     }
 
     fn get_operation_times(&self, body: &Self::Body) -> Vec<T::Time> {
-        let header_id = self.get_header_id();
+        let header_id = Some(self.get_header_id());
         let operations_c = body.operations_count();
         (0..operations_c).map(move |i| {
             OperationId {
@@ -127,8 +127,8 @@ impl<Hash, T: CRDT> Body<Hash, T> {
 // TODO: Move this to odyssey-crdt::time??
 #[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct OperationId<HeaderId> {
-    pub(crate) header_id: HeaderId,
-    pub(crate) operation_position: u8,
+    pub header_id: Option<HeaderId>, // None when in the initial state?
+    pub operation_position: u8,
 }
 
 use odyssey_crdt::time::CausalOrder;
