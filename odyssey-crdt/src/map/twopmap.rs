@@ -2,6 +2,7 @@ use im::{
     OrdMap,
     OrdSet,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::CRDT;
 use crate::time::CausalOrder;
@@ -13,7 +14,8 @@ pub struct TwoPMap<K, V> { // JP: Drop `K`?
     tombstones: OrdSet<K>,
 }
 
-#[derive(Debug)]
+// TODO: Define CBOR properly
+#[derive(Debug, Serialize, Deserialize)]
 pub enum TwoPMapOp<K, V: CRDT> {
     Insert {
         value: V,

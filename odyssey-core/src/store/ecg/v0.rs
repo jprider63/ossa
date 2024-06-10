@@ -1,10 +1,19 @@
 use odyssey_crdt::CRDT;
 use rand::Rng;
+use serde::{
+    ser::{SerializeStruct, Serializer},
+    Deserialize,
+    Serialize,
+};
 use std::{collections::{BTreeMap, BTreeSet}, fmt::Debug, marker::PhantomData};
 
-use crate::store::ecg::{ECGBody, ECGHeader};
+use crate::{
+    util,
+    store::ecg::{ECGBody, ECGHeader}
+};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord, Deserialize, Serialize)]
 pub struct HeaderId<Hash>(Hash);
 
 // TODO: Move this to the right location.
@@ -36,7 +45,25 @@ pub struct Body<Hash, T: CRDT> {
     phantom: PhantomData<Hash>,
 }
 
-impl<Hash: Clone + Copy + Debug + Ord, T: CRDT<Time = OperationId<HeaderId<Hash>>>> ECGHeader<T> for Header<Hash, T> {
+// TODO: Define CBOR properly
+impl<Hash, T: CRDT> Serialize for Body<Hash, T>
+where
+    <T as CRDT>::Op: Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut s = serializer.serialize_struct("Body", 1)?;
+        s.serialize_field("operations", &self.operations)?;
+        s.end()
+    }
+}
+
+impl<Hash: Clone + Copy + Debug + Ord + util::Hash, T: CRDT<Time = OperationId<HeaderId<Hash>>>> ECGHeader<T> for Header<Hash, T>
+where
+    <T as CRDT>::Op: Serialize,
+{
     type HeaderId = HeaderId<Hash>;
     type Body = Body<Hash, T>;
 
@@ -117,15 +144,22 @@ impl<Hash, T:CRDT> ECGBody<T> for Body<Hash, T> {
     }
 }
 
-impl<Hash, T: CRDT> Body<Hash, T> {
+impl<Hash: util::Hash, T: CRDT> Body<Hash, T>
+where
+    <T as CRDT>::Op: Serialize,
+{
     fn get_hash(&self) -> Hash {
-        todo!()
+        // JP: Better way to do this? Just serialize once?
+        let mut h = Hash::new();
+        let serialized = serde_cbor::ser::to_vec(&self).unwrap();
+        Hash::update(&mut h, serialized);
+        Hash::finalize(h)
     }
 }
 
 // OperationID's are header ids and index (HeaderId, u8)
 // TODO: Move this to odyssey-crdt::time??
-#[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
 pub struct OperationId<HeaderId> {
     pub header_id: Option<HeaderId>, // None when in the initial state?
     pub operation_position: u8,

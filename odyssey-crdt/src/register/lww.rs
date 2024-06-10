@@ -1,11 +1,13 @@
 use std::cmp::Ordering;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     CRDT,
     time::{CausalOrder, compare_with_tiebreak},
 };
 
-#[derive(Clone, Debug, PartialEq)]
+// TODO: Define CBOR properly
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 /// Last writer wins (LWW) register.
 pub struct LWW<T, A> {
     time: T,
