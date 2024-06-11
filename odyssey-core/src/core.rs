@@ -3,6 +3,7 @@ use dynamic::Dynamic;
 // use futures::{SinkExt, StreamExt};
 // use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use odyssey_crdt::CRDT;
+use serde::Serialize;
 use std::collections::BTreeSet;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -19,8 +20,8 @@ use crate::protocol::Version;
 use crate::storage::Storage;
 use crate::store;
 use crate::store::ecg::{self, ECGBody, ECGHeader};
-use crate::store::ecg::v0::{Body, Header, OperationId};
-use crate::util::TypedStream;
+use crate::store::ecg::v0::{Body, Header, HeaderId, OperationId};
+use crate::util::{Sha256Hash, TypedStream};
 
 pub struct Odyssey<OT> {
     thread: thread::JoinHandle<()>,
@@ -106,7 +107,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
         }
     }
 
-    pub fn create_store<T: CRDT<Time = OT::Time> + Clone + Send + 'static, S: Storage>(&self, initial_state: T, storage: S) -> StoreHandle<OT, T>
+    pub fn create_store<T: CRDT<Time = OT::Time> + OdysseyCRDT + Clone + Send + 'static, S: Storage>(&self, initial_state: T, storage: S) -> StoreHandle<OT, T>
     where
         // T::Op: Send,
         <OT as OdysseyType>::ECGHeader<T>: Send + Clone + 'static,
@@ -183,7 +184,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
         }
     }
 
-    pub fn load_store<T: CRDT<Time = OT::Time>, S: Storage>(&self, store_id: OT::StoreId, storage: S) -> StoreHandle<OT, T> {
+    pub fn load_store<T: CRDT<Time = OT::Time> + OdysseyCRDT, S: Storage>(&self, store_id: OT::StoreId, storage: S) -> StoreHandle<OT, T> {
         todo!()
     }
 
@@ -204,7 +205,7 @@ pub struct OdysseyConfig {
     pub port: u16,
 }
 
-pub struct StoreHandle<O: OdysseyType, T: CRDT<Time = O::Time>> {
+pub struct StoreHandle<O: OdysseyType, T: CRDT<Time = O::Time> + OdysseyCRDT> {
     future_handle: JoinHandle<()>, // JP: Maybe this should be owned by `Odyssey`?
     send_command_chan: UnboundedSender<StoreCommand<O::ECGHeader<T>, T>>,
     phantom: PhantomData<O>,
@@ -213,7 +214,7 @@ pub struct StoreHandle<O: OdysseyType, T: CRDT<Time = O::Time>> {
 /// Trait to define newtype wrapers that instantiate type families required by Odyssey.
 pub trait OdysseyType {
     type StoreId; // <T>
-    type ECGHeader<T: CRDT<Time = Self::Time>>: store::ecg::ECGHeader<T>;
+    type ECGHeader<T: CRDT<Time = Self::Time> + OdysseyCRDT>: store::ecg::ECGHeader<T>;
     type Time;
     // type OperationId;
     // type Hash: Clone + Copy + Debug + Ord + Send;
@@ -237,7 +238,7 @@ pub enum StateUpdate<Header: ECGHeader<T>, T: CRDT> {
     },
 }
 
-impl<O: OdysseyType, T: CRDT<Time = O::Time>> StoreHandle<O, T> {
+impl<O: OdysseyType, T: CRDT<Time = O::Time> + OdysseyCRDT> StoreHandle<O, T> {
     pub fn apply(&mut self, parents: BTreeSet<<<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::HeaderId>, op: T::Op) -> T::Time
     where
         <<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: ECGBody<T>,
@@ -287,3 +288,18 @@ impl<O: OdysseyType, T: CRDT<Time = O::Time>> StoreHandle<O, T> {
 
 // fn handle_odyssey_command() {
 // }
+
+/// A default instantiation of `OdysseyType`.
+enum OdysseyDef {}
+
+impl OdysseyType for OdysseyDef {
+    type StoreId = ();
+    type ECGHeader<T: CRDT<Time = OperationId<HeaderId<Sha256Hash>>> + OdysseyCRDT> = Header<Sha256Hash, T>;
+    type Time = OperationId<HeaderId<Sha256Hash>>;
+}
+
+pub trait OdysseyCRDT
+where
+    Self: CRDT,
+    <Self as CRDT>::Op: Serialize,
+{}
