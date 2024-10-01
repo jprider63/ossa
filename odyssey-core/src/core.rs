@@ -3,6 +3,7 @@ use dynamic::Dynamic;
 // use futures::{SinkExt, StreamExt};
 // use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use odyssey_crdt::CRDT;
+use serde::Serialize;
 use std::collections::BTreeSet;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -117,6 +118,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
         // T: CRDT<Time = <<OT as OdysseyType>::ECGHeader<T> as ECGHeader>::OperationId>,
         // T: CRDT<Time = OperationId<Header<OT::Hash, T>>>,
         // <OT as OdysseyType>::Hash: 'static,
+        T::Op: Serialize,
     {
         // TODO:
         // Check if this store already exists and return that.
@@ -183,7 +185,10 @@ impl<OT: OdysseyType> Odyssey<OT> {
         }
     }
 
-    pub fn load_store<T: CRDT<Time = OT::Time>, S: Storage>(&self, store_id: OT::StoreId, storage: S) -> StoreHandle<OT, T> {
+    pub fn load_store<T: CRDT<Time = OT::Time>, S: Storage>(&self, store_id: OT::StoreId, storage: S) -> StoreHandle<OT, T>
+    where
+        T::Op: Serialize,
+    {
         todo!()
     }
 
@@ -204,7 +209,10 @@ pub struct OdysseyConfig {
     pub port: u16,
 }
 
-pub struct StoreHandle<O: OdysseyType, T: CRDT<Time = O::Time>> {
+pub struct StoreHandle<O: OdysseyType, T: CRDT<Time = O::Time>>
+where
+    T::Op: Serialize,
+{
     future_handle: JoinHandle<()>, // JP: Maybe this should be owned by `Odyssey`?
     send_command_chan: UnboundedSender<StoreCommand<O::ECGHeader<T>, T>>,
     phantom: PhantomData<O>,
@@ -213,7 +221,7 @@ pub struct StoreHandle<O: OdysseyType, T: CRDT<Time = O::Time>> {
 /// Trait to define newtype wrapers that instantiate type families required by Odyssey.
 pub trait OdysseyType {
     type StoreId; // <T>
-    type ECGHeader<T: CRDT<Time = Self::Time>>: store::ecg::ECGHeader<T>;
+    type ECGHeader<T: CRDT<Time = Self::Time, Op: Serialize>>: store::ecg::ECGHeader<T>;
     type Time;
     // type OperationId;
     // type Hash: Clone + Copy + Debug + Ord + Send;
@@ -237,7 +245,10 @@ pub enum StateUpdate<Header: ECGHeader<T>, T: CRDT> {
     },
 }
 
-impl<O: OdysseyType, T: CRDT<Time = O::Time>> StoreHandle<O, T> {
+impl<O: OdysseyType, T: CRDT<Time = O::Time>> StoreHandle<O, T>
+where
+    T::Op: Serialize,
+{
     pub fn apply(&mut self, parents: BTreeSet<<<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::HeaderId>, op: T::Op) -> T::Time
     where
         <<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: ECGBody<T>,
