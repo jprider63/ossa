@@ -8,6 +8,7 @@ use std::any::type_name;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::pin::Pin;
+use typeable::Typeable;
 
 use crate::network::protocol::ProtocolError;
 use crate::store::Nonce;
@@ -28,6 +29,7 @@ fn test() {
     assert!(n1 != n2);
 }
 
+// TODO: Remove this trait
 pub trait Hash: PartialEq + AsRef<[u8]> {
     type HashState;
 
@@ -36,7 +38,7 @@ pub trait Hash: PartialEq + AsRef<[u8]> {
     fn finalize(state: Self::HashState) -> Self;
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialOrd, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialOrd, Serialize, Typeable)]
 pub struct Sha256Hash(pub [u8; 32]);
 
 impl AsRef<[u8]> for Sha256Hash {
@@ -294,3 +296,4 @@ impl<T> futures::Sink<T> for Channel<T> {
         // })
     }
 }
+

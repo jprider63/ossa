@@ -6,6 +6,7 @@ use serde::{
     Serialize,
 };
 use std::{collections::{BTreeMap, BTreeSet}, fmt::Debug, marker::PhantomData};
+use typeable::Typeable;
 
 use crate::{
     util,
@@ -18,7 +19,7 @@ pub struct HeaderId<Hash>(Hash);
 
 // TODO: Move this to the right location.
 /// An ECG header.
-#[derive(Clone)]
+#[derive(Clone, Typeable)]
 pub struct Header<Hash, T> {
     /// A nonce to randomize the header.
     nonce: u8,
