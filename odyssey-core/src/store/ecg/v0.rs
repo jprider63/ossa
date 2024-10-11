@@ -19,7 +19,7 @@ pub struct HeaderId<Hash>(Hash);
 
 // TODO: Move this to the right location.
 /// An ECG header.
-#[derive(Clone, Typeable)]
+#[derive(Clone)]
 pub struct Header<Hash, T> {
     /// A nonce to randomize the header.
     nonce: u8,

@@ -134,6 +134,28 @@ fn impl_typeable_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
     let name_lit = ast.ident.to_string();
     let type_args_count: u8 = ast.generics.params.iter().filter(|t| is_type_arg(t)).count().try_into().unwrap();
     let type_args = &ast.generics.params;
+    let abbr_type_args = TokenStream::from_iter(ast.generics.params.iter().map(|p|
+      match p {
+          GenericParam::Lifetime(l) => {
+              let name = &l.lifetime;
+              quote! {
+                  #name,
+              }
+          }
+          GenericParam::Type(t) => {
+              let name = &t.ident;
+              quote! {
+                  #name,
+              }
+          }
+          GenericParam::Const(c) => {
+              let name = &c.ident;
+              quote! {
+                  #name,
+              }
+          }
+      }
+    ));
     let body = match &ast.data {
         Data::Struct(s) => {
             let fs = impl_fields(&s.fields);
@@ -167,7 +189,7 @@ fn impl_typeable_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
 
     let gen = quote! {
         #[automatically_derived]
-        impl<#type_args> typeable::Typeable for #name<#type_args> #where_clause {
+        impl<#type_args> typeable::Typeable for #name<#abbr_type_args> #where_clause {
             fn type_ident() -> typeable::TypeId {
                 use typeable::internal::*;
 
