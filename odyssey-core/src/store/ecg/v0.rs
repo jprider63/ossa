@@ -19,7 +19,7 @@ pub struct HeaderId<Hash>(Hash);
 
 // TODO: Move this to the right location.
 /// An ECG header.
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
 // #[derive(Clone, Typeable)]
 // #[tag = "v1"]
 pub struct Header<Hash, T> {
@@ -66,6 +66,7 @@ where
 impl<Hash: Clone + Copy + Debug + Ord + util::Hash, T: CRDT<Time = OperationId<HeaderId<Hash>>>> ECGHeader<T> for Header<Hash, T>
 where
     <T as CRDT>::Op: Serialize,
+    Hash: Serialize, // TODO
 {
     type HeaderId = HeaderId<Hash>;
     type Body = Body<Hash, T>;
@@ -75,7 +76,7 @@ where
     }
 
     fn get_header_id(&self) -> HeaderId<Hash> {
-        todo!()
+        HeaderId(tmp_hash(self))
     }
 
     fn validate_header(&self, header_id: HeaderId<Hash>) -> bool {
@@ -152,12 +153,17 @@ where
     <T as CRDT>::Op: Serialize,
 {
     fn get_hash(&self) -> Hash {
+        tmp_hash(self)
+    }
+}
+
+// TODO: Standardize how to hash/serialize. XXX
+fn tmp_hash<T: Serialize, Hash: util::Hash>(x: &T) -> Hash {
         // JP: Better way to do this? Just serialize once?
         let mut h = Hash::new();
-        let serialized = serde_cbor::ser::to_vec(&self).unwrap();
+        let serialized = serde_cbor::ser::to_vec(&x).unwrap();
         Hash::update(&mut h, serialized);
         Hash::finalize(h)
-    }
 }
 
 // OperationID's are header ids and index (HeaderId, u8)
