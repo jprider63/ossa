@@ -7,6 +7,6 @@ edition = "2021"
 proc-macro = true
 
 [dependencies]
-syn = { version = "*", features = ["extra-traits"] }
+syn = { version = "2", features = ["extra-traits"] }
 proc-macro2 = "*"
 quote = "*"

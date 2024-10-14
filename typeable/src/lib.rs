@@ -46,7 +46,7 @@ impl fmt::Display for TypeId {
 /// The following is the grammar of how the type is hashed to create its identifier.
 ///
 /// typeable :=
-///   type_name type_arg_count type_body
+///   type_name type_arg_count tag type_body
 ///
 /// type_name := string
 /// type_arg_count := u8
@@ -64,6 +64,8 @@ impl fmt::Display for TypeId {
 ///
 /// field := field_name type_ident
 /// field_name := string
+///
+/// tag := string | _
 ///
 /// variant := variant_name fields
 ///

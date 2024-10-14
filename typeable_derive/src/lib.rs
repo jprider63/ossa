@@ -1,6 +1,6 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{punctuated::Punctuated, token::Comma, Data, DataStruct, Ident, Field, Fields, GenericParam, Type};
+use syn::{punctuated::Punctuated, token::Comma, Attribute, AttrStyle, Data, Expr, Field, Fields, GenericParam, Ident, Lit, Meta, Type};
 use std::collections::HashSet;
 
 #[proc_macro_derive(Typeable, attributes(tag))]
@@ -65,7 +65,6 @@ fn impl_fields(fs: &Fields) -> TokenStream {
                 let name = f.ident.as_ref().unwrap().to_string();
                 let ty = impl_type_ident(&f.ty);
 
-                let tmp = name.to_string();
                 quote! {
                     helper_string(&mut h, #name);
                     #ty
@@ -84,6 +83,41 @@ fn impl_fields(fs: &Fields) -> TokenStream {
         helper_u8(&mut h, #tag);
         helper_counter(&mut h, #c);
         #fields
+    }
+}
+
+fn impl_tag(attrs: &[Attribute]) -> TokenStream {
+    fn get_tag(a: &Attribute) -> Option<String> {
+        match &a.meta {
+            Meta::NameValue(v) => {
+                let seg = v.path.segments.first()?;
+                if &seg.ident.to_string() == "tag" {
+                    match &v.value {
+                        Expr::Lit(l) => {
+                            match &l.lit {
+                                Lit::Str(s) => Some(s.value()),
+                                _ => None,
+                            }
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+    if let Some(attr) = attrs.iter().find_map(|a| {
+        if a.style == AttrStyle::Outer {
+            get_tag(a)
+        } else { None }
+    }) {
+        quote! {
+            helper_string(&mut h, #attr);
+        }
+    } else {
+        quote! {}
     }
 }
 
@@ -186,6 +220,7 @@ fn impl_typeable_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
         }
     };
     let where_clause = impl_where(&ast);
+    let tag = impl_tag(&ast.attrs);
 
     let gen = quote! {
         #[automatically_derived]
@@ -197,6 +232,7 @@ fn impl_typeable_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
                 helper_type_constructor(&mut h, #name_lit);
                 helper_type_args(&mut h, #type_args_count);
 
+                #tag
                 #body
 
                 typeable::TypeId::new(h.finalize().into())
