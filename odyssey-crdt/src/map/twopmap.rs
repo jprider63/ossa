@@ -3,6 +3,7 @@ use im::{
     OrdSet,
 };
 use serde::{Deserialize, Serialize};
+use std::fmt::{self, Debug};
 
 use crate::CRDT;
 use crate::time::CausalOrder;
@@ -12,6 +13,12 @@ use crate::time::CausalOrder;
 pub struct TwoPMap<K, V> { // JP: Drop `K`?
     map: OrdMap<K, V>,
     tombstones: OrdSet<K>,
+}
+
+impl<K: Ord + Debug, V: Debug> Debug for TwoPMap<K, V> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        self.map.fmt(f)
+    }
 }
 
 // TODO: Define CBOR properly
@@ -54,21 +61,29 @@ impl<K: Ord + Clone + CausalOrder, V: CRDT<Time = K> + Clone> CRDT for TwoPMap<K
         } else {
             match op {
                 TwoPMapOp::Insert{value} => {
-                    let TwoPMap {mut map, mut tombstones} = self;
-                    map.insert(op_time, value);
+                    let TwoPMap {map, tombstones} = self;
+                    let map = map.update_with(op_time, value, |_, _| {
+                        unreachable!("Invariant violated. Key already exists in TwoPMap.");
+                    });
 
                     TwoPMap { map, tombstones }
                 }
                 TwoPMapOp::Apply{key, operation} => {
-                    let TwoPMap {mut map, mut tombstones} = self;
-                    map.alter(|v| v.map(|v| v.apply(op_time, operation)), key);
+                    let TwoPMap {map, tombstones} = self;
+                    let map = map.alter(|v| {
+                        if let Some(v) = v {
+                            Some(v.apply(op_time, operation))
+                        } else {
+                            unreachable!("Invariant violated. Key must already exist when applyting an update to a TwoPMap.")
+                        }
+                    }, key);
 
                     TwoPMap { map, tombstones }
                 }
                 TwoPMapOp::Delete{key} => {
-                    let TwoPMap {mut map, mut tombstones} = self;
-                    map.remove(&key);
-                    tombstones.insert(key);
+                    let TwoPMap {map, tombstones} = self;
+                    let map = map.without(&key);
+                    let tombstones = tombstones.update(key);
 
                     TwoPMap { map, tombstones }
                 }
