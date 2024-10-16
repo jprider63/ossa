@@ -175,8 +175,24 @@ pub struct OperationId<HeaderId> {
 }
 
 use odyssey_crdt::time::CausalOrder;
-impl<HeaderId> CausalOrder for OperationId<HeaderId> {
-    fn happens_before(_: &Self, _: &Self) -> bool { todo!() }
+impl<HeaderId: PartialOrd + Debug> CausalOrder for OperationId<HeaderId> {
+    fn happens_before(a: &Self, b: &Self) -> bool {
+        if a.header_id == b.header_id {
+            a.operation_position < b.operation_position
+        } else {
+            if let Some(a_header_id) = &a.header_id {
+                if let Some(b_header_id) = &b.header_id {
+                    todo!()
+                } else {
+                    // a.header_id.is_some() && b.header_id == None
+                    false
+                }
+            } else {
+                // a.header_id == None
+                true
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

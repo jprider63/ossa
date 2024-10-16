@@ -143,6 +143,9 @@ impl<OT: OdysseyType> Odyssey<OT> {
             while let Some(cmd) = recv_commands.recv().await {
                 match cmd {
                     StoreCommand::Apply{operation_header, operation_body} => {
+                        // TODO: Update ECG state... XXX
+                        println!("TODO: Update ECG state... XXX");
+
                         // Update state.
                         // TODO: Get new time?.. Or take it as an argument
                         // Operation ID/time is function of tips, current operation, ...? How do we

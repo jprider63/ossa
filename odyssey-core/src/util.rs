@@ -5,7 +5,7 @@ use rand::{rngs::OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::any::type_name;
-use std::fmt::Debug;
+use std::fmt::{self, Debug};
 use std::marker::PhantomData;
 use std::pin::Pin;
 use typeable::Typeable;
@@ -38,8 +38,18 @@ pub trait Hash: PartialEq + AsRef<[u8]> {
     fn finalize(state: Self::HashState) -> Self;
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialOrd, Serialize, Typeable)]
+#[derive(Clone, Copy, Deserialize, Eq, Ord, PartialOrd, Serialize, Typeable)]
 pub struct Sha256Hash(pub [u8; 32]);
+
+impl Debug for Sha256Hash {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "0x")?;
+        for b in self.0 {
+            write!(f, "{:02X}", b)?;
+        }
+        Ok(())
+    }
+}
 
 impl AsRef<[u8]> for Sha256Hash {
     fn as_ref(&self) -> &[u8] {
