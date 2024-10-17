@@ -276,10 +276,8 @@ impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
     pub fn get_causal_state(&self) -> &CausalState<Header::HeaderId> {
         &self.dependency_graph
     }
-}
 
-impl<HeaderId> CausalState<HeaderId> {
-    pub fn is_ancestor_of(&self, ancestor: &HeaderId, descendent: &HeaderId) -> Option<bool> {
+    pub fn is_ancestor_of(&self, ancestor: &Header::HeaderId, descendent: &Header::HeaderId) -> Option<bool> {
         todo!()
     }
 }

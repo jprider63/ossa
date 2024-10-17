@@ -1,4 +1,6 @@
 #![feature(iterator_try_collect, map_try_insert)]
+#![feature(impl_trait_in_assoc_type)]
+#![feature(type_alias_impl_trait)]
 
 pub mod core;
 pub mod network;

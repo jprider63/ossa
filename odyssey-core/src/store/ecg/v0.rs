@@ -177,8 +177,9 @@ pub struct OperationId<HeaderId> {
     pub operation_position: u8,
 }
 
+type T = impl CRDT;
 impl<HeaderId: PartialOrd + Debug> CausalOrder for OperationId<HeaderId> {
-    type State = ecg::CausalState<HeaderId>;
+    type State = ecg::State<impl ECGHeader<T, HeaderId = HeaderId>, T>;
 
     fn happens_before(st: &Self::State, a: &Self, b: &Self) -> bool {
         if a.header_id == b.header_id {
