@@ -35,8 +35,8 @@ impl<T:CausalOrder + Ord, A> CRDT for LWW<T, A> {
     type Op = A;
     type Time = T;
 
-    fn apply(self, op_time: T, op: Self::Op) -> Self {
-        match compare_with_tiebreak(&self.time, &op_time) {
+    fn apply(self, st: &T::State, op_time: T, op: Self::Op) -> Self {
+        match compare_with_tiebreak(st, &self.time, &op_time) {
             Ordering::Less =>
                 LWW {
                     time: op_time,

@@ -37,26 +37,26 @@ impl<T:CausalOrder + Eq + Ord + Clone, A: Clone> CRDT for CausalTree<T, A> {
     type Op = CausalTreeOp<T, A>;
     type Time = T;
 
-    fn apply(self, op_time: T, op: Self::Op) -> Self {
-        insert_in_weave(&self, &op_time, &op)
+    fn apply(self, st: &T::State, op_time: T, op: Self::Op) -> Self {
+        insert_in_weave(st, &self, &op_time, &op)
             .expect("Precondition of `apply` violated: Operation must only be applied when all of its parents have been applied.")
     }
 }
 
-fn insert_in_weave<T:CausalOrder + Eq + Ord + Clone, A: Clone>(weave: &CausalTree<T, A>, op_time: &T, op: &CausalTreeOp<T, A>) -> Option<CausalTree<T, A>> {
+fn insert_in_weave<T:CausalOrder + Eq + Ord + Clone, A: Clone>(st: &T::State, weave: &CausalTree<T, A>, op_time: &T, op: &CausalTreeOp<T, A>) -> Option<CausalTree<T, A>> {
     if weave.atom.id == op.parent_id {
         let atom = Atom {
             id: op_time.clone(),
             letter: op.letter.clone(),
         };
-        let children = insert_atom(weave.children.clone(), atom);
+        let children = insert_atom(st, weave.children.clone(), atom);
         let ct = CausalTree {
             atom: weave.atom.clone(),
             children,
         };
         Some(ct)
     } else {
-        let children_m = insert_in_weave_children(weave.children.clone(), op_time, op);
+        let children_m = insert_in_weave_children(st, weave.children.clone(), op_time, op);
         children_m.map(|children| CausalTree {
             atom: weave.atom.clone(),
             children,
@@ -64,22 +64,22 @@ fn insert_in_weave<T:CausalOrder + Eq + Ord + Clone, A: Clone>(weave: &CausalTre
     }
 }
 
-fn insert_atom<T:CausalOrder + Ord + Clone, A: Clone>(mut children: Vector<CausalTree<T, A>>, atom: Atom<T, A>) -> Vector<CausalTree<T, A>> {
-    fn compare_atom<T: CausalOrder + Ord, A>(a1: &Atom<T, A>, a2: &Atom<T, A>) -> Ordering {
+fn insert_atom<T:CausalOrder + Ord + Clone, A: Clone>(st: &T::State, mut children: Vector<CausalTree<T, A>>, atom: Atom<T, A>) -> Vector<CausalTree<T, A>> {
+    fn compare_atom<T: CausalOrder + Ord, A>(st: &T::State, a1: &Atom<T, A>, a2: &Atom<T, A>) -> Ordering {
         match (a1, a2) {
-            (Atom{id: id1, letter: Letter::Root}, Atom{id: id2, letter: Letter::Root}) => compare_with_tiebreak(id1, id2),
+            (Atom{id: id1, letter: Letter::Root}, Atom{id: id2, letter: Letter::Root}) => compare_with_tiebreak(st, id1, id2),
             (Atom{id:   _, letter:            _}, Atom{id:   _, letter: Letter::Root}) => Ordering::Less,
             (Atom{id:   _, letter: Letter::Root}, Atom{id:   _, letter:            _}) => Ordering::Greater,
 
-            (Atom{id: id1, letter: Letter::Delete}, Atom{id: id2, letter: Letter::Delete}) => compare_with_tiebreak(id1, id2),
+            (Atom{id: id1, letter: Letter::Delete}, Atom{id: id2, letter: Letter::Delete}) => compare_with_tiebreak(st, id1, id2),
             (Atom{id:   _, letter:              _}, Atom{id:   _, letter: Letter::Delete}) => Ordering::Less,
             (Atom{id:   _, letter: Letter::Delete}, Atom{id:   _, letter:              _}) => Ordering::Greater,
 
-            (Atom{id: id1, letter: _}, Atom{id: id2, letter: _}) => compare_with_tiebreak(id1, id2),
+            (Atom{id: id1, letter: _}, Atom{id: id2, letter: _}) => compare_with_tiebreak(st, id1, id2),
         }
     }
 
-    match children.binary_search_by(|ct| compare_atom(&ct.atom, &atom)) {
+    match children.binary_search_by(|ct| compare_atom(st, &ct.atom, &atom)) {
         Err(index) => {
             let ct = CausalTree {
                 atom,
@@ -95,10 +95,10 @@ fn insert_atom<T:CausalOrder + Ord + Clone, A: Clone>(mut children: Vector<Causa
     children
 }
 
-fn insert_in_weave_children<T:CausalOrder + Eq + Ord + Clone, A: Clone>(mut children: Vector<CausalTree<T, A>>, op_time: &T, op: &CausalTreeOp<T, A>) -> Option<Vector<CausalTree<T, A>>> {
+fn insert_in_weave_children<T:CausalOrder + Eq + Ord + Clone, A: Clone>(st: &T::State, mut children: Vector<CausalTree<T, A>>, op_time: &T, op: &CausalTreeOp<T, A>) -> Option<Vector<CausalTree<T, A>>> {
     // JP: Why does iter require clone?
     for mut child in children.iter_mut() {
-        if let Some(updated_child) = insert_in_weave(child, op_time, op) {
+        if let Some(updated_child) = insert_in_weave(st, child, op_time, op) {
              *child = updated_child;
              return Some(children)
         }

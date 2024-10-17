@@ -50,7 +50,7 @@ impl<K: Ord + Clone + CausalOrder, V: CRDT<Time = K> + Clone> CRDT for TwoPMap<K
     type Op = TwoPMapOp<K, V>;
     type Time = V::Time; // JP: Newtype wrap `struct TwoPMapId<V>(V::Time)`?
 
-    fn apply(self, op_time: Self::Time, op: Self::Op) -> Self {
+    fn apply(self, st: &K::State, op_time: Self::Time, op: Self::Op) -> Self {
         // Check if deleted.
         let is_deleted = {
             let key = op.key(&op_time);
@@ -72,7 +72,7 @@ impl<K: Ord + Clone + CausalOrder, V: CRDT<Time = K> + Clone> CRDT for TwoPMap<K
                     let TwoPMap {map, tombstones} = self;
                     let map = map.alter(|v| {
                         if let Some(v) = v {
-                            Some(v.apply(op_time, operation))
+                            Some(v.apply(st, op_time, operation))
                         } else {
                             unreachable!("Invariant violated. Key must already exist when applyting an update to a TwoPMap.")
                         }

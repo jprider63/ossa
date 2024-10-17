@@ -1,4 +1,7 @@
-use odyssey_crdt::CRDT;
+use odyssey_crdt::{
+    time::CausalOrder,
+    CRDT
+};
 use rand::Rng;
 use serde::{
     ser::{SerializeStruct, Serializer},
@@ -10,7 +13,7 @@ use typeable::Typeable;
 
 use crate::{
     util,
-    store::ecg::{ECGBody, ECGHeader}
+    store::ecg::{self, ECGBody, ECGHeader}
 };
 
 
@@ -174,15 +177,16 @@ pub struct OperationId<HeaderId> {
     pub operation_position: u8,
 }
 
-use odyssey_crdt::time::CausalOrder;
 impl<HeaderId: PartialOrd + Debug> CausalOrder for OperationId<HeaderId> {
-    fn happens_before(a: &Self, b: &Self) -> bool {
+    type State = ecg::CausalState<HeaderId>;
+
+    fn happens_before(st: &Self::State, a: &Self, b: &Self) -> bool {
         if a.header_id == b.header_id {
             a.operation_position < b.operation_position
         } else {
             if let Some(a_header_id) = &a.header_id {
                 if let Some(b_header_id) = &b.header_id {
-                    todo!()
+                    st.is_ancestor_of(a_header_id, b_header_id).expect("Invariant violated. Unknown header id.")
                 } else {
                     // a.header_id.is_some() && b.header_id == None
                     false

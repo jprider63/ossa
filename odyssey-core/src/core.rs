@@ -1,5 +1,6 @@
 
 use dynamic::Dynamic;
+use odyssey_crdt::time::CausalOrder;
 // use futures::{SinkExt, StreamExt};
 // use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use odyssey_crdt::CRDT;
@@ -119,6 +120,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
         // T: CRDT<Time = OperationId<Header<OT::Hash, T>>>,
         // <OT as OdysseyType>::Hash: 'static,
         T::Op: Serialize,
+        OT::Time: CausalOrder<State = ecg::State<OT::ECGHeader<T>, T>>,
     {
         // TODO:
         // Check if this store already exists and return that.
@@ -152,7 +154,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
                         // do batching? (HeaderId(h) | Self, Index(u8)) ? This requires having all
                         // the batched operations?
                         for (time, operation) in operation_header.zip_operations_with_time(operation_body) {
-                            state = state.apply(time, operation);
+                            state = state.apply(&store.ecg_state, time, operation);
                         }
 
                         // Send state to subscribers.

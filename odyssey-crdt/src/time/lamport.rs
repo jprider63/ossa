@@ -19,7 +19,9 @@ impl<Id> LamportTimestamp<Id> {
 }
 
 impl<Id:Ord> CausalOrder for LamportTimestamp<Id> {
-    fn happens_before(t1: &Self, t2: &Self) -> bool {
+    type State = ();
+
+    fn happens_before(_: &(), t1: &Self, t2: &Self) -> bool {
         t1.id == t2.id && t1.timestamp < t2.timestamp
     }
 }
