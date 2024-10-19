@@ -3,7 +3,7 @@ use daggy::stable_dag::StableDag;
 use daggy::Walker;
 use odyssey_crdt::CRDT;
 use std::cmp::{self, Reverse};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
@@ -269,10 +269,19 @@ impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
         let anid = self.node_info_map.get(ancestor)?.graph_index;
         let dnid = self.node_info_map.get(descendent)?.graph_index;
 
-        let mut bfs = Bfs::new(&Reversed(&self.dependency_graph), dnid);
-        while let Some(nid) = bfs.next(&self.dependency_graph) {
+        let mut queue = VecDeque::from([dnid]);
+        let mut visited = BTreeSet::from([dnid]);
+
+        while let Some(nid) = queue.pop_front() {
             if nid == anid {
                 return Some(true);
+            }
+
+            for (_, pid) in self.dependency_graph.parents(nid).iter(&self.dependency_graph) {
+                if !visited.contains(&pid) {
+                    visited.insert(pid);
+                    queue.push_back(pid);
+                }
             }
         }
 

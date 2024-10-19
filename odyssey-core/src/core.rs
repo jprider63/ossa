@@ -269,6 +269,7 @@ where
         self.apply_batch(parents, vec![op]).pop().unwrap()
     }
 
+    // TODO: Don't take parents as an argument. Pull it from the state. XXX
     pub fn apply_batch(&mut self, parents: BTreeSet<<<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::HeaderId>, op: Vec<T::Op>) -> Vec<T::Time>
     where
         <<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: ECGBody<T>,
