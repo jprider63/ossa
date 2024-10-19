@@ -5,7 +5,7 @@ pub mod set;
 pub mod text;
 pub mod time;
 
-use crate::time::CausalOrder;
+use crate::time::CausalState;
 
 // // JP: What should this be called? LogicalOp? MetaOp?
 // pub struct AnnotatedOp<M:OpMetadata, Op> {
@@ -22,7 +22,7 @@ use crate::time::CausalOrder;
 
 pub trait CRDT {
     type Op;
-    type Time: CausalOrder;
+    type Time;
 
 
     // TODO: enabled...
@@ -32,7 +32,7 @@ pub trait CRDT {
 
     // Preconditions:
     // - All `logical_time`s of applied operations must be unique in all subsequent calls to `apply`.
-    fn apply(self, causal_state: &<Self::Time as CausalOrder>::State, logical_time: Self::Time, op: Self::Op) -> Self;
+    fn apply<CS: CausalState<Time = Self::Time>>(self, causal_state: &CS, logical_time: Self::Time, op: Self::Op) -> Self;
 
     // lawCommutativity :: concurrent t1 t2 => x.apply(t1, op1).apply(t2, op2) == x.apply(t2, op2).apply(t1, op1)
 }

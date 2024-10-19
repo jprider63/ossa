@@ -1,5 +1,5 @@
 use odyssey_crdt::{
-    time::CausalOrder,
+    time::CausalState,
     CRDT
 };
 use rand::Rng;
@@ -66,7 +66,7 @@ where
     }
 }
 
-impl<Hash: Clone + Copy + Debug + Ord + util::Hash, T: CRDT<Time = OperationId<Header<Hash, T>, T>>> ECGHeader<T> for Header<Hash, T>
+impl<Hash: Clone + Copy + Debug + Ord + util::Hash, T: CRDT<Time = OperationId<HeaderId<Hash>>>> ECGHeader<T> for Header<Hash, T>
 where
     <T as CRDT>::Op: Serialize,
     Hash: Serialize, // TODO
@@ -121,7 +121,6 @@ where
             OperationId {
                 header_id,
                 operation_position: i,
-                phantom: PhantomData,
             }
         }).collect()
     }
@@ -172,22 +171,21 @@ fn tmp_hash<T: Serialize, Hash: util::Hash>(x: &T) -> Hash {
 
 // OperationID's are header ids and index (HeaderId, u8)
 // TODO: Move this to odyssey-crdt::time??
-pub struct OperationId<Header: ECGHeader<T>, T: CRDT> {
-    pub header_id: Option<Header::HeaderId>, // None when in the initial state?
+pub struct OperationId<HeaderId> {
+    pub header_id: Option<HeaderId>, // None when in the initial state?
     pub operation_position: u8,
-    phantom: PhantomData<T>, // Need this since Rust's existentials can't handle it.
 }
 
-impl<Header: ECGHeader<T>, T: CRDT> CausalOrder for OperationId<Header, T> {
-    type State = ecg::State<Header, T>;
+impl<Header: ECGHeader<T>, T: CRDT> CausalState for ecg::State<Header, T> {
+    type Time = OperationId<Header::HeaderId>;
 
-    fn happens_before(st: &Self::State, a: &Self, b: &Self) -> bool {
+    fn happens_before(&self, a: &Self::Time, b: &Self::Time) -> bool {
         if a.header_id == b.header_id {
             a.operation_position < b.operation_position
         } else {
             if let Some(a_header_id) = &a.header_id {
                 if let Some(b_header_id) = &b.header_id {
-                    st.is_ancestor_of(a_header_id, b_header_id).expect("Invariant violated. Unknown header id.")
+                    self.is_ancestor_of(a_header_id, b_header_id).expect("Invariant violated. Unknown header id.")
                 } else {
                     // a.header_id.is_some() && b.header_id == None
                     false

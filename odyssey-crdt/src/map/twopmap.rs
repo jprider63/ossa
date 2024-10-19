@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug};
 
 use crate::CRDT;
-use crate::time::CausalOrder;
+use crate::time::CausalState;
 
 /// Two phase map.
 #[derive(Clone)]
@@ -46,11 +46,11 @@ impl<K, V: CRDT> TwoPMapOp<K, V> {
     }
 }
 
-impl<K: Ord + Clone + CausalOrder, V: CRDT<Time = K> + Clone> CRDT for TwoPMap<K, V> {
+impl<K: Ord + Clone, V: CRDT<Time = K> + Clone> CRDT for TwoPMap<K, V> {
     type Op = TwoPMapOp<K, V>;
     type Time = V::Time; // JP: Newtype wrap `struct TwoPMapId<V>(V::Time)`?
 
-    fn apply(self, st: &K::State, op_time: Self::Time, op: Self::Op) -> Self {
+    fn apply<CS: CausalState<Time = Self::Time>>(self, st: &CS, op_time: Self::Time, op: Self::Op) -> Self {
         // Check if deleted.
         let is_deleted = {
             let key = op.key(&op_time);

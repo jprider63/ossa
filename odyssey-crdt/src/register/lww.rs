@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     CRDT,
-    time::{CausalOrder, compare_with_tiebreak},
+    time::{CausalState, compare_with_tiebreak},
 };
 
 // TODO: Define CBOR properly
@@ -31,11 +31,11 @@ impl<T, A> LWW<T, A> {
     }
 }
 
-impl<T:CausalOrder + Ord, A> CRDT for LWW<T, A> {
+impl<T:Ord, A> CRDT for LWW<T, A> {
     type Op = A;
     type Time = T;
 
-    fn apply(self, st: &T::State, op_time: T, op: Self::Op) -> Self {
+    fn apply<CS: CausalState<Time = Self::Time>>(self, st: &CS, op_time: Self::Time, op: Self::Op) -> Self {
         match compare_with_tiebreak(st, &self.time, &op_time) {
             Ordering::Less =>
                 LWW {

@@ -92,10 +92,8 @@ impl<Header: ECGHeader<T> + Clone, T: CRDT> Clone for State<Header, T> {
 
 impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
     pub fn new() -> State<Header, T> {
-        let mut dependency_graph = StableDag::new();
-
         State {
-            dependency_graph,
+            dependency_graph: StableDag::new(),
             root_nodes: BTreeSet::new(),
             node_info_map: BTreeMap::new(),
             tips: BTreeSet::new(),

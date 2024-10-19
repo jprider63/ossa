@@ -1,6 +1,6 @@
 
 use dynamic::Dynamic;
-use odyssey_crdt::time::CausalOrder;
+use odyssey_crdt::time::CausalState;
 // use futures::{SinkExt, StreamExt};
 // use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use odyssey_crdt::CRDT;
@@ -118,9 +118,10 @@ impl<OT: OdysseyType> Odyssey<OT> {
         // T: CRDT<Op = <<<OT as OdysseyType>::ECGHeader<T> as ECGHeader>::Body as ECGBody>::Operation>,
         // T: CRDT<Time = <<OT as OdysseyType>::ECGHeader<T> as ECGHeader>::OperationId>,
         // T: CRDT<Time = OperationId<Header<OT::Hash, T>>>,
+        // OperationId<Header::HeaderId>
         // <OT as OdysseyType>::Hash: 'static,
         T::Op: Serialize,
-        OT::Time: CausalOrder<State = ecg::State<OT::ECGHeader<T>, T>>,
+        // OT::Time: CausalOrder<State = ecg::State<OT::ECGHeader<T>, T>>,
     {
         // TODO:
         // Check if this store already exists and return that.
@@ -227,7 +228,8 @@ where
 pub trait OdysseyType {
     type StoreId; // <T>
     type ECGHeader<T: CRDT<Time = Self::Time, Op: Serialize>>: store::ecg::ECGHeader<T>;
-    type Time;
+    type Time; // Time;
+    // type CausalState; // Time;
     // type OperationId;
     // type Hash: Clone + Copy + Debug + Ord + Send;
 }
