@@ -1,5 +1,4 @@
 
-use dynamic::Dynamic;
 use odyssey_crdt::time::CausalState;
 // use futures::{SinkExt, StreamExt};
 // use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
@@ -108,7 +107,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
         }
     }
 
-    pub fn create_store<T: CRDT<Time = OT::Time> + Clone + Send + 'static, S: Storage>(&self, initial_state: T, storage: S) -> StoreHandle<OT, T>
+    pub fn create_store<T: CRDT<Time = OperationId<<OT::ECGHeader<T> as ECGHeader<T>>::HeaderId>> + Clone + Send + 'static, S: Storage>(&self, initial_state: T, storage: S) -> StoreHandle<OT, T>
     where
         // T::Op: Send,
         <OT as OdysseyType>::ECGHeader<T>: Send + Clone + 'static,
@@ -191,7 +190,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
         }
     }
 
-    pub fn load_store<T: CRDT<Time = OT::Time>, S: Storage>(&self, store_id: OT::StoreId, storage: S) -> StoreHandle<OT, T>
+    pub fn load_store<T: CRDT<Time = OperationId<<OT::ECGHeader<T> as ECGHeader<T>>::HeaderId>>, S: Storage>(&self, store_id: OT::StoreId, storage: S) -> StoreHandle<OT, T>
     where
         T::Op: Serialize,
     {
@@ -215,7 +214,7 @@ pub struct OdysseyConfig {
     pub port: u16,
 }
 
-pub struct StoreHandle<O: OdysseyType, T: CRDT<Time = O::Time>>
+pub struct StoreHandle<O: OdysseyType, T: CRDT<Time = OperationId<<O::ECGHeader<T> as ECGHeader<T>>::HeaderId>>>
 where
     T::Op: Serialize,
 {
@@ -227,11 +226,10 @@ where
 /// Trait to define newtype wrapers that instantiate type families required by Odyssey.
 pub trait OdysseyType {
     type StoreId; // <T>
-    type ECGHeader<T: CRDT<Time = Self::Time, Op: Serialize>>: store::ecg::ECGHeader<T>;
-    type Time; // Time;
-    // type CausalState; // Time;
-    // type OperationId;
-    // type Hash: Clone + Copy + Debug + Ord + Send;
+    type ECGHeader<T: CRDT<Time = OperationId<<Self::ECGHeader<T> as ECGHeader<T>>::HeaderId>, Op: Serialize>>: store::ecg::ECGHeader<T>;
+    // type ECGHeader<T: CRDT<Op: Serialize>>: store::ecg::ECGHeader<T>;
+    // type ECGHeader<T: CRDT<Op: Serialize, Time = OperationId<crate::store::ecg::v0::HeaderId<crate::util::Sha256Hash>>>>: store::ecg::ECGHeader<T>;
+    type Time; // TODO: Can we generalize this?
 }
 
 enum StoreCommand<Header: ECGHeader<T>, T: CRDT> {
@@ -252,7 +250,7 @@ pub enum StateUpdate<Header: ECGHeader<T>, T: CRDT> {
     },
 }
 
-impl<O: OdysseyType, T: CRDT<Time = O::Time>> StoreHandle<O, T>
+impl<O: OdysseyType, T: CRDT<Time = OperationId<<O::ECGHeader<T> as ECGHeader<T>>::HeaderId>>> StoreHandle<O, T>
 where
     T::Op: Serialize,
 {

@@ -171,9 +171,19 @@ fn tmp_hash<T: Serialize, Hash: util::Hash>(x: &T) -> Hash {
 
 // OperationID's are header ids and index (HeaderId, u8)
 // TODO: Move this to odyssey-crdt::time??
+#[derive(Serialize, Deserialize, Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct OperationId<HeaderId> {
     pub header_id: Option<HeaderId>, // None when in the initial state?
     pub operation_position: u8,
+}
+
+impl<HeaderId> OperationId<HeaderId> {
+    pub fn new(header_id: Option<HeaderId>, operation_position: u8) -> Self {
+        OperationId {
+            header_id,
+            operation_position,
+        }
+    }
 }
 
 impl<Header: ECGHeader<T>, T: CRDT> CausalState for ecg::State<Header, T> {
