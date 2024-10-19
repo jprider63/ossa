@@ -107,7 +107,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
         }
     }
 
-    pub fn create_store<T: CRDT<Time = OperationId<<OT::ECGHeader<T> as ECGHeader<T>>::HeaderId>> + Clone + Send + 'static, S: Storage>(&self, initial_state: T, storage: S) -> StoreHandle<OT, T>
+    pub fn create_store<T: CRDT<Time = OT::Time> + Clone + Send + 'static, S: Storage>(&self, initial_state: T, storage: S) -> StoreHandle<OT, T>
     where
         // T::Op: Send,
         <OT as OdysseyType>::ECGHeader<T>: Send + Clone + 'static,
@@ -153,8 +153,9 @@ impl<OT: OdysseyType> Odyssey<OT> {
                         // Operation ID/time is function of tips, current operation, ...? How do we
                         // do batching? (HeaderId(h) | Self, Index(u8)) ? This requires having all
                         // the batched operations?
+                        let causal_state = OT::to_causal_state(&store.ecg_state);
                         for (time, operation) in operation_header.zip_operations_with_time(operation_body) {
-                            state = state.apply(&store.ecg_state, time, operation);
+                            state = state.apply(causal_state, time, operation);
                         }
 
                         // Send state to subscribers.
@@ -190,7 +191,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
         }
     }
 
-    pub fn load_store<T: CRDT<Time = OperationId<<OT::ECGHeader<T> as ECGHeader<T>>::HeaderId>>, S: Storage>(&self, store_id: OT::StoreId, storage: S) -> StoreHandle<OT, T>
+    pub fn load_store<T: CRDT<Time = OT::Time>, S: Storage>(&self, store_id: OT::StoreId, storage: S) -> StoreHandle<OT, T>
     where
         T::Op: Serialize,
     {
@@ -214,7 +215,7 @@ pub struct OdysseyConfig {
     pub port: u16,
 }
 
-pub struct StoreHandle<O: OdysseyType, T: CRDT<Time = OperationId<<O::ECGHeader<T> as ECGHeader<T>>::HeaderId>>>
+pub struct StoreHandle<O: OdysseyType, T: CRDT<Time = O::Time>>
 where
     T::Op: Serialize,
 {
@@ -226,10 +227,14 @@ where
 /// Trait to define newtype wrapers that instantiate type families required by Odyssey.
 pub trait OdysseyType {
     type StoreId; // <T>
-    type ECGHeader<T: CRDT<Time = OperationId<<Self::ECGHeader<T> as ECGHeader<T>>::HeaderId>, Op: Serialize>>: store::ecg::ECGHeader<T>;
-    // type ECGHeader<T: CRDT<Op: Serialize>>: store::ecg::ECGHeader<T>;
-    // type ECGHeader<T: CRDT<Op: Serialize, Time = OperationId<crate::store::ecg::v0::HeaderId<crate::util::Sha256Hash>>>>: store::ecg::ECGHeader<T>;
-    type Time; // TODO: Can we generalize this?
+    type ECGHeader<T: CRDT<Time = Self::Time, Op: Serialize>>: store::ecg::ECGHeader<T>;
+    type Time;
+    type CausalState<T: CRDT<Time = Self::Time, Op: Serialize>>: CausalState<Time = Self::Time>;
+    // type OperationId;
+    // type Hash: Clone + Copy + Debug + Ord + Send;
+
+    // TODO: This should be refactored and provided automatically.
+    fn to_causal_state<'a, T: CRDT<Time = Self::Time, Op: Serialize>>(st: &'a store::ecg::State<Self::ECGHeader<T>, T>) -> &'a Self::CausalState<T>;
 }
 
 enum StoreCommand<Header: ECGHeader<T>, T: CRDT> {
@@ -250,7 +255,7 @@ pub enum StateUpdate<Header: ECGHeader<T>, T: CRDT> {
     },
 }
 
-impl<O: OdysseyType, T: CRDT<Time = OperationId<<O::ECGHeader<T> as ECGHeader<T>>::HeaderId>>> StoreHandle<O, T>
+impl<O: OdysseyType, T: CRDT<Time = O::Time>> StoreHandle<O, T>
 where
     T::Op: Serialize,
 {
