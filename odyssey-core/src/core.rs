@@ -126,7 +126,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
         // Check if this store already exists and return that.
 
         // Create store by generating nonce, etc.
-        let store = store::State::<OT::ECGHeader<T>, T>::new(initial_state.clone());
+        let mut store = store::State::<OT::ECGHeader<T>, T>::new(initial_state.clone());
 
         // Initialize storage for this store.
 
@@ -145,8 +145,11 @@ impl<OT: OdysseyType> Odyssey<OT> {
             while let Some(cmd) = recv_commands.recv().await {
                 match cmd {
                     StoreCommand::Apply{operation_header, operation_body} => {
-                        // TODO: Update ECG state... XXX
-                        println!("TODO: Update ECG state... XXX");
+                        // Update ECG state.
+                        let success = store.ecg_state.insert_header(operation_header.clone());
+                        if !success {
+                            todo!("Invalid header"); // : {:?}", operation_header);
+                        }
 
                         // Update state.
                         // TODO: Get new time?.. Or take it as an argument
