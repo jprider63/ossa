@@ -306,4 +306,3 @@ impl<T> futures::Sink<T> for Channel<T> {
         // })
     }
 }
-

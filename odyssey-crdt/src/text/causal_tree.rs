@@ -2,10 +2,9 @@ use im::Vector;
 use std::cmp::Ordering;
 
 use crate::{
+    time::{compare_with_tiebreak, CausalState},
     CRDT,
-    time::{CausalState, compare_with_tiebreak},
 };
-
 
 #[derive(Clone)]
 pub struct CausalTree<T, A> {
@@ -33,7 +32,7 @@ enum Letter<A> {
     Root,
 }
 
-impl<T:Eq + Ord + Clone, A: Clone> CRDT for CausalTree<T, A> {
+impl<T: Eq + Ord + Clone, A: Clone> CRDT for CausalTree<T, A> {
     type Op = CausalTreeOp<T, A>;
     type Time = T;
 
@@ -43,7 +42,12 @@ impl<T:Eq + Ord + Clone, A: Clone> CRDT for CausalTree<T, A> {
     }
 }
 
-fn insert_in_weave<T:Eq + Ord + Clone, A: Clone, CS: CausalState<Time = T>>(st: &CS, weave: &CausalTree<T, A>, op_time: &T, op: &CausalTreeOp<T, A>) -> Option<CausalTree<T, A>> {
+fn insert_in_weave<T: Eq + Ord + Clone, A: Clone, CS: CausalState<Time = T>>(
+    st: &CS,
+    weave: &CausalTree<T, A>,
+    op_time: &T,
+    op: &CausalTreeOp<T, A>,
+) -> Option<CausalTree<T, A>> {
     if weave.atom.id == op.parent_id {
         let atom = Atom {
             id: op_time.clone(),
@@ -64,18 +68,70 @@ fn insert_in_weave<T:Eq + Ord + Clone, A: Clone, CS: CausalState<Time = T>>(st: 
     }
 }
 
-fn insert_atom<T:Ord + Clone, A: Clone, CS: CausalState<Time = T>>(st: &CS, mut children: Vector<CausalTree<T, A>>, atom: Atom<T, A>) -> Vector<CausalTree<T, A>> {
-    fn compare_atom<T: Ord, A, CS: CausalState<Time = T>>(st: &CS, a1: &Atom<T, A>, a2: &Atom<T, A>) -> Ordering {
+fn insert_atom<T: Ord + Clone, A: Clone, CS: CausalState<Time = T>>(
+    st: &CS,
+    mut children: Vector<CausalTree<T, A>>,
+    atom: Atom<T, A>,
+) -> Vector<CausalTree<T, A>> {
+    fn compare_atom<T: Ord, A, CS: CausalState<Time = T>>(
+        st: &CS,
+        a1: &Atom<T, A>,
+        a2: &Atom<T, A>,
+    ) -> Ordering {
         match (a1, a2) {
-            (Atom{id: id1, letter: Letter::Root}, Atom{id: id2, letter: Letter::Root}) => compare_with_tiebreak(st, id1, id2),
-            (Atom{id:   _, letter:            _}, Atom{id:   _, letter: Letter::Root}) => Ordering::Less,
-            (Atom{id:   _, letter: Letter::Root}, Atom{id:   _, letter:            _}) => Ordering::Greater,
+            (
+                Atom {
+                    id: id1,
+                    letter: Letter::Root,
+                },
+                Atom {
+                    id: id2,
+                    letter: Letter::Root,
+                },
+            ) => compare_with_tiebreak(st, id1, id2),
+            (
+                Atom { id: _, letter: _ },
+                Atom {
+                    id: _,
+                    letter: Letter::Root,
+                },
+            ) => Ordering::Less,
+            (
+                Atom {
+                    id: _,
+                    letter: Letter::Root,
+                },
+                Atom { id: _, letter: _ },
+            ) => Ordering::Greater,
 
-            (Atom{id: id1, letter: Letter::Delete}, Atom{id: id2, letter: Letter::Delete}) => compare_with_tiebreak(st, id1, id2),
-            (Atom{id:   _, letter:              _}, Atom{id:   _, letter: Letter::Delete}) => Ordering::Less,
-            (Atom{id:   _, letter: Letter::Delete}, Atom{id:   _, letter:              _}) => Ordering::Greater,
+            (
+                Atom {
+                    id: id1,
+                    letter: Letter::Delete,
+                },
+                Atom {
+                    id: id2,
+                    letter: Letter::Delete,
+                },
+            ) => compare_with_tiebreak(st, id1, id2),
+            (
+                Atom { id: _, letter: _ },
+                Atom {
+                    id: _,
+                    letter: Letter::Delete,
+                },
+            ) => Ordering::Less,
+            (
+                Atom {
+                    id: _,
+                    letter: Letter::Delete,
+                },
+                Atom { id: _, letter: _ },
+            ) => Ordering::Greater,
 
-            (Atom{id: id1, letter: _}, Atom{id: id2, letter: _}) => compare_with_tiebreak(st, id1, id2),
+            (Atom { id: id1, letter: _ }, Atom { id: id2, letter: _ }) => {
+                compare_with_tiebreak(st, id1, id2)
+            }
         }
     }
 
@@ -88,19 +144,26 @@ fn insert_atom<T:Ord + Clone, A: Clone, CS: CausalState<Time = T>>(st: &CS, mut 
             children.insert(index, ct);
         }
         Ok(_index) => {
-            unreachable!("Precondition of `apply` violated: Applied `logical_time`s must be unique.")
+            unreachable!(
+                "Precondition of `apply` violated: Applied `logical_time`s must be unique."
+            )
         }
     }
 
     children
 }
 
-fn insert_in_weave_children<T:Eq + Ord + Clone, A: Clone, CS: CausalState<Time = T>>(st: &CS, mut children: Vector<CausalTree<T, A>>, op_time: &T, op: &CausalTreeOp<T, A>) -> Option<Vector<CausalTree<T, A>>> {
+fn insert_in_weave_children<T: Eq + Ord + Clone, A: Clone, CS: CausalState<Time = T>>(
+    st: &CS,
+    mut children: Vector<CausalTree<T, A>>,
+    op_time: &T,
+    op: &CausalTreeOp<T, A>,
+) -> Option<Vector<CausalTree<T, A>>> {
     // JP: Why does iter require clone?
     for mut child in children.iter_mut() {
         if let Some(updated_child) = insert_in_weave(st, child, op_time, op) {
-             *child = updated_child;
-             return Some(children)
+            *child = updated_child;
+            return Some(children);
         }
     }
 

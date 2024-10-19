@@ -19,9 +19,9 @@ impl<Id> LamportTimestamp<Id> {
     }
 }
 
-struct LamportState<Id> (PhantomData<Id>);
+struct LamportState<Id>(PhantomData<Id>);
 
-impl<Id:Ord> CausalState for LamportState<Id> {
+impl<Id: Ord> CausalState for LamportState<Id> {
     type Time = LamportTimestamp<Id>;
 
     fn happens_before(&self, t1: &Self::Time, t2: &Self::Time) -> bool {
@@ -31,7 +31,7 @@ impl<Id:Ord> CausalState for LamportState<Id> {
 
 // impl<Id:Ord> CausalOrder for LamportTimestamp<Id> {
 //     type State = ();
-// 
+//
 //     fn happens_before(_: &(), t1: &Self, t2: &Self) -> bool {
 //         t1.id == t2.id && t1.timestamp < t2.timestamp
 //     }
@@ -58,4 +58,3 @@ impl<Id: Ord> Ord for LamportTimestamp<Id> {
         }
     }
 }
-

@@ -1,15 +1,11 @@
-
 use crate::storage::Storage;
 
-pub struct MemoryStorage {
-}
+pub struct MemoryStorage {}
 
 impl MemoryStorage {
     pub fn new() -> MemoryStorage {
-        MemoryStorage {
-        }
+        MemoryStorage {}
     }
 }
 
-impl Storage for MemoryStorage {
-}
+impl Storage for MemoryStorage {}

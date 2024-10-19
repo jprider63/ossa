@@ -3,9 +3,9 @@ use async_session_types::{Eps, Recv, Send};
 use bitvec::{order::Msb0, BitArr};
 use odyssey_crdt::CRDT;
 use std::cmp::Reverse;
+use std::fmt::{self, Debug};
 use std::marker::PhantomData;
 use std::num::TryFromIntError;
-use std::fmt::{self, Debug};
 
 pub mod client;
 pub mod server;

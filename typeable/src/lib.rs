@@ -10,7 +10,7 @@ use crate::internal::{helper_type_args, helper_type_constructor, helper_usize};
 
 /// A unique identifier for a type. It is typically derived from the sha256 hash of the type's declaration.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct TypeId ([u8; 32]);
+pub struct TypeId([u8; 32]);
 
 impl TypeId {
     pub fn new(h: [u8; 32]) -> TypeId {
@@ -102,7 +102,7 @@ macro_rules! derive_typeable_primitive {
                 }
             }
         }
-    }
+    };
 }
 
 derive_typeable_primitive!(bool);
@@ -120,7 +120,7 @@ derive_typeable_primitive!(i128);
 derive_typeable_primitive!(f32);
 derive_typeable_primitive!(f64);
 
-impl<T, const N: usize> Typeable for [T; N] where {
+impl<T, const N: usize> Typeable for [T; N] {
     fn type_ident() -> TypeId {
         let mut h = Sha256::new();
         helper_string_non_ascii(&mut h, "[]");
@@ -130,7 +130,7 @@ impl<T, const N: usize> Typeable for [T; N] where {
     }
 }
 
-impl<T> Typeable for Vec<T> where {
+impl<T> Typeable for Vec<T> {
     fn type_ident() -> TypeId {
         let mut h = Sha256::new();
         helper_type_constructor(&mut h, "Vec");
@@ -138,4 +138,3 @@ impl<T> Typeable for Vec<T> where {
         TypeId(h.finalize().into())
     }
 }
-

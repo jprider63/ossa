@@ -1,7 +1,10 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{punctuated::Punctuated, token::Comma, Attribute, AttrStyle, Data, Expr, Field, Fields, GenericParam, Ident, Lit, Meta, Type};
 use std::collections::HashSet;
+use syn::{
+    punctuated::Punctuated, token::Comma, AttrStyle, Attribute, Data, Expr, Field, Fields,
+    GenericParam, Ident, Lit, Meta, Type,
+};
 
 #[proc_macro_derive(Typeable, attributes(tag))]
 pub fn typeable_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -27,9 +30,7 @@ fn skip_field(f: &Field) -> bool {
                 let segment = p.path.segments.first()?;
                 Some(&segment.ident)
             }
-            _ => {
-                None
-            }
+            _ => None,
         }
     }
     let type_name = extract_type_name(&f.ty);
@@ -40,19 +41,13 @@ fn skip_field(f: &Field) -> bool {
 fn impl_fields(fs: &Fields) -> TokenStream {
     let empty = Punctuated::<Field, Comma>::new();
     let (tag, fields) = match fs {
-        Fields::Named(fs) => {
-            (0u8, fs.named.iter())
-        }
-        Fields::Unnamed(fs) => {
-            (1, fs.unnamed.iter())
-        }
-        Fields::Unit => {
-            (0, empty.iter())
-        }
+        Fields::Named(fs) => (0u8, fs.named.iter()),
+        Fields::Unnamed(fs) => (1, fs.unnamed.iter()),
+        Fields::Unit => (0, empty.iter()),
     };
 
     // Filter any fields.
-    let mut fields = fields.filter(|f| !skip_field( &f)).collect::<Vec<_>>();
+    let mut fields = fields.filter(|f| !skip_field(&f)).collect::<Vec<_>>();
 
     let c = fields.len();
 
@@ -71,9 +66,7 @@ fn impl_fields(fs: &Fields) -> TokenStream {
                 }
             }))
         }
-        Fields::Unnamed(_) => {
-            TokenStream::from_iter(fields.iter().map(|f| impl_type_ident(&f.ty)))
-        }
+        Fields::Unnamed(_) => TokenStream::from_iter(fields.iter().map(|f| impl_type_ident(&f.ty))),
         Fields::Unit => {
             quote! {}
         }
@@ -93,12 +86,10 @@ fn impl_tag(attrs: &[Attribute]) -> TokenStream {
                 let seg = v.path.segments.first()?;
                 if &seg.ident.to_string() == "tag" {
                     match &v.value {
-                        Expr::Lit(l) => {
-                            match &l.lit {
-                                Lit::Str(s) => Some(s.value()),
-                                _ => None,
-                            }
-                        }
+                        Expr::Lit(l) => match &l.lit {
+                            Lit::Str(s) => Some(s.value()),
+                            _ => None,
+                        },
                         _ => None,
                     }
                 } else {
@@ -111,7 +102,9 @@ fn impl_tag(attrs: &[Attribute]) -> TokenStream {
     if let Some(attr) = attrs.iter().find_map(|a| {
         if a.style == AttrStyle::Outer {
             get_tag(a)
-        } else { None }
+        } else {
+            None
+        }
     }) {
         quote! {
             helper_string(&mut h, #attr);
@@ -129,32 +122,30 @@ fn impl_where(ast: &syn::DeriveInput) -> TokenStream {
             Fields::Unnamed(u) => u.unnamed,
             Fields::Unit => empty,
         };
-        fields.into_iter().filter(|f| !skip_field( &f)).map(|f| f.ty)
+        fields.into_iter().filter(|f| !skip_field(&f)).map(|f| f.ty)
     }
 
     fn extract_field_types(d: &Data) -> HashSet<Type> {
         match d {
-            Data::Struct(s) => {
-                extract_fields_types(s.fields.clone()).collect()
-            }
-            Data::Enum(e) => {
-                e.variants.iter().flat_map(|v| extract_fields_types(v.fields.clone())).collect()
-            }
+            Data::Struct(s) => extract_fields_types(s.fields.clone()).collect(),
+            Data::Enum(e) => e
+                .variants
+                .iter()
+                .flat_map(|v| extract_fields_types(v.fields.clone()))
+                .collect(),
             Data::Union(_) => {
                 panic!("Union types are not supported.")
             }
         }
     }
 
-    let where_predicates = ast.generics.where_clause.as_ref().map(
-        |w| &w.predicates
-    );
+    let where_predicates = ast.generics.where_clause.as_ref().map(|w| &w.predicates);
 
-    let constraints = TokenStream::from_iter(extract_field_types(&ast.data).iter().map(|t|
+    let constraints = TokenStream::from_iter(extract_field_types(&ast.data).iter().map(|t| {
         quote! {
             #t: typeable::Typeable,
         }
-    ));
+    }));
 
     quote! {
         where
@@ -166,30 +157,35 @@ fn impl_where(ast: &syn::DeriveInput) -> TokenStream {
 fn impl_typeable_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
     let name = &ast.ident;
     let name_lit = ast.ident.to_string();
-    let type_args_count: u8 = ast.generics.params.iter().filter(|t| is_type_arg(t)).count().try_into().unwrap();
+    let type_args_count: u8 = ast
+        .generics
+        .params
+        .iter()
+        .filter(|t| is_type_arg(t))
+        .count()
+        .try_into()
+        .unwrap();
     let type_args = &ast.generics.params;
-    let abbr_type_args = TokenStream::from_iter(ast.generics.params.iter().map(|p|
-      match p {
-          GenericParam::Lifetime(l) => {
-              let name = &l.lifetime;
-              quote! {
-                  #name,
-              }
-          }
-          GenericParam::Type(t) => {
-              let name = &t.ident;
-              quote! {
-                  #name,
-              }
-          }
-          GenericParam::Const(c) => {
-              let name = &c.ident;
-              quote! {
-                  #name,
-              }
-          }
-      }
-    ));
+    let abbr_type_args = TokenStream::from_iter(ast.generics.params.iter().map(|p| match p {
+        GenericParam::Lifetime(l) => {
+            let name = &l.lifetime;
+            quote! {
+                #name,
+            }
+        }
+        GenericParam::Type(t) => {
+            let name = &t.ident;
+            quote! {
+                #name,
+            }
+        }
+        GenericParam::Const(c) => {
+            let name = &c.ident;
+            quote! {
+                #name,
+            }
+        }
+    }));
     let body = match &ast.data {
         Data::Struct(s) => {
             let fs = impl_fields(&s.fields);

@@ -5,8 +5,8 @@
 pub mod core;
 pub mod network;
 pub mod protocol;
-pub mod store;
 pub mod storage;
+pub mod store;
 pub mod util;
 
 pub use core::{Odyssey, OdysseyConfig};

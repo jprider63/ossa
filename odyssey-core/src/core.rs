@@ -1,4 +1,3 @@
-
 use odyssey_crdt::time::CausalState;
 // use futures::{SinkExt, StreamExt};
 // use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
@@ -19,8 +18,8 @@ use crate::network::protocol::run_handshake_server;
 use crate::protocol::Version;
 use crate::storage::Storage;
 use crate::store;
-use crate::store::ecg::{self, ECGBody, ECGHeader};
 use crate::store::ecg::v0::{Body, Header, OperationId};
+use crate::store::ecg::{self, ECGBody, ECGHeader};
 use crate::util::TypedStream;
 
 pub struct Odyssey<OT> {
@@ -40,10 +39,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
         let runtime = match tokio::runtime::Runtime::new() {
             Ok(r) => r,
             Err(err) => {
-                log::error!(
-                    "Failed to initialize tokio runtime: {}",
-                    err
-                );
+                log::error!("Failed to initialize tokio runtime: {}", err);
                 todo!()
             }
         };
@@ -70,7 +66,6 @@ impl<OT: OdysseyType> Odyssey<OT> {
 
                 //     unreachable!();
                 // });
-
 
                 println!("Starting server");
                 loop {
@@ -107,7 +102,11 @@ impl<OT: OdysseyType> Odyssey<OT> {
         }
     }
 
-    pub fn create_store<T: CRDT<Time = OT::Time> + Clone + Send + 'static, S: Storage>(&self, initial_state: T, storage: S) -> StoreHandle<OT, T>
+    pub fn create_store<T: CRDT<Time = OT::Time> + Clone + Send + 'static, S: Storage>(
+        &self,
+        initial_state: T,
+        storage: S,
+    ) -> StoreHandle<OT, T>
     where
         // T::Op: Send,
         <OT as OdysseyType>::ECGHeader<T>: Send + Clone + 'static,
@@ -131,7 +130,8 @@ impl<OT: OdysseyType> Odyssey<OT> {
         // Initialize storage for this store.
 
         // Create channels to handle requests and send updates.
-        let (send_commands, mut recv_commands) = tokio::sync::mpsc::unbounded_channel::<StoreCommand<OT::ECGHeader<T>, T>>();
+        let (send_commands, mut recv_commands) =
+            tokio::sync::mpsc::unbounded_channel::<StoreCommand<OT::ECGHeader<T>, T>>();
 
         // Add to DHT
 
@@ -144,7 +144,10 @@ impl<OT: OdysseyType> Odyssey<OT> {
             // TODO: Create ECGState, ...
             while let Some(cmd) = recv_commands.recv().await {
                 match cmd {
-                    StoreCommand::Apply{operation_header, operation_body} => {
+                    StoreCommand::Apply {
+                        operation_header,
+                        operation_body,
+                    } => {
                         // Update ECG state.
                         let success = store.ecg_state.insert_header(operation_header.clone());
                         if !success {
@@ -157,7 +160,9 @@ impl<OT: OdysseyType> Odyssey<OT> {
                         // do batching? (HeaderId(h) | Self, Index(u8)) ? This requires having all
                         // the batched operations?
                         let causal_state = OT::to_causal_state(&store.ecg_state);
-                        for (time, operation) in operation_header.zip_operations_with_time(operation_body) {
+                        for (time, operation) in
+                            operation_header.zip_operations_with_time(operation_body)
+                        {
                             state = state.apply(causal_state, time, operation);
                         }
 
@@ -170,7 +175,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
                             l.send(snapshot);
                         }
                     }
-                    StoreCommand::SubscribeState{mut send_state} => {
+                    StoreCommand::SubscribeState { mut send_state } => {
                         // Send current state.
                         let snapshot = StateUpdate::Snapshot {
                             snapshot: state.clone(),
@@ -194,7 +199,11 @@ impl<OT: OdysseyType> Odyssey<OT> {
         }
     }
 
-    pub fn load_store<T: CRDT<Time = OT::Time>, S: Storage>(&self, store_id: OT::StoreId, storage: S) -> StoreHandle<OT, T>
+    pub fn load_store<T: CRDT<Time = OT::Time>, S: Storage>(
+        &self,
+        store_id: OT::StoreId,
+        storage: S,
+    ) -> StoreHandle<OT, T>
     where
         T::Op: Serialize,
     {
@@ -237,12 +246,14 @@ pub trait OdysseyType {
     // type Hash: Clone + Copy + Debug + Ord + Send;
 
     // TODO: This should be refactored and provided automatically.
-    fn to_causal_state<'a, T: CRDT<Time = Self::Time, Op: Serialize>>(st: &'a store::ecg::State<Self::ECGHeader<T>, T>) -> &'a Self::CausalState<T>;
+    fn to_causal_state<'a, T: CRDT<Time = Self::Time, Op: Serialize>>(
+        st: &'a store::ecg::State<Self::ECGHeader<T>, T>,
+    ) -> &'a Self::CausalState<T>;
 }
 
 enum StoreCommand<Header: ECGHeader<T>, T: CRDT> {
     Apply {
-        operation_header: Header, // <Hash, T>,
+        operation_header: Header,     // <Hash, T>,
         operation_body: Header::Body, // <Hash, T>,
     },
     SubscribeState {
@@ -262,7 +273,11 @@ impl<O: OdysseyType, T: CRDT<Time = O::Time>> StoreHandle<O, T>
 where
     T::Op: Serialize,
 {
-    pub fn apply(&mut self, parents: BTreeSet<<<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::HeaderId>, op: T::Op) -> T::Time
+    pub fn apply(
+        &mut self,
+        parents: BTreeSet<<<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::HeaderId>,
+        op: T::Op,
+    ) -> T::Time
     where
         <<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: ECGBody<T>,
     {
@@ -270,7 +285,11 @@ where
     }
 
     // TODO: Don't take parents as an argument. Pull it from the state. XXX
-    pub fn apply_batch(&mut self, parents: BTreeSet<<<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::HeaderId>, op: Vec<T::Op>) -> Vec<T::Time>
+    pub fn apply_batch(
+        &mut self,
+        parents: BTreeSet<<<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::HeaderId>,
+        op: Vec<T::Op>,
+    ) -> Vec<T::Time>
     where
         <<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: ECGBody<T>,
     {
@@ -280,7 +299,8 @@ where
         }
 
         // Create ECG header and body.
-        let body = <<<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body as ECGBody<T>>::new_body(op);
+        let body =
+            <<<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body as ECGBody<T>>::new_body(op);
         let header = O::ECGHeader::new_header(parents, &body);
         let times = header.get_operation_times(&body);
 
@@ -294,9 +314,8 @@ where
 
     pub fn subscribe_to_state(&mut self) -> UnboundedReceiver<StateUpdate<O::ECGHeader<T>, T>> {
         let (send_state, mut recv_state) = tokio::sync::mpsc::unbounded_channel();
-        self.send_command_chan.send(StoreCommand::SubscribeState {
-            send_state,
-        });
+        self.send_command_chan
+            .send(StoreCommand::SubscribeState { send_state });
 
         recv_state
     }

@@ -1,4 +1,6 @@
-use daggy::petgraph::visit::{Bfs, EdgeRef, IntoEdgeReferences, IntoNodeReferences, NodeRef, Reversed};
+use daggy::petgraph::visit::{
+    Bfs, EdgeRef, IntoEdgeReferences, IntoNodeReferences, NodeRef, Reversed,
+};
 use daggy::stable_dag::StableDag;
 use daggy::Walker;
 use odyssey_crdt::CRDT;
@@ -10,7 +12,7 @@ use std::marker::PhantomData;
 pub mod v0;
 
 /// Trait that ECG headers (nodes?) must implement.
-pub trait ECGHeader<T:CRDT> {
+pub trait ECGHeader<T: CRDT> {
     type HeaderId: Ord + Copy + Debug;
 
     // /// Type identifying operations that implements CausalOrder so that it can be used as CRDT::Time.
@@ -33,15 +35,14 @@ pub trait ECGHeader<T:CRDT> {
     // TODO: Can we return the following instead? impl Iterator<(T::Time, Item = T::Time)>
     fn zip_operations_with_time(&self, body: Self::Body) -> Vec<(T::Time, T::Op)>
     where
-        <Self as ECGHeader<T>>::Body: ECGBody<T>,
-    ;
+        <Self as ECGHeader<T>>::Body: ECGBody<T>;
 
     /// Retrieve the times for each operation in this ECG header and body.
     // TODO: Can we return the following instead? impl Iterator<Item = T::Time>
     fn get_operation_times(&self, body: &Self::Body) -> Vec<T::Time>;
 }
 
-pub trait ECGBody<T:CRDT> {
+pub trait ECGBody<T: CRDT> {
     /// Create a new body from a vector of operations.
     fn new_body(operations: Vec<T::Op>) -> Self;
 
@@ -265,7 +266,11 @@ impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
 
     /// Perform a BFS to check if `ancestor` is an ancestor of `descendent`. Returns `None` if
     /// either header id is not in the graph.
-    fn is_ancestor_of(&self, ancestor: &Header::HeaderId, descendent: &Header::HeaderId) -> Option<bool> {
+    fn is_ancestor_of(
+        &self,
+        ancestor: &Header::HeaderId,
+        descendent: &Header::HeaderId,
+    ) -> Option<bool> {
         let anid = self.node_info_map.get(ancestor)?.graph_index;
         let dnid = self.node_info_map.get(descendent)?.graph_index;
 
@@ -277,7 +282,11 @@ impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
                 return Some(true);
             }
 
-            for (_, pid) in self.dependency_graph.parents(nid).iter(&self.dependency_graph) {
+            for (_, pid) in self
+                .dependency_graph
+                .parents(nid)
+                .iter(&self.dependency_graph)
+            {
                 if !visited.contains(&pid) {
                     visited.insert(pid);
                     queue.push_back(pid);

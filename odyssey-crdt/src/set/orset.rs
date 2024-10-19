@@ -1,15 +1,14 @@
-
 use std::borrow::Borrow;
 use std::cmp::Ord;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
 // use crate::{AnnotatedOp, CRDT, OpMetadata};
-// 
+//
 // pub struct ORSet<T, A> {
 //     set: BTreeMap<A, BTreeSet<T>>,
 // }
-// 
+//
 // pub enum ORSetOp<T, A> {
 //     Insert {
 //         value: A,
@@ -19,9 +18,9 @@ use std::collections::BTreeSet;
 //         tags: BTreeSet<T>,
 //     },
 // }
-// 
+//
 // // TODO: CausalOrder for ORSetOp?
-// 
+//
 // impl<T, A> ORSet<T, A> {
 //     pub fn contains<Q>(&self, value:&Q) -> bool
 //     where
@@ -31,12 +30,12 @@ use std::collections::BTreeSet;
 //         self.set.contains_key(value)
 //     }
 // }
-// 
+//
 // // TODO: Iter, len, is_subset, is_superset, ...
-// 
+//
 // impl<M:OpMetadata + OpMetadata<Time = T>, T:Ord, A:Clone + Ord> CRDT<M> for ORSet<T, A> {
 //     type Op = ORSetOp<T, A>;
-// 
+//
 //     fn apply<'a>(&'a mut self, op: &'a AnnotatedOp<M, Self::Op>) {
 //         match &op.operation {
 //             ORSetOp::Insert {value} => {
@@ -62,4 +61,4 @@ use std::collections::BTreeSet;
 //         }
 //     }
 // }
-// 
+//

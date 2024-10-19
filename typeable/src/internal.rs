@@ -1,5 +1,4 @@
 /// Internal helper functions. Do not rely on this API. It is unstable.
-
 pub use sha2::{Digest, Sha256};
 
 pub fn helper_counter(h: &mut Sha256, n: usize) {
@@ -35,4 +34,3 @@ pub fn helper_type_constructor(h: &mut Sha256, constructor: &'static str) {
 pub fn helper_type_args(h: &mut Sha256, type_args_count: u8) {
     h.update([type_args_count]);
 }
-
