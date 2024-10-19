@@ -1,4 +1,4 @@
-use daggy::petgraph::visit::{EdgeRef, IntoEdgeReferences, IntoNodeReferences, NodeRef};
+use daggy::petgraph::visit::{Bfs, EdgeRef, IntoEdgeReferences, IntoNodeReferences, NodeRef};
 use daggy::stable_dag::StableDag;
 use daggy::Walker;
 use odyssey_crdt::CRDT;
@@ -62,12 +62,9 @@ struct NodeInfo<Header> {
     header: Header,
 }
 
-#[derive(Clone, Debug)]
-pub struct CausalState<HeaderId> (StableDag<HeaderId, ()>); // JP: Hold the operations? Depth? Do we need StableDag?
-
 #[derive(Debug)]
 pub struct State<Header: ECGHeader<T>, T: CRDT> {
-    dependency_graph: CausalState<Header::HeaderId>,
+    dependency_graph: StableDag<Header::HeaderId, ()>, // JP: Hold the operations? Depth? Do we need StableDag?
 
     /// Nodes at the top of the DAG that depend on the initial state.
     root_nodes: BTreeSet<Header::HeaderId>,
@@ -95,7 +92,7 @@ impl<Header: ECGHeader<T> + Clone, T: CRDT> Clone for State<Header, T> {
 
 impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
     pub fn new() -> State<Header, T> {
-        let mut dependency_graph = CausalState(StableDag::new());
+        let mut dependency_graph = StableDag::new();
 
         State {
             dependency_graph,
@@ -122,12 +119,10 @@ impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
     ) -> Option<Vec<(u64, Header::HeaderId)>> {
         let node_info = self.node_info_map.get(h)?;
         self.dependency_graph
-            .0
             .parents(node_info.graph_index)
-            .iter(&self.dependency_graph.0)
+            .iter(&self.dependency_graph)
             .map(|(_, parent_idx)| {
                 self.dependency_graph
-                    .0
                     .node_weight(parent_idx)
                     .and_then(|parent_id| {
                         self.node_info_map
@@ -143,10 +138,9 @@ impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
     pub fn get_parents(&self, h: &Header::HeaderId) -> Option<Vec<Header::HeaderId>> {
         let node_info = self.node_info_map.get(h)?;
         self.dependency_graph
-            .0
             .parents(node_info.graph_index)
-            .iter(&self.dependency_graph.0)
-            .map(|(_, parent_idx)| self.dependency_graph.0.node_weight(parent_idx).map(|i| *i))
+            .iter(&self.dependency_graph)
+            .map(|(_, parent_idx)| self.dependency_graph.node_weight(parent_idx).map(|i| *i))
             .try_collect()
     }
 
@@ -158,12 +152,10 @@ impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
     ) -> Option<Vec<(Reverse<u64>, Header::HeaderId)>> {
         let node_info = self.node_info_map.get(h)?;
         self.dependency_graph
-            .0
             .children(node_info.graph_index)
-            .iter(&self.dependency_graph.0)
+            .iter(&self.dependency_graph)
             .map(|(_, child_idx)| {
                 self.dependency_graph
-                    .0
                     .node_weight(child_idx)
                     .and_then(|child_id| {
                         self.node_info_map
@@ -249,7 +241,7 @@ impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
 
         // Insert node and store its index in `node_idx_map`.
         // JP: We really want an `add_child` function that takes multiple parents.
-        let graph_index = self.dependency_graph.0.add_node(header_id);
+        let graph_index = self.dependency_graph.add_node(header_id);
         let node_info = NodeInfo {
             graph_index: graph_index.clone(),
             depth,
@@ -261,7 +253,7 @@ impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
         }
 
         // Insert edges.
-        if let Err(_) = self.dependency_graph.0.add_edges(
+        if let Err(_) = self.dependency_graph.add_edges(
             parent_idxs
                 .into_iter()
                 .map(|parent_idx| (parent_idx, graph_index, ())),
@@ -273,12 +265,20 @@ impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
         true
     }
 
-    pub fn get_causal_state(&self) -> &CausalState<Header::HeaderId> {
-        &self.dependency_graph
-    }
+    /// Perform a BFS to check if `ancestor` is an ancestor of `descendent`. Returns `None` if
+    /// either header id is not in the graph.
+    fn is_ancestor_of(&self, ancestor: &Header::HeaderId, descendent: &Header::HeaderId) -> Option<bool> {
+        let anid = self.node_info_map.get(ancestor)?.graph_index;
 
-    pub fn is_ancestor_of(&self, ancestor: &Header::HeaderId, descendent: &Header::HeaderId) -> Option<bool> {
-        todo!()
+        let n = self.node_info_map.get(descendent)?.graph_index;
+        let mut bfs = Bfs::new(&self.dependency_graph, n);
+        while let Some(nid) = bfs.next(&self.dependency_graph) {
+            if nid == anid {
+                return Some(true);
+            }
+        }
+
+        Some(false)
     }
 }
 
@@ -300,10 +300,10 @@ where
     let nodes =
         |g: &StableDag<Header::HeaderId, ()>| g.node_references().map(|n| *n.weight()).collect();
 
-    let node_set_left: BTreeSet<_> = nodes(&l.dependency_graph.0);
-    let node_set_right = nodes(&r.dependency_graph.0);
-    let edge_set_left: BTreeSet<_> = edges(&l.dependency_graph.0);
-    let edge_set_right = edges(&r.dependency_graph.0);
+    let node_set_left: BTreeSet<_> = nodes(&l.dependency_graph);
+    let node_set_right = nodes(&r.dependency_graph);
+    let edge_set_left: BTreeSet<_> = edges(&l.dependency_graph);
+    let edge_set_right = edges(&r.dependency_graph);
 
     l.root_nodes == r.root_nodes
         && l.tips == r.tips
@@ -318,7 +318,6 @@ pub(crate) fn print_dag<Header: ECGHeader>(s: &State<Header>) {
 
     let mut g = s
         .dependency_graph
-        .0
         .map(|_i, n| format!("{:?}", n), |_i, e| e);
 
     // Add root node.
