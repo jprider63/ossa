@@ -1,4 +1,4 @@
-use daggy::petgraph::visit::{Bfs, EdgeRef, IntoEdgeReferences, IntoNodeReferences, NodeRef};
+use daggy::petgraph::visit::{Bfs, EdgeRef, IntoEdgeReferences, IntoNodeReferences, NodeRef, Reversed};
 use daggy::stable_dag::StableDag;
 use daggy::Walker;
 use odyssey_crdt::CRDT;
@@ -267,9 +267,9 @@ impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
     /// either header id is not in the graph.
     fn is_ancestor_of(&self, ancestor: &Header::HeaderId, descendent: &Header::HeaderId) -> Option<bool> {
         let anid = self.node_info_map.get(ancestor)?.graph_index;
+        let dnid = self.node_info_map.get(descendent)?.graph_index;
 
-        let n = self.node_info_map.get(descendent)?.graph_index;
-        let mut bfs = Bfs::new(&self.dependency_graph, n);
+        let mut bfs = Bfs::new(&Reversed(&self.dependency_graph), dnid);
         while let Some(nid) = bfs.next(&self.dependency_graph) {
             if nid == anid {
                 return Some(true);
