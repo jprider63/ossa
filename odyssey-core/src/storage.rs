@@ -3,5 +3,4 @@
 pub mod memory;
 
 // Trait abstracting in memory or filesystem storage.
-pub trait Storage {
-}
+pub trait Storage {}

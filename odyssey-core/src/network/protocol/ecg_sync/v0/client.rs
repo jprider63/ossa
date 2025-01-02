@@ -7,21 +7,23 @@ use crate::network::protocol::ecg_sync::v0::{
 use crate::network::ConnectionManager;
 use crate::store::ecg::ECGHeader;
 use crate::util::Stream;
+use odyssey_crdt::CRDT;
 use std::cmp::min;
 use std::collections::{BTreeSet, BinaryHeap};
 use std::fmt::Debug;
+use std::marker::PhantomData;
 
 // TODO: Have this utilize session types.
 /// Sync the headers of the eventual consistency graph.
 /// Finds the least common ancestor (meet) of the graphs.
 /// Then we share/receive all the known headers after that point (in batches of size 32).
-pub(crate) async fn ecg_sync_client<S: Stream<MsgECGSync<Header>>, StoreId, Header>(
+pub(crate) async fn ecg_sync_client<S: Stream<MsgECGSync<Header, T>>, StoreId, Header, T: CRDT>(
     conn: &mut ConnectionManager<S>,
     store_id: &StoreId,
-    state: &mut ecg::State<Header>,
+    state: &mut ecg::State<Header, T>,
 ) -> Result<(), ECGSyncError>
 where
-    Header: Clone + ECGHeader + Debug,
+    Header: Clone + ECGHeader<T> + Debug,
 {
     // TODO:
     // - Get cached peer state.
@@ -69,9 +71,10 @@ where
     // JP: Could just use the BFS instead of keeping track of tips remaining if we don't reorder.
 
     // let sent = haves;
-    let request: MsgECGSyncRequest<Header> = MsgECGSyncRequest {
+    let request: MsgECGSyncRequest<Header, T> = MsgECGSyncRequest {
         tip_count: our_tips_c,
         have: haves.clone(), // TODO: Avoid this clone?
+        phantom: PhantomData,
     };
 
     // Check if we're done.
@@ -79,7 +82,7 @@ where
 
     conn.send(request).await;
 
-    let response: MsgECGSyncResponse<Header> = conn.receive().await;
+    let response: MsgECGSyncResponse<Header, T> = conn.receive().await;
     // JP: Set (and check) max value for tips?
 
     // Check if we're done.
@@ -126,16 +129,17 @@ where
 
     while !done {
         // Send sync msg
-        let send_sync_msg: MsgECGSyncData<Header> = MsgECGSyncData {
+        let send_sync_msg: MsgECGSyncData<Header, T> = MsgECGSyncData {
             have: haves.clone(), // TODO: Avoid this clone. // .iter().map(|x| x.0).collect(),
             known: known_bitmap,
             headers: headers.clone(), // TODO: Skip this clone.
+            phantom: PhantomData,
         };
         done = send_sync_msg.is_done();
         conn.send(send_sync_msg).await;
 
         // Receive sync msg
-        let received_sync_msg: MsgECGSyncData<Header> = conn.receive().await;
+        let received_sync_msg: MsgECGSyncData<Header, T> = conn.receive().await;
         done = done && received_sync_msg.is_done();
 
         handle_received_ecg_sync(
