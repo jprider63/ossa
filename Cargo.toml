@@ -3,4 +3,7 @@ resolver = "2"
 
 members = [
     "odyssey-core",
+    "odyssey-crdt",
+    "typeable",
+    "typeable_derive",
 ]

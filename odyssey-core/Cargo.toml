@@ -11,9 +11,11 @@ async-session-types = "*"
 bitvec = "*"
 bytes = "*"
 daggy = {version="*", features=["stable_dag"]}
+dynamic = "*"
 futures = "*"
-futures-channel = "*"
+lazy_static = "*"
 log = "*"
+odyssey-crdt = {path="../odyssey-crdt"}
 rand = "*"
 serde = {version="*", features=["derive"]}
 serde_cbor = {version="*", features=[]}
@@ -23,6 +25,7 @@ tokio-tower = "*"
 tokio-util = {version="*", features=["codec"]}
 tokio-serde = {version="*", features=["cbor"]}
 tower-service = "*"
+typeable = {path="../typeable"}
 
 [dev-dependencies]
 petgraph = "*"

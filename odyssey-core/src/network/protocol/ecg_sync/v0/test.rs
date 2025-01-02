@@ -7,29 +7,6 @@ use crate::network::ConnectionManager;
 use crate::store::ecg::{self, ECGHeader};
 use crate::util::Channel;
 
-#[derive(Clone, Debug)]
-struct TestHeader {
-    header_id: u32,
-    parent_ids: Vec<u32>,
-}
-
-// For testing, just have the header store the parent ids.
-impl ECGHeader for TestHeader {
-    type HeaderId = u32;
-
-    fn get_parent_ids(&self) -> &[u32] {
-        &self.parent_ids
-    }
-
-    fn get_header_id(&self) -> u32 {
-        self.header_id
-    }
-
-    fn validate_header(&self, header_id: Self::HeaderId) -> bool {
-        true
-    }
-}
-
 fn run_ecg_sync<Header: ECGHeader + Send + Clone + Debug>(
     st1: &mut ecg::State<Header>,
     st2: &mut ecg::State<Header>,

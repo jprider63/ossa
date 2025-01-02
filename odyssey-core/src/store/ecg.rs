@@ -1,15 +1,25 @@
-use daggy::petgraph::visit::{EdgeRef, IntoEdgeReferences, IntoNodeReferences, NodeRef};
+use daggy::petgraph::visit::{
+    Bfs, EdgeRef, IntoEdgeReferences, IntoNodeReferences, NodeRef, Reversed,
+};
 use daggy::stable_dag::StableDag;
 use daggy::Walker;
+use odyssey_crdt::CRDT;
 use std::cmp::{self, Reverse};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
+use std::marker::PhantomData;
 
 pub mod v0;
 
 /// Trait that ECG headers (nodes?) must implement.
-pub trait ECGHeader {
+pub trait ECGHeader<T: CRDT> {
     type HeaderId: Ord + Copy + Debug;
+
+    // /// Type identifying operations that implements CausalOrder so that it can be used as CRDT::Time.
+    // type OperationId;
+
+    /// Type associated with this header that implements ECGBody.
+    type Body;
 
     /// Return the parents ids of a node. If an empty slice is returned, the root node is the
     /// parent.
@@ -19,6 +29,28 @@ pub trait ECGHeader {
     fn get_header_id(&self) -> Self::HeaderId;
 
     fn validate_header(&self, header_id: Self::HeaderId) -> bool;
+
+    fn new_header(parents: BTreeSet<Self::HeaderId>, body: &Self::Body) -> Self;
+
+    // TODO: Can we return the following instead? impl Iterator<(T::Time, Item = T::Time)>
+    fn zip_operations_with_time(&self, body: Self::Body) -> Vec<(T::Time, T::Op)>
+    where
+        <Self as ECGHeader<T>>::Body: ECGBody<T>;
+
+    /// Retrieve the times for each operation in this ECG header and body.
+    // TODO: Can we return the following instead? impl Iterator<Item = T::Time>
+    fn get_operation_times(&self, body: &Self::Body) -> Vec<T::Time>;
+}
+
+pub trait ECGBody<T: CRDT> {
+    /// Create a new body from a vector of operations.
+    fn new_body(operations: Vec<T::Op>) -> Self;
+
+    /// The operations in this body.
+    fn operations(self) -> impl Iterator<Item = T::Op>;
+
+    /// The number of operations in this body.
+    fn operations_count(&self) -> u8;
 }
 
 #[derive(Clone, Debug)]
@@ -31,8 +63,8 @@ struct NodeInfo<Header> {
     header: Header,
 }
 
-#[derive(Clone, Debug)]
-pub struct State<Header: ECGHeader> {
+#[derive(Debug)]
+pub struct State<Header: ECGHeader<T>, T: CRDT> {
     dependency_graph: StableDag<Header::HeaderId, ()>, // JP: Hold the operations? Depth? Do we need StableDag?
 
     /// Nodes at the top of the DAG that depend on the initial state.
@@ -43,17 +75,30 @@ pub struct State<Header: ECGHeader> {
 
     /// Tips of the ECG (hashes of their headers).
     tips: BTreeSet<Header::HeaderId>,
+
+    phantom: PhantomData<T>,
 }
 
-impl<Header: ECGHeader> State<Header> {
-    pub fn new() -> State<Header> {
-        let mut dependency_graph = StableDag::new();
-
+impl<Header: ECGHeader<T> + Clone, T: CRDT> Clone for State<Header, T> {
+    fn clone(&self) -> Self {
         State {
-            dependency_graph,
+            dependency_graph: self.dependency_graph.clone(),
+            root_nodes: self.root_nodes.clone(),
+            node_info_map: self.node_info_map.clone(),
+            tips: self.tips.clone(),
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
+    pub fn new() -> State<Header, T> {
+        State {
+            dependency_graph: StableDag::new(),
             root_nodes: BTreeSet::new(),
             node_info_map: BTreeMap::new(),
             tips: BTreeSet::new(),
+            phantom: PhantomData,
         }
     }
 
@@ -217,6 +262,39 @@ impl<Header: ECGHeader> State<Header> {
         }
 
         true
+    }
+
+    /// Perform a BFS to check if `ancestor` is an ancestor of `descendent`. Returns `None` if
+    /// either header id is not in the graph.
+    fn is_ancestor_of(
+        &self,
+        ancestor: &Header::HeaderId,
+        descendent: &Header::HeaderId,
+    ) -> Option<bool> {
+        let anid = self.node_info_map.get(ancestor)?.graph_index;
+        let dnid = self.node_info_map.get(descendent)?.graph_index;
+
+        let mut queue = VecDeque::from([dnid]);
+        let mut visited = BTreeSet::from([dnid]);
+
+        while let Some(nid) = queue.pop_front() {
+            if nid == anid {
+                return Some(true);
+            }
+
+            for (_, pid) in self
+                .dependency_graph
+                .parents(nid)
+                .iter(&self.dependency_graph)
+            {
+                if !visited.contains(&pid) {
+                    visited.insert(pid);
+                    queue.push_back(pid);
+                }
+            }
+        }
+
+        Some(false)
     }
 }
 
