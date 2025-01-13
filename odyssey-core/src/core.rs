@@ -90,13 +90,15 @@ impl<OT: OdysseyType> Odyssey<OT> {
 
                         // TODO XXX
                         // Handshake.
-                        // Diffie Hellman?
+                        // Diffie Hellman? TLS?
                         // Authenticate peer's public key?
                         let stream = TypedStream::new(stream);
-                        let Version::V0 = run_handshake_server(&stream);
+                        let protocol_version = run_handshake_server(&stream);
+                        let stream = stream.finalize().into_inner();
 
                         // Start miniprotocols.
                         println!("TODO: Start miniprotocols");
+                        protocol_version.run_miniprotocols_server(stream); // &stream);
                     });
 
                     // TODO: Store peer in state.
@@ -252,11 +254,12 @@ impl<OT: OdysseyType> Odyssey<OT> {
 
 
             // Run client handshake.
-            let Version::V0 = run_handshake_client(&stream);
+            let protocol_version = run_handshake_client(&stream);
             println!("Connected to server!");
 
             // Start miniprotocols.
             println!("TODO: Start miniprotocols");
+            protocol_version.run_miniprotocols_client(); // &stream);
         });
 
         // TODO: Store peer in state.

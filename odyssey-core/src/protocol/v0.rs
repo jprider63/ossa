@@ -1,7 +1,89 @@
 use async_session_types::{Eps, Recv, Send};
+use bytes::{BytesMut, BufMut};
+use futures::SinkExt;
 use serde::{Deserialize, Serialize};
+use tokio::{
+    io::AsyncReadExt,
+    net::TcpStream,
+    runtime::Runtime,
+};
 
+use crate::protocol::heartbeat;
 use crate::store;
+use crate::util;
+
+// Multiplexer:
+//  StreamId (u32)
+//  DataLength (u32?)
+//
+// Miniprotocols:
+// 0 - StreamManagement (CloseConnection, TerminateConnection, CreateStream, CloseStream? (probably not))
+// 1 - Heartbeat
+// 2 - AdvertiseStores
+// ...
+// N - (N is odd for server, even for client):
+//     - SyncStore i
+pub(crate) async fn run_miniprotocols_server(mut stream: TcpStream) {
+    // Start multiplexer.
+
+    let (mut heartbeat_send, heartbeat_rcv) = util::Channel::new_pair(10);
+
+    // Spawn async for each miniprotocol
+    let heartbeat_handle = tokio::spawn(async move {
+        heartbeat::v0::run_server()
+    });
+
+    // Create window (buffered channel?) for each miniprotocol.
+    // TODO: back pressure
+    let mut state = ();
+
+    // TODO: Do some load balancing between miniprotocols?
+    // TODO: Pipelining
+    
+    // Wait on data from client or data to send.
+
+
+    loop {
+        let mut buf = BytesMut::with_capacity(4096);
+
+        stream.read_buf(&mut buf).await;
+
+        heartbeat_send.send(buf);
+
+        // // Wait for the socket to be readable
+        // match stream.readable().await {
+        //     Ok(()) => {},
+        //     Err(e) => todo!(),
+        // }
+
+
+        // // Try to read data, this may still fail with `WouldBlock`
+        // // if the readiness event is a false positive.
+        // match stream.try_read_buf(&mut buf) {
+        //     Ok(0) => break,
+        //     Ok(n) => {
+        //         println!("read {} bytes", n);
+
+        //     }
+        //     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+        //         continue;
+        //     }
+        //     Err(e) => {
+        //         todo!("handle this error"); // return Err(e.into());
+        //     }
+        // }
+
+        // // Wait for the socket to be writable
+        // stream.writable().await?;
+    }
+}
+
+pub(crate) fn run_miniprotocols_client() {
+    let mut state = ();
+
+    loop {
+    }
+}
 
 // # Protocols run between peers.
 
