@@ -201,7 +201,7 @@ where
 
 pub struct Channel<T> {
     send: Sender<T>,
-    recv: Receiver<T>,
+    pub(crate) recv: Receiver<T>,
 }
 
 impl<T> Channel<T> {

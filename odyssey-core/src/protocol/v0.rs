@@ -1,9 +1,9 @@
 use async_session_types::{Eps, Recv, Send};
 use bytes::{BytesMut, BufMut};
-use futures::SinkExt;
+use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::{
-    io::AsyncReadExt,
+    io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
     runtime::Runtime,
 };
@@ -26,11 +26,11 @@ use crate::util;
 pub(crate) async fn run_miniprotocols_server(mut stream: TcpStream) {
     // Start multiplexer.
 
-    let (mut heartbeat_send, heartbeat_rcv) = util::Channel::new_pair(10);
+    let (mut heartbeat_server_channel, heartbeat_protocol_channel) = util::Channel::new_pair(10);
 
     // Spawn async for each miniprotocol
     let heartbeat_handle = tokio::spawn(async move {
-        heartbeat::v0::run_server()
+        heartbeat::v0::run_server(heartbeat_protocol_channel).await
     });
 
     // Create window (buffered channel?) for each miniprotocol.
@@ -46,9 +46,28 @@ pub(crate) async fn run_miniprotocols_server(mut stream: TcpStream) {
     loop {
         let mut buf = BytesMut::with_capacity(4096);
 
-        stream.read_buf(&mut buf).await;
+        tokio::select! {
+            result = stream.read_buf(&mut buf) => {
+                // TODO: Read stream id, etc.
+                heartbeat_server_channel.send(buf).await; // TODO: This currently blocks if the
+                                                          // channel is full
+            }
+            msg_e = heartbeat_server_channel.next() => {
+                match msg_e {
+                    None => {
+                        todo!()
+                    }
+                    Some(Err(_e)) => {
+                        todo!()
+                    }
+                    Some(Ok(mut msg)) => {
+                        // TODO: Send stream id, etc.
+                        stream.write_buf(&mut msg).await;
+                    }
+                }
+            }
+        }
 
-        heartbeat_send.send(buf);
 
         // // Wait for the socket to be readable
         // match stream.readable().await {

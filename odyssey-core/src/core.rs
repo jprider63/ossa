@@ -98,7 +98,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
 
                         // Start miniprotocols.
                         println!("TODO: Start miniprotocols");
-                        protocol_version.run_miniprotocols_server(stream); // &stream);
+                        protocol_version.run_miniprotocols_server(stream).await; // &stream);
                     });
 
                     // TODO: Store peer in state.
