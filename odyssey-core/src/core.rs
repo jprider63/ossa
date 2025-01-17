@@ -93,7 +93,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
                         // Diffie Hellman? TLS?
                         // Authenticate peer's public key?
                         let stream = TypedStream::new(stream);
-                        let protocol_version = run_handshake_server(&stream);
+                        let protocol_version = run_handshake_server(&stream).await;
                         let stream = stream.finalize().into_inner();
 
                         // Start miniprotocols.
@@ -254,12 +254,13 @@ impl<OT: OdysseyType> Odyssey<OT> {
 
 
             // Run client handshake.
-            let protocol_version = run_handshake_client(&stream);
+            let protocol_version = run_handshake_client(&stream).await;
+            let stream = stream.finalize().into_inner();
             println!("Connected to server!");
 
             // Start miniprotocols.
             println!("TODO: Start miniprotocols");
-            protocol_version.run_miniprotocols_client(); // &stream);
+            protocol_version.run_miniprotocols_client(stream).await;
         });
 
         // TODO: Store peer in state.

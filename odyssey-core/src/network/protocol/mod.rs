@@ -23,13 +23,13 @@ pub mod keep_alive;
 
 type MsgHandshake = ();
 
-pub(crate) fn run_handshake_server<S: Stream<MsgHandshake>>(stream: &S) -> Version {
+pub(crate) async fn run_handshake_server<S: Stream<MsgHandshake>>(stream: &S) -> Version {
     // TODO: Implement this and make it abstract.
 
     Version::V0
 }
 
-pub(crate) fn run_handshake_client<S: Stream<MsgHandshake>>(stream: &S) -> Version {
+pub(crate) async fn run_handshake_client<S: Stream<MsgHandshake>>(stream: &S) -> Version {
     // TODO: Implement this and make it abstract.
 
     Version::V0

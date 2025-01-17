@@ -94,7 +94,7 @@ const HEARTBEAT_SLEEP: u64 = 15;
 const HEARTBEAT_RANGE: u64 = 30;
 
 // TODO: Abstract this away
-pub(crate) async fn run_server(channel: Channel<BytesMut>) {
+pub(crate) async fn run_server_wrapper(channel: Channel<BytesMut>) {
     // TODO: Convert the channel to a T: Stream<MsgHeartbeat>
     // Serialize/deserialize byte channel
     let stream: Channel<MsgHeartbeat> = todo!();
@@ -118,13 +118,13 @@ async fn run_server_protocol<S: Stream<MsgHeartbeat>>(mut stream: S) {
             server_time,
             heartbeat,
         };
-        println!("Sending heartbeat");
+        println!("Sending heartbeat: {req:?}");
         send(&mut stream, req).await;
 
         // Get response.
         let client_response: MsgHeartbeatClientResponse = receive(&mut stream).await.expect("TODO");
         let latency = server_time.elapsed();
-        println!("Recieved heartbeat response. Latency: {latency:?}");
+        println!("Recieved heartbeat response.\nResponse:{client_response:?}\nLatency: {latency:?}");
         if client_response.heartbeat != heartbeat {
             todo!("Heartbeat does not match");
         }
@@ -133,11 +133,38 @@ async fn run_server_protocol<S: Stream<MsgHeartbeat>>(mut stream: S) {
         let server_response = MsgHeartbeatServerResponse {
             heartbeat,
         };
+        println!("Sending response: {server_response:?}");
         send(&mut stream, server_response).await;
     }
 }
 
 // TODO: Abstract this away
-pub(crate) fn run_client() {
+pub(crate) async fn run_client_wrapper(channel: Channel<BytesMut>) {
+    // TODO: Convert the channel to a T: Stream<MsgHeartbeat>
+    // Serialize/deserialize byte channel
+    let stream: Channel<MsgHeartbeat> = todo!();
+
+    run_client_protocol(stream).await
 }
 
+async fn run_client_protocol<S: Stream<MsgHeartbeat>>(mut stream: S) {
+    loop {
+        // Wait for request.
+        let request: MsgHeartbeatRequest = receive(&mut stream).await.expect("TODO");
+
+        // Send response.
+        let client_time = Instant::now();
+        let client_response = MsgHeartbeatClientResponse {
+            heartbeat: request.heartbeat,
+            client_time,
+        };
+
+        // Wait for response.
+        let server_response: MsgHeartbeatServerResponse = receive(&mut stream).await.expect("TODO");
+        let latency = client_time.elapsed();
+        println!("Received heartbeat response.\n{server_response:?}\nLatency:{latency:?}");
+        if server_response.heartbeat != request.heartbeat {
+            todo!("Heartbeat does not match");
+        }
+    }
+}

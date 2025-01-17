@@ -1,3 +1,5 @@
+// TODO: Delete this module?
+
 /// Manage p2p network connections.
 use log;
 use serde::{Deserialize, Serialize};
@@ -74,7 +76,7 @@ impl P2PManager {
                         // Diffie Hellman?
                         // Authenticate peer's public key?
                         let stream = TypedStream::new(stream);
-                        let Version::V0 = run_handshake_server(&stream);
+                        let Version::V0 = run_handshake_server(&stream).await;
 
                         let mut stream: TypedStream<_, MsgStoreMetadataHeader<TypeId, StoreId>> =
                             TypedStream::new(stream.finalize());

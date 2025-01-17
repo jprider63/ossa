@@ -26,32 +26,25 @@ use crate::util;
 pub(crate) async fn run_miniprotocols_server(mut stream: TcpStream) {
     // Start multiplexer.
 
+    // Create window (buffered channel?) for each miniprotocol.
     let (mut heartbeat_server_channel, heartbeat_protocol_channel) = util::Channel::new_pair(10);
 
-    // Spawn async for each miniprotocol
+    // Spawn async for each miniprotocol.
     let heartbeat_handle = tokio::spawn(async move {
-        heartbeat::v0::run_server(heartbeat_protocol_channel).await
+        heartbeat::v0::run_server_wrapper(heartbeat_protocol_channel).await
     });
 
-    // Create window (buffered channel?) for each miniprotocol.
     // TODO: back pressure
     let mut state = ();
 
     // TODO: Do some load balancing between miniprotocols?
     // TODO: Pipelining
     
-    // Wait on data from client or data to send.
-
-
     loop {
         let mut buf = BytesMut::with_capacity(4096);
 
+        // Wait on data from client or data to send.
         tokio::select! {
-            result = stream.read_buf(&mut buf) => {
-                // TODO: Read stream id, etc.
-                heartbeat_server_channel.send(buf).await; // TODO: This currently blocks if the
-                                                          // channel is full
-            }
             msg_e = heartbeat_server_channel.next() => {
                 match msg_e {
                     None => {
@@ -65,6 +58,11 @@ pub(crate) async fn run_miniprotocols_server(mut stream: TcpStream) {
                         stream.write_buf(&mut msg).await;
                     }
                 }
+            }
+            result = stream.read_buf(&mut buf) => {
+                // TODO: Check length, read stream id, etc.
+                heartbeat_server_channel.send(buf).await; // TODO: This currently blocks if the
+                                                          // channel is full
             }
         }
 
@@ -97,10 +95,49 @@ pub(crate) async fn run_miniprotocols_server(mut stream: TcpStream) {
     }
 }
 
-pub(crate) fn run_miniprotocols_client() {
+pub(crate) async fn run_miniprotocols_client(mut stream: TcpStream) {
+    // Start multiplexer.
+    // TODO: Abstract everything behind a multiplexer abstraction.
+
+    // Create window (buffered channel?) for each miniprotocol.
+    let (mut heartbeat_client_channel, heartbeat_protocol_channel) = util::Channel::new_pair(10);
+
+    // Spawn async for each miniprotocol.
+    let heartbeat_handle = tokio::spawn(async move {
+        heartbeat::v0::run_client_wrapper(heartbeat_protocol_channel).await
+    });
+
+    // TODO: back pressure
     let mut state = ();
 
+    // TODO: Do some load balancing between miniprotocols?
+    // TODO: Pipelining
+    
     loop {
+        let mut buf = BytesMut::with_capacity(4096);
+
+        // Wait on data from client or data to send.
+        tokio::select! {
+            msg_e = heartbeat_client_channel.next() => {
+                match msg_e {
+                    None => {
+                        todo!()
+                    }
+                    Some(Err(_e)) => {
+                        todo!()
+                    }
+                    Some(Ok(mut msg)) => {
+                        // TODO: Send stream id, etc.
+                        stream.write_buf(&mut msg).await;
+                    }
+                }
+            }
+            result = stream.read_buf(&mut buf) => {
+                // TODO: Check length, read stream id, etc.
+                heartbeat_client_channel.send(buf).await; // TODO: This currently blocks if the
+                                                          // channel is full
+            }
+        }
     }
 }
 

@@ -26,10 +26,10 @@ impl Version {
         }
     }
 
-    pub fn run_miniprotocols_client(&self) {
+    pub async fn run_miniprotocols_client(&self, stream: TcpStream) {
         match self {
             Version::V0 => {
-                v0::run_miniprotocols_client()
+                v0::run_miniprotocols_client(stream).await
             }
         }
     }
