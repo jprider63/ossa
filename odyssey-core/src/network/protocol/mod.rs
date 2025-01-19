@@ -17,11 +17,11 @@ use crate::util::Stream;
 pub mod ecg_sync;
 pub mod keep_alive;
 
-pub trait MiniProtocol {
-    type Message;
+pub(crate) trait MiniProtocol: Send {
+    type Message: Send;
 
-    async fn run_client<S: Stream<Self::Message>>(stream: S);
-    async fn run_server<S: Stream<Self::Message>>(stream: S);
+    async fn run_client<S: Stream<Self::Message>>(&self, stream: S);
+    async fn run_server<S: Stream<Self::Message>>(&self, stream: S);
 }
 
 

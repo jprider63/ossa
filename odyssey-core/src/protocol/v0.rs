@@ -8,7 +8,11 @@ use tokio::{
     runtime::Runtime,
 };
 
-use crate::protocol::heartbeat;
+use crate::protocol::heartbeat::v0::Heartbeat;
+use crate::network::{
+    multiplexer::{Multiplexer, Party},
+    protocol::MiniProtocol,
+};
 use crate::store;
 use crate::util;
 
@@ -22,49 +26,19 @@ use crate::util;
 // 2 - AdvertiseStores
 // ...
 // N - (N is odd for server, even for client):
-//     - SyncStore i
+//     - StoreSync i
+/// Miniprotocols initially run when connected for V0.
+fn initial_miniprotocols() -> Vec<impl MiniProtocol> {
+    vec![
+        Heartbeat {},
+    ]
+}
+
 pub(crate) async fn run_miniprotocols_server(mut stream: TcpStream) {
     // Start multiplexer.
+    let multiplexer = Multiplexer::new(Party::Server);
 
-    // Create window (buffered channel?) for each miniprotocol.
-    let (mut heartbeat_server_channel, heartbeat_protocol_channel) = util::Channel::new_pair(10);
-
-    // Spawn async for each miniprotocol.
-    let heartbeat_handle = tokio::spawn(async move {
-        heartbeat::v0::run_server_wrapper(heartbeat_protocol_channel).await
-    });
-
-    // TODO: back pressure
-    let mut state = ();
-
-    // TODO: Do some load balancing between miniprotocols?
-    // TODO: Pipelining
-    
-    loop {
-        let mut buf = BytesMut::with_capacity(4096);
-
-        // Wait on data from client or data to send.
-        tokio::select! {
-            msg_e = heartbeat_server_channel.next() => {
-                match msg_e {
-                    None => {
-                        todo!()
-                    }
-                    Some(Err(_e)) => {
-                        todo!()
-                    }
-                    Some(Ok(mut msg)) => {
-                        // TODO: Send stream id, etc.
-                        stream.write_buf(&mut msg).await;
-                    }
-                }
-            }
-            result = stream.read_buf(&mut buf) => {
-                // TODO: Check length, read stream id, etc.
-                heartbeat_server_channel.send(buf).await; // TODO: This currently blocks if the
-                                                          // channel is full
-            }
-        }
+    multiplexer.run_with_miniprotocols(stream, initial_miniprotocols()).await;
 
 
         // // Wait for the socket to be readable
@@ -92,53 +66,14 @@ pub(crate) async fn run_miniprotocols_server(mut stream: TcpStream) {
 
         // // Wait for the socket to be writable
         // stream.writable().await?;
-    }
 }
+
 
 pub(crate) async fn run_miniprotocols_client(mut stream: TcpStream) {
     // Start multiplexer.
-    // TODO: Abstract everything behind a multiplexer abstraction.
+    let multiplexer = Multiplexer::new(Party::Client);
 
-    // Create window (buffered channel?) for each miniprotocol.
-    let (mut heartbeat_client_channel, heartbeat_protocol_channel) = util::Channel::new_pair(10);
-
-    // Spawn async for each miniprotocol.
-    let heartbeat_handle = tokio::spawn(async move {
-        heartbeat::v0::run_client_wrapper(heartbeat_protocol_channel).await
-    });
-
-    // TODO: back pressure
-    let mut state = ();
-
-    // TODO: Do some load balancing between miniprotocols?
-    // TODO: Pipelining
-    
-    loop {
-        let mut buf = BytesMut::with_capacity(4096);
-
-        // Wait on data from client or data to send.
-        tokio::select! {
-            msg_e = heartbeat_client_channel.next() => {
-                match msg_e {
-                    None => {
-                        todo!()
-                    }
-                    Some(Err(_e)) => {
-                        todo!()
-                    }
-                    Some(Ok(mut msg)) => {
-                        // TODO: Send stream id, etc.
-                        stream.write_buf(&mut msg).await;
-                    }
-                }
-            }
-            result = stream.read_buf(&mut buf) => {
-                // TODO: Check length, read stream id, etc.
-                heartbeat_client_channel.send(buf).await; // TODO: This currently blocks if the
-                                                          // channel is full
-            }
-        }
-    }
+    multiplexer.run_with_miniprotocols(stream, initial_miniprotocols()).await;
 }
 
 // # Protocols run between peers.

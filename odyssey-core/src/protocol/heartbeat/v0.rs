@@ -17,7 +17,7 @@ use crate::{
 // server to client: (u64, Time)
 
 #[derive(Debug)]
-enum MsgHeartbeat {
+pub(crate) enum MsgHeartbeat {
     Request(MsgHeartbeatRequest),
     ClientResponse(MsgHeartbeatClientResponse),
     ServerResponse(MsgHeartbeatServerResponse),
@@ -93,30 +93,12 @@ impl TryInto<MsgHeartbeatServerResponse> for MsgHeartbeat {
 const HEARTBEAT_SLEEP: u64 = 15;
 const HEARTBEAT_RANGE: u64 = 30;
 
-// TODO: Abstract this away
-pub(crate) async fn run_server_wrapper(channel: Channel<BytesMut>) {
-    // TODO: Convert the channel to a T: Stream<MsgHeartbeat>
-    // Serialize/deserialize byte channel
-    let stream: Channel<MsgHeartbeat> = todo!();
-
-    Heartbeat::run_server(stream).await;
-}
-
-// TODO: Abstract this away
-pub(crate) async fn run_client_wrapper(channel: Channel<BytesMut>) {
-    // TODO: Convert the channel to a T: Stream<MsgHeartbeat>
-    // Serialize/deserialize byte channel
-    let stream: Channel<MsgHeartbeat> = todo!();
-
-    Heartbeat::run_client(stream).await
-}
-
 // MiniProtocol instance for Heartbeat.
-enum Heartbeat {}
+pub(crate) struct Heartbeat {}
 impl MiniProtocol for Heartbeat {
     type Message = MsgHeartbeat;
 
-    async fn run_server<S: Stream<MsgHeartbeat>>(mut stream: S) {
+    async fn run_server<S: Stream<MsgHeartbeat>>(&self, mut stream: S) {
         let mut rng = thread_rng();
     
         loop {
@@ -152,7 +134,7 @@ impl MiniProtocol for Heartbeat {
         }
     }
 
-    async fn run_client<S: Stream<MsgHeartbeat>>(mut stream: S) {
+    async fn run_client<S: Stream<MsgHeartbeat>>(&self, mut stream: S) {
         loop {
             // Wait for request.
             let request: MsgHeartbeatRequest = receive(&mut stream).await.expect("TODO");

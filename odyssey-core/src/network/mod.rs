@@ -1,3 +1,4 @@
+pub mod multiplexer;
 pub mod p2p;
 pub mod protocol;
 
