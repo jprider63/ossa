@@ -17,6 +17,16 @@ use crate::util::Stream;
 pub mod ecg_sync;
 pub mod keep_alive;
 
+pub trait MiniProtocol {
+    type Message;
+
+    async fn run_client<S: Stream<Self::Message>>(stream: S);
+    async fn run_server<S: Stream<Self::Message>>(stream: S);
+}
+
+
+
+
 // pub enum ProtocolVersion {
 //     V0,
 // }

@@ -4,7 +4,7 @@ use rand::{thread_rng, Rng};
 use tokio::time::{Duration, Instant, sleep};
 
 use crate::{
-    network::protocol::{receive, send},
+    network::protocol::{MiniProtocol, receive, send},
     util::{Channel, Stream},
 };
 
@@ -99,43 +99,7 @@ pub(crate) async fn run_server_wrapper(channel: Channel<BytesMut>) {
     // Serialize/deserialize byte channel
     let stream: Channel<MsgHeartbeat> = todo!();
 
-    run_server_protocol(stream).await;
-}
-
-async fn run_server_protocol<S: Stream<MsgHeartbeat>>(mut stream: S) {
-    let mut rng = thread_rng();
-
-    loop {
-        // Sleep
-        let sleep_time = HEARTBEAT_SLEEP + rng.gen_range(0..HEARTBEAT_RANGE);
-        println!("Sleeping for {sleep_time} seconds");
-        sleep(Duration::new(sleep_time, 0)).await;
-
-        // Send request.
-        let heartbeat = rng.gen();
-        let server_time = Instant::now();
-        let req = MsgHeartbeatRequest {
-            server_time,
-            heartbeat,
-        };
-        println!("Sending heartbeat: {req:?}");
-        send(&mut stream, req).await;
-
-        // Get response.
-        let client_response: MsgHeartbeatClientResponse = receive(&mut stream).await.expect("TODO");
-        let latency = server_time.elapsed();
-        println!("Recieved heartbeat response.\nResponse:{client_response:?}\nLatency: {latency:?}");
-        if client_response.heartbeat != heartbeat {
-            todo!("Heartbeat does not match");
-        }
-
-        // Send response.
-        let server_response = MsgHeartbeatServerResponse {
-            heartbeat,
-        };
-        println!("Sending response: {server_response:?}");
-        send(&mut stream, server_response).await;
-    }
+    Heartbeat::run_server(stream).await;
 }
 
 // TODO: Abstract this away
@@ -144,27 +108,69 @@ pub(crate) async fn run_client_wrapper(channel: Channel<BytesMut>) {
     // Serialize/deserialize byte channel
     let stream: Channel<MsgHeartbeat> = todo!();
 
-    run_client_protocol(stream).await
+    Heartbeat::run_client(stream).await
 }
 
-async fn run_client_protocol<S: Stream<MsgHeartbeat>>(mut stream: S) {
-    loop {
-        // Wait for request.
-        let request: MsgHeartbeatRequest = receive(&mut stream).await.expect("TODO");
+// MiniProtocol instance for Heartbeat.
+enum Heartbeat {}
+impl MiniProtocol for Heartbeat {
+    type Message = MsgHeartbeat;
 
-        // Send response.
-        let client_time = Instant::now();
-        let client_response = MsgHeartbeatClientResponse {
-            heartbeat: request.heartbeat,
-            client_time,
-        };
+    async fn run_server<S: Stream<MsgHeartbeat>>(mut stream: S) {
+        let mut rng = thread_rng();
+    
+        loop {
+            // Sleep
+            let sleep_time = HEARTBEAT_SLEEP + rng.gen_range(0..HEARTBEAT_RANGE);
+            println!("Sleeping for {sleep_time} seconds");
+            sleep(Duration::new(sleep_time, 0)).await;
+    
+            // Send request.
+            let heartbeat = rng.gen();
+            let server_time = Instant::now();
+            let req = MsgHeartbeatRequest {
+                server_time,
+                heartbeat,
+            };
+            println!("Sending heartbeat: {req:?}");
+            send(&mut stream, req).await;
+    
+            // Get response.
+            let client_response: MsgHeartbeatClientResponse = receive(&mut stream).await.expect("TODO");
+            let latency = server_time.elapsed();
+            println!("Recieved heartbeat response.\nResponse:{client_response:?}\nLatency: {latency:?}");
+            if client_response.heartbeat != heartbeat {
+                todo!("Heartbeat does not match");
+            }
+    
+            // Send response.
+            let server_response = MsgHeartbeatServerResponse {
+                heartbeat,
+            };
+            println!("Sending response: {server_response:?}");
+            send(&mut stream, server_response).await;
+        }
+    }
 
-        // Wait for response.
-        let server_response: MsgHeartbeatServerResponse = receive(&mut stream).await.expect("TODO");
-        let latency = client_time.elapsed();
-        println!("Received heartbeat response.\n{server_response:?}\nLatency:{latency:?}");
-        if server_response.heartbeat != request.heartbeat {
-            todo!("Heartbeat does not match");
+    async fn run_client<S: Stream<MsgHeartbeat>>(mut stream: S) {
+        loop {
+            // Wait for request.
+            let request: MsgHeartbeatRequest = receive(&mut stream).await.expect("TODO");
+
+            // Send response.
+            let client_time = Instant::now();
+            let client_response = MsgHeartbeatClientResponse {
+                heartbeat: request.heartbeat,
+                client_time,
+            };
+
+            // Wait for response.
+            let server_response: MsgHeartbeatServerResponse = receive(&mut stream).await.expect("TODO");
+            let latency = client_time.elapsed();
+            println!("Received heartbeat response.\n{server_response:?}\nLatency:{latency:?}");
+            if server_response.heartbeat != request.heartbeat {
+                todo!("Heartbeat does not match");
+            }
         }
     }
 }
