@@ -18,7 +18,7 @@ pub mod ecg_sync;
 pub mod keep_alive;
 
 pub(crate) trait MiniProtocol: Send {
-    type Message: Send;
+    type Message: Serialize + for<'a> Deserialize<'a> + Send;
 
     async fn run_client<S: Stream<Self::Message>>(&self, stream: S);
     async fn run_server<S: Stream<Self::Message>>(&self, stream: S);

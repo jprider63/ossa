@@ -1,7 +1,9 @@
 
 use bytes::BytesMut;
 use rand::{thread_rng, Rng};
-use tokio::time::{Duration, Instant, sleep};
+use serde::{Deserialize, Serialize};
+use std::time::SystemTime;
+use tokio::time::{Duration, sleep};
 
 use crate::{
     network::protocol::{MiniProtocol, receive, send},
@@ -16,24 +18,24 @@ use crate::{
 // client to server: (Time, u64, Time)
 // server to client: (u64, Time)
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(crate) enum MsgHeartbeat {
     Request(MsgHeartbeatRequest),
     ClientResponse(MsgHeartbeatClientResponse),
     ServerResponse(MsgHeartbeatServerResponse),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct MsgHeartbeatRequest {
-    server_time: Instant,
+    server_time: SystemTime,
     heartbeat: u64,
 }
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct MsgHeartbeatClientResponse {
     heartbeat: u64,
-    client_time: Instant,
+    client_time: SystemTime,
 }
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct MsgHeartbeatServerResponse {
     heartbeat: u64,
 }
@@ -109,7 +111,7 @@ impl MiniProtocol for Heartbeat {
     
             // Send request.
             let heartbeat = rng.gen();
-            let server_time = Instant::now();
+            let server_time = SystemTime::now();
             let req = MsgHeartbeatRequest {
                 server_time,
                 heartbeat,
@@ -140,7 +142,7 @@ impl MiniProtocol for Heartbeat {
             let request: MsgHeartbeatRequest = receive(&mut stream).await.expect("TODO");
 
             // Send response.
-            let client_time = Instant::now();
+            let client_time = SystemTime::now();
             let client_response = MsgHeartbeatClientResponse {
                 heartbeat: request.heartbeat,
                 client_time,
