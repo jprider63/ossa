@@ -1,11 +1,14 @@
 
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
+use futures;
+use futures::task::{Context, Poll};
 use std::collections::BTreeMap;
 use std::marker::PhantomData;
+use std::pin::Pin;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, SimplexStream, WriteHalf, simplex},
     net::TcpStream,
-    sync::mpsc,
+    sync::mpsc::{self, Receiver, Sender},
     task::JoinHandle,
 };
 
@@ -59,17 +62,20 @@ impl Multiplexer {
         // Initialize and spawn each miniprotocol.
         for (protocol_id, p) in miniprotocols.into_iter().enumerate() {
             let protocol_id = protocol_id.try_into().expect("TODO");
+            let outgoing_channel_send = outgoing_channel_send.clone();
 
             // Create window for the miniprotocol.
-            let (sender, mut receiver) = mpsc::channel(PROTOCOL_INCOMING_CAPACITY);
+            let (sender, receiver) = mpsc::channel(PROTOCOL_INCOMING_CAPACITY);
 
             // Spawn async for the miniprotocol.
             let handle = tokio::spawn(async move {
 
                 // TODO: Convert the channel to a T: Stream<MsgHeartbeat>
                 // Serialize/deserialize byte channel
-                let stream: crate::util::Channel<BytesMut> = todo!();
+                // let stream: crate::util::Channel<_> = todo!();
+                // let stream: crate::util::Channel<BytesMut> = todo!();
                 // let stream: crate::util::Channel<Result<BytesMut, std::io::Error>> = todo!();
+                let stream = MuxStream::new(outgoing_channel_send, receiver);
                 let stream = TypedStream::new(stream);
                 if self.party.is_client() {
                     p.run_client(stream);
@@ -172,4 +178,92 @@ struct MiniprotocolState {
 // struct FramedMiniprotocol<T> {
 //     phantom: PhantomData<T>,
 // }
+
+// Stream implementation to send bytes between multiplexer and miniprotocols.
+struct MuxStream {
+    sender: Sender<BytesMut>,
+    receiver: Receiver<BytesMut>,
+}
+
+impl MuxStream {
+    fn new(sender: Sender<BytesMut>, receiver: Receiver<BytesMut>) -> MuxStream {
+        MuxStream {
+            sender,
+            receiver,
+        }
+    }
+}
+
+impl futures::Stream for MuxStream {
+    type Item = Result<BytesMut, std::io::Error>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        ctx: &mut Context<'_>,
+    ) -> Poll<Option<Result<BytesMut, std::io::Error>>> {
+        todo!()
+        // let p = futures::Stream::poll_next(Pin::new(&mut self.recv), ctx);
+        // p.map(|o| o.map(|t| Ok(t)))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        todo!()
+        // self.recv.size_hint()
+    }
+}
+
+impl futures::Sink<Bytes> for MuxStream {
+    type Error = std::io::Error;
+
+    fn poll_ready(
+        mut self: Pin<&mut Self>,
+        ctx: &mut Context<'_>,
+    ) -> Poll<Result<(), <Self as futures::Sink<Bytes>>::Error>> {
+        todo!()
+        // let p = Pin::new(&mut self.send).poll_ready(ctx);
+        // p.map(|r| {
+        //     r.map_err(|e| {
+        //         log::error!("Send error: {:?}", e);
+        //         ProtocolError::StreamSendError(std::io::Error::other("poll_ready error"))
+        //     })
+        // })
+    }
+
+    fn start_send(mut self: Pin<&mut Self>, x: Bytes) -> Result<(), <Self as futures::Sink<Bytes>>::Error> {
+        todo!()
+        // let p = Pin::new(&mut self.send).start_send(x);
+        // p.map_err(|e| {
+        //     log::error!("Send error: {:?}", e);
+        //     ProtocolError::StreamSendError(std::io::Error::other("start_send error"))
+        // })
+    }
+
+    fn poll_flush(
+        mut self: Pin<&mut Self>,
+        ctx: &mut Context<'_>,
+    ) -> Poll<Result<(), <Self as futures::Sink<Bytes>>::Error>> {
+        todo!()
+        // let p = Pin::new(&mut self.send).poll_flush(ctx);
+        // p.map(|r| {
+        //     r.map_err(|e| {
+        //         log::error!("Send error: {:?}", e);
+        //         ProtocolError::StreamSendError(std::io::Error::other("poll_flush error"))
+        //     })
+        // })
+    }
+
+    fn poll_close(
+        mut self: Pin<&mut Self>,
+        ctx: &mut Context<'_>,
+    ) -> Poll<Result<(), <Self as futures::Sink<Bytes>>::Error>> {
+        todo!()
+        // let p = Pin::new(&mut self.send).poll_close(ctx);
+        // p.map(|r| {
+        //     r.map_err(|e| {
+        //         log::error!("Send error: {:?}", e);
+        //         ProtocolError::StreamSendError(std::io::Error::other("poll_close error"))
+        //     })
+        // })
+    }
+}
 
