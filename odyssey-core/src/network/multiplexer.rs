@@ -210,7 +210,7 @@ impl<T> MuxStream<T> {
 
 impl<T> futures::Stream for MuxStream<T>
 where
-    T: for<'a> Deserialize<'a> + Unpin,
+    T: for<'a> Deserialize<'a>,
 {
     type Item = Result<T, ProtocolError>;
 
@@ -234,63 +234,66 @@ where
     }
 }
 
-impl<T> futures::Sink<T> for MuxStream<T> {
+impl<T> futures::Sink<T> for MuxStream<T>
+where
+    T: Serialize,
+{
     type Error = ProtocolError; // PollSendError<Bytes>;
 
     fn poll_ready(
         mut self: Pin<&mut Self>,
         ctx: &mut Context<'_>,
     ) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> {
-        todo!();
-        // let p = Pin::new(&mut self.sender).poll_ready(ctx);
-        // p
-        // p.map(|r| {
-        //     r.map_err(|e| {
-        //         log::error!("Send error: {:?}", e);
-        //         ProtocolError::StreamSendError(std::io::Error::other("poll_ready error"))
-        //     })
-        // })
+        let p = Pin::new(&mut self.sender).poll_ready(ctx);
+        p.map(|r| {
+            r.map_err(|e| {
+                log::error!("Send error: {:?}", e);
+                ProtocolError::ChannelSendError(e)
+            })
+        })
     }
 
     fn start_send(mut self: Pin<&mut Self>, x: T) -> Result<(), <Self as futures::Sink<T>>::Error> {
-        todo!()
-        // let p = Pin::new(&mut self.send).start_send(x);
-        // p.map_err(|e| {
-        //     log::error!("Send error: {:?}", e);
-        //     ProtocolError::StreamSendError(std::io::Error::other("start_send error"))
-        // })
+        match serde_cbor::to_vec(&x) {
+            Err(err) => Err(ProtocolError::SerializationError(err)),
+            Ok(cbor) => {
+                let p = Pin::new(&mut self.sender).start_send(cbor.into());
+                p.map_err(|e| {
+                    log::error!("Send error: {:?}", e);
+                    ProtocolError::ChannelSendError(e)
+                })
+            }
+        }
     }
 
     fn poll_flush(
         mut self: Pin<&mut Self>,
         ctx: &mut Context<'_>,
     ) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> {
-        todo!()
-        // let p = Pin::new(&mut self.send).poll_flush(ctx);
-        // p.map(|r| {
-        //     r.map_err(|e| {
-        //         log::error!("Send error: {:?}", e);
-        //         ProtocolError::StreamSendError(std::io::Error::other("poll_flush error"))
-        //     })
-        // })
+        let p = Pin::new(&mut self.sender).poll_flush(ctx);
+        p.map(|r| {
+            r.map_err(|e| {
+                log::error!("Send error: {:?}", e);
+                ProtocolError::ChannelSendError(e)
+            })
+        })
     }
 
     fn poll_close(
         mut self: Pin<&mut Self>,
         ctx: &mut Context<'_>,
     ) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> {
-        todo!()
-        // let p = Pin::new(&mut self.send).poll_close(ctx);
-        // p.map(|r| {
-        //     r.map_err(|e| {
-        //         log::error!("Send error: {:?}", e);
-        //         ProtocolError::StreamSendError(std::io::Error::other("poll_close error"))
-        //     })
-        // })
+        let p = Pin::new(&mut self.sender).poll_close(ctx);
+        p.map(|r| {
+            r.map_err(|e| {
+                log::error!("Send error: {:?}", e);
+                ProtocolError::ChannelSendError(e)
+            })
+        })
     }
 }
 
 impl<T> util::Stream<T> for MuxStream<T>
 where
-    T: for<'a> Deserialize<'a> + Unpin,
+    T: for<'a> Deserialize<'a> + Serialize,
 {}
