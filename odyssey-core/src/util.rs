@@ -89,20 +89,11 @@ pub trait Stream<T>:
     + Sync // JP: This is needed for async_recursion. Not sure if this makes sense in practice.
 {}
 
-// #[derive(Unpin)]
-// #[derive(Sync)]
 // TODO: Move this somewhere else, or remove this since we have MuxStream now?
 pub struct TypedStream<S, T> {
     stream: S,
-    phantom: PhantomData<T>,
+    phantom: PhantomData<fn(T)>,
 }
-
-// TODO: Why is this necessary?
-unsafe impl<S, T> Send for TypedStream<S, T> where S: Send {}
-// TODO: Why is this necessary?
-unsafe impl<S, T> Sync for TypedStream<S, T> where S: Sync {}
-// TODO: Why is this necessary?
-impl<S, T> Unpin for TypedStream<S, T> where S: Unpin {}
 
 impl<S, T> TypedStream<S, T> {
     pub fn new(stream: S) -> TypedStream<S, T> {
