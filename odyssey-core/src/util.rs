@@ -91,7 +91,7 @@ pub trait Stream<T>:
 
 // #[derive(Unpin)]
 // #[derive(Sync)]
-// TODO: Move this somewhere else
+// TODO: Move this somewhere else, or remove this since we have MuxStream now?
 pub struct TypedStream<S, T> {
     stream: S,
     phantom: PhantomData<T>,

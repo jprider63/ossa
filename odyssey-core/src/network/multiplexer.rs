@@ -2,6 +2,7 @@
 use bytes::{Bytes, BytesMut};
 use futures;
 use futures::task::{Context, Poll};
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::marker::PhantomData;
 use std::pin::Pin;
@@ -19,7 +20,7 @@ use crate::{
         MiniProtocol,
         ProtocolError,
     },
-    util::TypedStream,
+    util::{self, TypedStream},
 };
 
 const OUTGOING_CAPACITY: usize = 32;
@@ -189,31 +190,43 @@ struct MiniprotocolState {
 // }
 
 // Stream implementation to send bytes between multiplexer and miniprotocols.
-struct MuxStream {
+struct MuxStream<T> {
     sender: PollSender<Bytes>,
     receiver: ReceiverStream<BytesMut>,
+    phantom: PhantomData<fn(T)>,
 }
 
-impl MuxStream {
-    fn new(sender: Sender<Bytes>, receiver: Receiver<BytesMut>) -> MuxStream {
+impl<T> MuxStream<T> {
+    fn new(sender: Sender<Bytes>, receiver: Receiver<BytesMut>) -> MuxStream<T> {
         let sender = PollSender::new(sender);
         let receiver = ReceiverStream::new(receiver);
         MuxStream {
             sender,
             receiver,
+            phantom: PhantomData,
         }
     }
 }
 
-impl futures::Stream for MuxStream {
-    type Item = Result<BytesMut, std::io::Error>;
+impl<T> futures::Stream for MuxStream<T>
+where
+    T: for<'a> Deserialize<'a> + Unpin,
+{
+    type Item = Result<T, ProtocolError>;
 
     fn poll_next(
         mut self: Pin<&mut Self>,
         ctx: &mut Context<'_>,
-    ) -> Poll<Option<Result<BytesMut, std::io::Error>>> {
-        let p = futures::Stream::poll_next(Pin::new(&mut self.receiver), ctx);
-        p.map(|o| o.map(|t| Ok(t)))
+    ) -> Poll<Option<Result<T, ProtocolError>>> {
+        let p = futures::Stream::poll_next(Pin::new(&mut (self.receiver)), ctx);
+        p.map(|o| {
+            o.map(|bytes|
+                serde_cbor::from_slice(&bytes).map_err(|err| {
+                    // log::error!("Failed to parse type {}: {}", type_name::<T>(), err);
+                    ProtocolError::DeserializationError(err)
+                })
+            )
+        })
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -221,15 +234,16 @@ impl futures::Stream for MuxStream {
     }
 }
 
-impl futures::Sink<Bytes> for MuxStream {
-    type Error = PollSendError<Bytes>;
+impl<T> futures::Sink<T> for MuxStream<T> {
+    type Error = ProtocolError; // PollSendError<Bytes>;
 
     fn poll_ready(
         mut self: Pin<&mut Self>,
         ctx: &mut Context<'_>,
-    ) -> Poll<Result<(), <Self as futures::Sink<Bytes>>::Error>> {
-        let p = Pin::new(&mut self.sender).poll_ready(ctx);
-        p
+    ) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> {
+        todo!();
+        // let p = Pin::new(&mut self.sender).poll_ready(ctx);
+        // p
         // p.map(|r| {
         //     r.map_err(|e| {
         //         log::error!("Send error: {:?}", e);
@@ -238,7 +252,7 @@ impl futures::Sink<Bytes> for MuxStream {
         // })
     }
 
-    fn start_send(mut self: Pin<&mut Self>, x: Bytes) -> Result<(), <Self as futures::Sink<Bytes>>::Error> {
+    fn start_send(mut self: Pin<&mut Self>, x: T) -> Result<(), <Self as futures::Sink<T>>::Error> {
         todo!()
         // let p = Pin::new(&mut self.send).start_send(x);
         // p.map_err(|e| {
@@ -250,7 +264,7 @@ impl futures::Sink<Bytes> for MuxStream {
     fn poll_flush(
         mut self: Pin<&mut Self>,
         ctx: &mut Context<'_>,
-    ) -> Poll<Result<(), <Self as futures::Sink<Bytes>>::Error>> {
+    ) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> {
         todo!()
         // let p = Pin::new(&mut self.send).poll_flush(ctx);
         // p.map(|r| {
@@ -264,7 +278,7 @@ impl futures::Sink<Bytes> for MuxStream {
     fn poll_close(
         mut self: Pin<&mut Self>,
         ctx: &mut Context<'_>,
-    ) -> Poll<Result<(), <Self as futures::Sink<Bytes>>::Error>> {
+    ) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> {
         todo!()
         // let p = Pin::new(&mut self.send).poll_close(ctx);
         // p.map(|r| {
@@ -276,3 +290,7 @@ impl futures::Sink<Bytes> for MuxStream {
     }
 }
 
+impl<T> util::Stream<T> for MuxStream<T>
+where
+    T: for<'a> Deserialize<'a> + Unpin,
+{}
