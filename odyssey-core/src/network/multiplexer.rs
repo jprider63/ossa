@@ -11,8 +11,16 @@ use tokio::{
     sync::mpsc::{self, Receiver, Sender},
     task::JoinHandle,
 };
+use tokio_stream::wrappers::ReceiverStream;
+use tokio_util::sync::{PollSender, PollSendError};
 
-use crate::{network::protocol::MiniProtocol, util::TypedStream};
+use crate::{
+    network::protocol::{
+        MiniProtocol,
+        ProtocolError,
+    },
+    util::TypedStream,
+};
 
 const OUTGOING_CAPACITY: usize = 32;
 const PROTOCOL_INCOMING_CAPACITY: usize = 4;
@@ -57,7 +65,7 @@ impl Multiplexer {
         // Create multiplexer state.
         let mut state: MultiplexerState = BTreeMap::new();
 
-        let (outgoing_channel_send, mut outgoing_channel) = mpsc::channel::<BytesMut>(OUTGOING_CAPACITY);
+        let (outgoing_channel_send, mut outgoing_channel) = mpsc::channel::<Bytes>(OUTGOING_CAPACITY);
 
         // Initialize and spawn each miniprotocol.
         for (protocol_id, p) in miniprotocols.into_iter().enumerate() {
@@ -76,7 +84,8 @@ impl Multiplexer {
                 // let stream: crate::util::Channel<BytesMut> = todo!();
                 // let stream: crate::util::Channel<Result<BytesMut, std::io::Error>> = todo!();
                 let stream = MuxStream::new(outgoing_channel_send, receiver);
-                let stream = TypedStream::new(stream);
+                // todo!()
+                // let stream = TypedStream::new(stream);
                 if self.party.is_client() {
                     p.run_client(stream);
                 } else {
@@ -181,12 +190,14 @@ struct MiniprotocolState {
 
 // Stream implementation to send bytes between multiplexer and miniprotocols.
 struct MuxStream {
-    sender: Sender<BytesMut>,
-    receiver: Receiver<BytesMut>,
+    sender: PollSender<Bytes>,
+    receiver: ReceiverStream<BytesMut>,
 }
 
 impl MuxStream {
-    fn new(sender: Sender<BytesMut>, receiver: Receiver<BytesMut>) -> MuxStream {
+    fn new(sender: Sender<Bytes>, receiver: Receiver<BytesMut>) -> MuxStream {
+        let sender = PollSender::new(sender);
+        let receiver = ReceiverStream::new(receiver);
         MuxStream {
             sender,
             receiver,
@@ -201,26 +212,24 @@ impl futures::Stream for MuxStream {
         mut self: Pin<&mut Self>,
         ctx: &mut Context<'_>,
     ) -> Poll<Option<Result<BytesMut, std::io::Error>>> {
-        todo!()
-        // let p = futures::Stream::poll_next(Pin::new(&mut self.recv), ctx);
-        // p.map(|o| o.map(|t| Ok(t)))
+        let p = futures::Stream::poll_next(Pin::new(&mut self.receiver), ctx);
+        p.map(|o| o.map(|t| Ok(t)))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        todo!()
-        // self.recv.size_hint()
+        self.receiver.size_hint()
     }
 }
 
 impl futures::Sink<Bytes> for MuxStream {
-    type Error = std::io::Error;
+    type Error = PollSendError<Bytes>;
 
     fn poll_ready(
         mut self: Pin<&mut Self>,
         ctx: &mut Context<'_>,
     ) -> Poll<Result<(), <Self as futures::Sink<Bytes>>::Error>> {
-        todo!()
-        // let p = Pin::new(&mut self.send).poll_ready(ctx);
+        let p = Pin::new(&mut self.sender).poll_ready(ctx);
+        p
         // p.map(|r| {
         //     r.map_err(|e| {
         //         log::error!("Send error: {:?}", e);

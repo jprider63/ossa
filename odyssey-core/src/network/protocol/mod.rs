@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_cbor::to_vec;
@@ -5,7 +6,10 @@ use std::any::type_name;
 use std::fmt::Debug;
 use std::marker::Send;
 use tokio::net::TcpStream;
-use tokio_util::codec::{self, LengthDelimitedCodec};
+use tokio_util::{
+    codec::{self, LengthDelimitedCodec},
+    sync::PollSendError,
+};
 
 use crate::protocol::v0::{
     MsgStoreMetadataHeader, StoreMetadataHeaderRequest, StoreMetadataHeaderResponse,
@@ -102,6 +106,7 @@ pub enum ProtocolError {
     StreamSendError(std::io::Error),
     StreamReceiveError(std::io::Error),
     ProtocolDeviation, // Temporary?
+    ChannelSendError(PollSendError<Bytes>),
 }
 
 /// Send a message over the given stream.
