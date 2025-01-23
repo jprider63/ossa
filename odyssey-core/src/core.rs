@@ -97,7 +97,6 @@ impl<OT: OdysseyType> Odyssey<OT> {
                         let stream = stream.finalize().into_inner();
 
                         // Start miniprotocols.
-                        println!("TODO: Start miniprotocols");
                         protocol_version.run_miniprotocols_server(stream).await; // &stream);
                     });
 

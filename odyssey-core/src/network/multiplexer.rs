@@ -27,7 +27,7 @@ const OUTGOING_CAPACITY: usize = 32;
 const PROTOCOL_INCOMING_CAPACITY: usize = 4;
 const BUFFER_SIZE: usize = 4096;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) enum Party {
     Client,
     Server,
@@ -63,10 +63,12 @@ impl Multiplexer {
     /// Run the multiplexer with these initial mini protocols.
     /// The minitprotocols are assigned identifiers in order, starting at 0.
     pub(crate) async fn run_with_miniprotocols(self, mut stream: TcpStream, miniprotocols: Vec<impl MiniProtocol + 'static>) {
+        println!("run_with_miniprotocols: {:?}", self.party);
+
         // Create multiplexer state.
         let mut state: MultiplexerState = BTreeMap::new();
 
-        let (outgoing_channel_send, mut outgoing_channel) = mpsc::channel::<Bytes>(OUTGOING_CAPACITY);
+        let (outgoing_channel_send, mut outgoing_channel) = mpsc::channel(OUTGOING_CAPACITY);
 
         // Initialize and spawn each miniprotocol.
         for (protocol_id, p) in miniprotocols.into_iter().enumerate() {
@@ -78,19 +80,22 @@ impl Multiplexer {
 
             // Spawn async for the miniprotocol.
             let handle = tokio::spawn(async move {
+                println!("Started a miniprotocol!");
 
                 // TODO: Convert the channel to a T: Stream<MsgHeartbeat>
                 // Serialize/deserialize byte channel
                 // let stream: crate::util::Channel<_> = todo!();
                 // let stream: crate::util::Channel<BytesMut> = todo!();
                 // let stream: crate::util::Channel<Result<BytesMut, std::io::Error>> = todo!();
-                let stream = MuxStream::new(outgoing_channel_send, receiver);
-                // todo!()
+                let stream = MuxStream::new(protocol_id, outgoing_channel_send, receiver);
+                println!("Here 1: {}", std::any::type_name_of_val(&p));
                 // let stream = TypedStream::new(stream);
                 if self.party.is_client() {
-                    p.run_client(stream);
+                    println!("Run client");
+                    p.run_client(stream).await
                 } else {
-                    p.run_server(stream);
+                    println!("Run server");
+                    p.run_server(stream).await
                 }
             });
 
@@ -126,8 +131,19 @@ impl Multiplexer {
                         // Some(Err(_e)) => {
                         //     todo!()
                         // }
-                        Some(mut msg) => {
+                        Some((stream_id, mut msg)) => {
                             // We rely on the miniprotocol wrapper to send prepend the stream id, length, etc.
+                            // Write stream id and message length.
+                            // TODO: prepend this to the buffer so we don't make two system calls.
+                            stream.write_u32(stream_id).await;
+
+                            println!("Sending on stream: {}", stream_id);
+
+                            let length = msg.len().try_into().expect("TODO");
+                            stream.write_u32(length).await;
+                            println!("Sending length: {}", length);
+
+                            // Write message.
                             stream.write_all_buf(&mut msg).await;
                         }
                     }
@@ -145,14 +161,20 @@ impl Multiplexer {
                             // TODO: Check upper bound on length.
                             assert_eq!(length, buf.len());
 
+                            println!("Received: {:?}", buf);
+
                             // Read stream id.
                             let stream_id = (*buf.split_to(4)).try_into().expect("TODO");
                             let stream_id = u32::from_be_bytes(stream_id);
+
+                            println!("Received from stream: {}", stream_id);
 
                             // Check message length.
                             let msg_length = (*buf.split_to(4)).try_into().expect("TODO");
                             let msg_length = u32::from_be_bytes(msg_length);
                             // TODO: Check upper bound on msg_length.
+
+                            println!("Received length: {}", msg_length);
 
                             let p = state.get_mut(&stream_id).expect("TODO");
 
@@ -176,7 +198,7 @@ impl Multiplexer {
     }
 }
 
-type StreamId = u32;
+pub(crate) type StreamId = u32;
 type MultiplexerState = BTreeMap<StreamId, MiniprotocolState>;
 
 // Multiplexer's state for a given miniprotocol.
@@ -191,16 +213,18 @@ struct MiniprotocolState {
 
 // Stream implementation to send bytes between multiplexer and miniprotocols.
 struct MuxStream<T> {
-    sender: PollSender<Bytes>,
+    stream_id: StreamId,
+    sender: PollSender<(StreamId, Bytes)>,
     receiver: ReceiverStream<BytesMut>,
     phantom: PhantomData<fn(T)>,
 }
 
 impl<T> MuxStream<T> {
-    fn new(sender: Sender<Bytes>, receiver: Receiver<BytesMut>) -> MuxStream<T> {
+    fn new(stream_id: StreamId, sender: Sender<(StreamId, Bytes)>, receiver: Receiver<BytesMut>) -> MuxStream<T> {
         let sender = PollSender::new(sender);
         let receiver = ReceiverStream::new(receiver);
         MuxStream {
+            stream_id,
             sender,
             receiver,
             phantom: PhantomData,
@@ -257,7 +281,8 @@ where
         match serde_cbor::to_vec(&x) {
             Err(err) => Err(ProtocolError::SerializationError(err)),
             Ok(cbor) => {
-                let p = Pin::new(&mut self.sender).start_send(cbor.into());
+                let stream_id = self.stream_id;
+                let p = Pin::new(&mut self.sender).start_send((stream_id, cbor.into()));
                 p.map_err(|e| {
                     log::error!("Send error: {:?}", e);
                     ProtocolError::ChannelSendError(e)

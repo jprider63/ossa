@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_cbor::to_vec;
 use std::any::type_name;
 use std::fmt::Debug;
+use std::future::Future;
 use std::marker::Send;
 use tokio::net::TcpStream;
 use tokio_util::{
@@ -11,6 +12,7 @@ use tokio_util::{
     sync::PollSendError,
 };
 
+use crate::network::multiplexer;
 use crate::protocol::v0::{
     MsgStoreMetadataHeader, StoreMetadataHeaderRequest, StoreMetadataHeaderResponse,
 };
@@ -24,8 +26,8 @@ pub mod keep_alive;
 pub(crate) trait MiniProtocol: Send {
     type Message: Serialize + for<'a> Deserialize<'a> + Send;
 
-    async fn run_client<S: Stream<Self::Message>>(&self, stream: S);
-    async fn run_server<S: Stream<Self::Message>>(&self, stream: S);
+    fn run_client<S: Stream<Self::Message>>(self, stream: S) -> impl Future<Output = ()> + Send;
+    fn run_server<S: Stream<Self::Message>>(self, stream: S) -> impl Future<Output = ()> + Send;
 }
 
 
@@ -106,7 +108,7 @@ pub enum ProtocolError {
     StreamSendError(std::io::Error),
     StreamReceiveError(std::io::Error),
     ProtocolDeviation, // Temporary?
-    ChannelSendError(PollSendError<Bytes>),
+    ChannelSendError(PollSendError<(multiplexer::StreamId, Bytes)>),
 }
 
 /// Send a message over the given stream.
