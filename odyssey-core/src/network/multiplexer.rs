@@ -1,8 +1,10 @@
 
-use bytes::{Bytes, BytesMut};
+use async_recursion::async_recursion;
+use bytes::{Buf, Bytes, BytesMut};
 use futures;
 use futures::task::{Context, Poll};
 use serde::{Deserialize, Serialize};
+use std::cmp::min;
 use std::collections::BTreeMap;
 use std::marker::PhantomData;
 use std::pin::Pin;
@@ -66,7 +68,7 @@ impl Multiplexer {
         println!("run_with_miniprotocols: {:?}", self.party);
 
         // Create multiplexer state.
-        let mut state: MultiplexerState = BTreeMap::new();
+        let mut state: MultiplexerState = MultiplexerState::new();
 
         let (outgoing_channel_send, mut outgoing_channel) = mpsc::channel(OUTGOING_CAPACITY);
 
@@ -103,7 +105,7 @@ impl Multiplexer {
                 handle,
                 sender,
             };
-            state.insert(protocol_id, mp);
+            state.stream_map.insert(protocol_id, mp);
         }
 
 
@@ -154,40 +156,48 @@ impl Multiplexer {
                             todo!();
                         }
                         Ok(length) => {
-                            // Check length.
-                            if length < 8 {
-                                todo!("Insufficient bytes");
-                            }
-                            // TODO: Check upper bound on length.
                             assert_eq!(length, buf.len());
-
-                            println!("Received: {:?}", buf);
-
-                            // Read stream id.
-                            let stream_id = (*buf.split_to(4)).try_into().expect("TODO");
-                            let stream_id = u32::from_be_bytes(stream_id);
-
-                            println!("Received from stream: {}", stream_id);
-
-                            // Check message length.
-                            let msg_length = (*buf.split_to(4)).try_into().expect("TODO");
-                            let msg_length = u32::from_be_bytes(msg_length);
-                            // TODO: Check upper bound on msg_length.
-
-                            println!("Received length: {}", msg_length);
-
-                            let p = state.get_mut(&stream_id).expect("TODO");
-
-                            // TODO: Allocate buffer.
+                            state.handle_receive(buf).await;
 
 
-                            // TODO: This currently blocks if the channel is full
-                            // p.sender.write_all_buf(&mut buf).await.expect("TODO");
-                            p.sender.send(buf).await.expect("TODO");
+                            // todo!("TODO");
 
-                            if msg_length > BUFFER_SIZE as u32 - 8 {
-                                todo!("Handle larger messages")
-                            }
+                            // 
+
+                            // // Check length.
+                            // if length < 8 {
+                            //     todo!("Insufficient bytes");
+                            // }
+                            // // TODO: Check upper bound on length.
+                            // assert_eq!(length, buf.len());
+
+                            // println!("Received: {:?}", buf);
+
+                            // // Read stream id.
+                            // let stream_id = (*buf.split_to(4)).try_into().expect("TODO");
+                            // let stream_id = u32::from_be_bytes(stream_id);
+
+                            // println!("Received from stream: {}", stream_id);
+
+                            // // Check message length.
+                            // let msg_length = (*buf.split_to(4)).try_into().expect("TODO");
+                            // let msg_length = u32::from_be_bytes(msg_length);
+                            // // TODO: Check upper bound on msg_length.
+
+                            // println!("Received length: {}", msg_length);
+
+                            // let p = state.stream_map.get_mut(&stream_id).expect("TODO");
+
+                            // // TODO: Allocate buffer.
+
+
+                            // // TODO: This currently blocks if the channel is full
+                            // // p.sender.write_all_buf(&mut buf).await.expect("TODO");
+                            // p.sender.send(buf).await.expect("TODO");
+
+                            // if msg_length > BUFFER_SIZE as u32 - 8 {
+                            //     todo!("Handle larger messages")
+                            // }
                         }
                     }
                     
@@ -199,7 +209,116 @@ impl Multiplexer {
 }
 
 pub(crate) type StreamId = u32;
-type MultiplexerState = BTreeMap<StreamId, MiniprotocolState>;
+struct MultiplexerState {
+    stream_map: BTreeMap<StreamId, MiniprotocolState>,
+    read_state: MultiplexerReadState,
+}
+
+impl MultiplexerState {
+    fn new() -> MultiplexerState {
+        MultiplexerState {
+            stream_map: BTreeMap::new(),
+            read_state: MultiplexerReadState::new(),
+        }
+    }
+
+    #[async_recursion]
+    async fn handle_receive(&mut self, mut buf: BytesMut) {
+        match &mut self.read_state {
+            MultiplexerReadState::ProcessingHeader {
+                ref mut position, ref mut header
+            } => {
+                // Read header.
+                if *position < HEADER_LENGTH {
+                    let low_i = *position;
+                    let high_i = min(buf.len(), HEADER_LENGTH);
+
+                    let received_c = high_i - low_i;
+                    let mut header_buf = buf.split_to(received_c);
+                    header_buf.copy_to_slice(&mut header[low_i..high_i]);
+
+                    *position += received_c;
+
+
+
+                    // stream_id[low_i..high_i] = buf[0..received_c].cop;
+                }
+
+                // Check if we've received the entire header.
+                if *position == HEADER_LENGTH {
+                    // Parse stream id.
+                    let stream_id = header[0..4].try_into().unwrap();
+                    let stream_id = u32::from_be_bytes(stream_id);
+                    let p = self.stream_map.get_mut(&stream_id).expect("TODO");
+                    let sender = p.sender.clone();
+
+                    // Parse message length.
+                    let msg_length = header[4..8].try_into().unwrap();
+                    let msg_length = u32::from_be_bytes(msg_length);
+
+                    // TODO: Check upper bound on message length.
+
+                    // TODO: Allocate buffer.
+                    let send_buffer = BytesMut::with_capacity(msg_length as usize);
+
+
+                    self.read_state = MultiplexerReadState::ProcessingBody {
+                        position: *position,
+                        msg_length,
+                        sender,
+                        send_buffer,
+                    };
+
+                    self.handle_receive(buf).await;
+                }
+            },
+            MultiplexerReadState::ProcessingBody { position, msg_length, sender, send_buffer } => {
+                // Append received bytes to the buffer.
+                let remaining_c = *msg_length as usize + HEADER_LENGTH - *position;
+                let received_c = min(buf.len(), remaining_c);
+                let received_buf = buf.split_to(received_c);
+                send_buffer.extend(received_buf);
+
+                // Send message if we've received the entire message.
+                if send_buffer.len() == *msg_length as usize {
+                    sender.send(send_buffer.clone()).await; // TODO: Get rid of this clone somehow. Return updated state instead?
+                }
+
+                self.read_state = MultiplexerReadState::new();
+
+                // Keep working if there are still bytes left in the buffer.
+                if !buf.is_empty() {
+                    self.handle_receive(buf).await
+                }
+            }
+        }
+    }
+}
+
+const HEADER_LENGTH: usize = 8;
+enum MultiplexerReadState {
+    ProcessingHeader {
+        position: usize,
+        header: [u8; HEADER_LENGTH],
+    },
+    ProcessingBody {
+        position: usize,
+        msg_length: u32,
+        sender: Sender<BytesMut>,
+        send_buffer: BytesMut,
+        // TODO: miniprotocol channel?, Length, ...
+
+    },
+}
+
+impl MultiplexerReadState {
+    fn new() -> MultiplexerReadState {
+        MultiplexerReadState::ProcessingHeader {
+            position: 0,
+            header: [0; HEADER_LENGTH],
+        }
+    }
+}
 
 // Multiplexer's state for a given miniprotocol.
 struct MiniprotocolState {
