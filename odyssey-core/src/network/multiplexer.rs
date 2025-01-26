@@ -157,7 +157,8 @@ impl Multiplexer {
                         }
                         Ok(length) => {
                             assert_eq!(length, buf.len());
-                            state.handle_receive(buf).await;
+                            state.read_state = state.read_state.handle_receive(&state.stream_map, buf).await;
+                            println!("Test out: {:?}", state.read_state);
 
 
                             // todo!("TODO");
@@ -221,88 +222,16 @@ impl MultiplexerState {
             read_state: MultiplexerReadState::new(),
         }
     }
-
-    #[async_recursion]
-    async fn handle_receive(&mut self, mut buf: BytesMut) {
-        match &mut self.read_state {
-            MultiplexerReadState::ProcessingHeader {
-                ref mut position, ref mut header
-            } => {
-                // Read header.
-                if *position < HEADER_LENGTH {
-                    let low_i = *position;
-                    let high_i = min(buf.len(), HEADER_LENGTH);
-
-                    let received_c = high_i - low_i;
-                    let mut header_buf = buf.split_to(received_c);
-                    header_buf.copy_to_slice(&mut header[low_i..high_i]);
-
-                    *position += received_c;
-
-
-
-                    // stream_id[low_i..high_i] = buf[0..received_c].cop;
-                }
-
-                // Check if we've received the entire header.
-                if *position == HEADER_LENGTH {
-                    // Parse stream id.
-                    let stream_id = header[0..4].try_into().unwrap();
-                    let stream_id = u32::from_be_bytes(stream_id);
-                    let p = self.stream_map.get_mut(&stream_id).expect("TODO");
-                    let sender = p.sender.clone();
-
-                    // Parse message length.
-                    let msg_length = header[4..8].try_into().unwrap();
-                    let msg_length = u32::from_be_bytes(msg_length);
-
-                    // TODO: Check upper bound on message length.
-
-                    // TODO: Allocate buffer.
-                    let send_buffer = BytesMut::with_capacity(msg_length as usize);
-
-
-                    self.read_state = MultiplexerReadState::ProcessingBody {
-                        position: *position,
-                        msg_length,
-                        sender,
-                        send_buffer,
-                    };
-
-                    self.handle_receive(buf).await;
-                }
-            },
-            MultiplexerReadState::ProcessingBody { position, msg_length, sender, send_buffer } => {
-                // Append received bytes to the buffer.
-                let remaining_c = *msg_length as usize + HEADER_LENGTH - *position;
-                let received_c = min(buf.len(), remaining_c);
-                let received_buf = buf.split_to(received_c);
-                send_buffer.extend(received_buf);
-
-                // Send message if we've received the entire message.
-                if send_buffer.len() == *msg_length as usize {
-                    sender.send(send_buffer.clone()).await; // TODO: Get rid of this clone somehow. Return updated state instead?
-                }
-
-                self.read_state = MultiplexerReadState::new();
-
-                // Keep working if there are still bytes left in the buffer.
-                if !buf.is_empty() {
-                    self.handle_receive(buf).await
-                }
-            }
-        }
-    }
 }
 
 const HEADER_LENGTH: usize = 8;
+#[derive(Debug)]
 enum MultiplexerReadState {
     ProcessingHeader {
         position: usize,
         header: [u8; HEADER_LENGTH],
     },
     ProcessingBody {
-        position: usize,
         msg_length: u32,
         sender: Sender<BytesMut>,
         send_buffer: BytesMut,
@@ -316,6 +245,91 @@ impl MultiplexerReadState {
         MultiplexerReadState::ProcessingHeader {
             position: 0,
             header: [0; HEADER_LENGTH],
+        }
+    }
+
+    #[async_recursion]
+    async fn handle_receive(mut self, stream_map: &BTreeMap<StreamId, MiniprotocolState>, mut buf: BytesMut) -> MultiplexerReadState {
+        println!("Test in:  {:?}", self);
+        match self {
+            MultiplexerReadState::ProcessingHeader {
+                mut position, mut header
+            } => {
+                // Read header.
+                if position < HEADER_LENGTH {
+                    let low_i = position;
+                    let high_i = min(buf.len(), HEADER_LENGTH);
+
+                    let received_c = high_i - low_i;
+                    let mut header_buf = buf.split_to(received_c);
+                    header_buf.copy_to_slice(&mut header[low_i..high_i]);
+
+                    position += received_c;
+                }
+
+                // Check if we've received the entire header.
+                if position == HEADER_LENGTH {
+                    // Parse stream id.
+                    let stream_id = header[0..4].try_into().unwrap();
+                    let stream_id = u32::from_be_bytes(stream_id);
+                    println!("Received stream id: {stream_id:?}");
+
+                    let p = stream_map.get(&stream_id).expect("TODO");
+                    let sender = p.sender.clone();
+
+                    // Parse message length.
+                    let msg_length = header[4..8].try_into().unwrap();
+                    let msg_length = u32::from_be_bytes(msg_length);
+                    println!("Received msg_length: {msg_length:?}");
+
+                    // TODO: Check upper bound on message length.
+
+                    // Allocate buffer.
+                    let send_buffer = BytesMut::with_capacity(msg_length as usize);
+
+
+                    let next_state = MultiplexerReadState::ProcessingBody {
+                        msg_length,
+                        sender,
+                        send_buffer,
+                    };
+
+                    return next_state.handle_receive(stream_map, buf).await;
+                } else {
+                    MultiplexerReadState::ProcessingHeader {
+                        position,
+                        header,
+                    }
+                }
+            },
+            MultiplexerReadState::ProcessingBody { msg_length, sender, mut send_buffer } => {
+                // Append received bytes to the buffer.
+                let remaining_c = msg_length as usize - send_buffer.len();
+                let received_c = min(buf.len(), remaining_c);
+                let received_buf = buf.split_to(received_c);
+                send_buffer.extend(received_buf);
+
+                // Send message if we've received the entire message.
+                if send_buffer.len() == msg_length as usize {
+                    sender.send(send_buffer).await;
+
+                    let next_state = MultiplexerReadState::new();
+
+                    // Keep working if there are still bytes left in the buffer.
+                    if !buf.is_empty() {
+                        println!("Buffer isn't empty!");
+                        return next_state.handle_receive(stream_map, buf).await;
+                    } else {
+                        next_state
+                    }
+                } else {
+                    MultiplexerReadState::ProcessingBody {
+                        msg_length,
+                        sender,
+                        send_buffer,
+                    }
+                }
+            }
         }
     }
 }
