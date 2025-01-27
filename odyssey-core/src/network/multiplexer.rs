@@ -137,23 +137,23 @@ impl Multiplexer {
                             // We rely on the miniprotocol wrapper to send prepend the stream id, length, etc.
                             // Write stream id and message length.
                             // TODO: prepend this to the buffer so we don't make two system calls.
-                            stream.write_u32(stream_id).await;
+                            stream.write_u32(stream_id).await.expect("TODO");
 
                             println!("Sending on stream: {}", stream_id);
 
                             let length = msg.len().try_into().expect("TODO");
-                            stream.write_u32(length).await;
+                            stream.write_u32(length).await.expect("TODO");
                             println!("Sending length: {}", length);
 
                             // Write message.
-                            stream.write_all_buf(&mut msg).await;
+                            stream.write_all_buf(&mut msg).await.expect("TODO");
                         }
                     }
                 }
                 result = stream.read_buf(&mut buf) => {
                     match result {
-                        Err(_e) => {
-                            todo!();
+                        Err(err) => {
+                            todo!("Error: {:?}", err);
                         }
                         Ok(length) => {
                             assert_eq!(length, buf.len());
@@ -224,6 +224,7 @@ impl MultiplexerState {
     }
 }
 
+const MAX_MESSAGE_LENGTH: u32 = 1000 * 1000 * 1024;
 const HEADER_LENGTH: usize = 8;
 #[derive(Debug)]
 enum MultiplexerReadState {
@@ -249,8 +250,9 @@ impl MultiplexerReadState {
     }
 
     #[async_recursion]
-    async fn handle_receive(mut self, stream_map: &BTreeMap<StreamId, MiniprotocolState>, mut buf: BytesMut) -> MultiplexerReadState {
+    async fn handle_receive(self, stream_map: &BTreeMap<StreamId, MiniprotocolState>, mut buf: BytesMut) -> MultiplexerReadState {
         println!("Test in:  {:?}", self);
+        println!("{:?}", buf);
         match self {
             MultiplexerReadState::ProcessingHeader {
                 mut position, mut header
@@ -258,9 +260,11 @@ impl MultiplexerReadState {
                 // Read header.
                 if position < HEADER_LENGTH {
                     let low_i = position;
-                    let high_i = min(buf.len(), HEADER_LENGTH);
+                    let remaining_c = HEADER_LENGTH - position;
+                    let received_c = min(buf.len(), remaining_c);
 
-                    let received_c = high_i - low_i;
+                    let high_i = position + received_c;
+
                     let mut header_buf = buf.split_to(received_c);
                     header_buf.copy_to_slice(&mut header[low_i..high_i]);
 
@@ -282,7 +286,10 @@ impl MultiplexerReadState {
                     let msg_length = u32::from_be_bytes(msg_length);
                     println!("Received msg_length: {msg_length:?}");
 
-                    // TODO: Check upper bound on message length.
+                    // Check upper bound on message length.
+                    if msg_length > MAX_MESSAGE_LENGTH {
+                        todo!("TODO: Other party sent too large of a message.");
+                    }
 
                     // Allocate buffer.
                     let send_buffer = BytesMut::with_capacity(msg_length as usize);
