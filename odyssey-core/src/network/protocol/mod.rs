@@ -30,9 +30,6 @@ pub(crate) trait MiniProtocol: Send {
     fn run_server<S: Stream<Self::Message>>(self, stream: S) -> impl Future<Output = ()> + Send;
 }
 
-
-
-
 // pub enum ProtocolVersion {
 //     V0,
 // }

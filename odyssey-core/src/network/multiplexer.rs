@@ -1,4 +1,3 @@
-
 use async_recursion::async_recursion;
 use bytes::{Buf, Bytes, BytesMut};
 use futures;
@@ -9,19 +8,16 @@ use std::collections::BTreeMap;
 use std::marker::PhantomData;
 use std::pin::Pin;
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt, SimplexStream, WriteHalf, simplex},
+    io::{simplex, AsyncReadExt, AsyncWriteExt, SimplexStream, WriteHalf},
     net::TcpStream,
     sync::mpsc::{self, Receiver, Sender},
     task::JoinHandle,
 };
 use tokio_stream::wrappers::ReceiverStream;
-use tokio_util::sync::{PollSender, PollSendError};
+use tokio_util::sync::{PollSendError, PollSender};
 
 use crate::{
-    network::protocol::{
-        MiniProtocol,
-        ProtocolError,
-    },
+    network::protocol::{MiniProtocol, ProtocolError},
     util::{self, TypedStream},
 };
 
@@ -52,19 +48,21 @@ impl Party {
 }
 
 pub(crate) struct Multiplexer {
-    party: Party
+    party: Party,
 }
 
 impl Multiplexer {
     pub(crate) fn new(party: Party) -> Multiplexer {
-        Multiplexer {
-            party,
-        }
+        Multiplexer { party }
     }
 
     /// Run the multiplexer with these initial mini protocols.
     /// The minitprotocols are assigned identifiers in order, starting at 0.
-    pub(crate) async fn run_with_miniprotocols(self, mut stream: TcpStream, miniprotocols: Vec<impl MiniProtocol + 'static>) {
+    pub(crate) async fn run_with_miniprotocols(
+        self,
+        mut stream: TcpStream,
+        miniprotocols: Vec<impl MiniProtocol + 'static>,
+    ) {
         println!("run_with_miniprotocols: {:?}", self.party);
 
         // Create multiplexer state.
@@ -101,15 +99,9 @@ impl Multiplexer {
                 }
             });
 
-            let mp = MiniprotocolState {
-                handle,
-                sender,
-            };
+            let mp = MiniprotocolState { handle, sender };
             state.stream_map.insert(protocol_id, mp);
         }
-
-
-
 
         // // Create window (buffered channel?) for each miniprotocol.
         // let (mut heartbeat_client_channel, heartbeat_protocol_channel) = util::Channel::new_pair(10);
@@ -119,7 +111,7 @@ impl Multiplexer {
         // TODO: Do some load balancing between miniprotocols?
         // TODO: Pipelining
         // JP: Should we have separate threads for sending and receiving? Makes managing `state` annoying.
-        
+
         loop {
             let mut buf = BytesMut::with_capacity(BUFFER_SIZE);
 
@@ -163,7 +155,7 @@ impl Multiplexer {
 
                             // todo!("TODO");
 
-                            // 
+                            //
 
                             // // Check length.
                             // if length < 8 {
@@ -201,7 +193,7 @@ impl Multiplexer {
                             // }
                         }
                     }
-                    
+
 
                 }
             }
@@ -237,7 +229,6 @@ enum MultiplexerReadState {
         sender: Sender<BytesMut>,
         send_buffer: BytesMut,
         // TODO: miniprotocol channel?, Length, ...
-
     },
 }
 
@@ -250,12 +241,17 @@ impl MultiplexerReadState {
     }
 
     #[async_recursion]
-    async fn handle_receive(self, stream_map: &BTreeMap<StreamId, MiniprotocolState>, mut buf: BytesMut) -> MultiplexerReadState {
+    async fn handle_receive(
+        self,
+        stream_map: &BTreeMap<StreamId, MiniprotocolState>,
+        mut buf: BytesMut,
+    ) -> MultiplexerReadState {
         println!("Test in:  {:?}", self);
         println!("{:?}", buf);
         match self {
             MultiplexerReadState::ProcessingHeader {
-                mut position, mut header
+                mut position,
+                mut header,
             } => {
                 // Read header.
                 let low_i = position;
@@ -292,7 +288,6 @@ impl MultiplexerReadState {
                     // Allocate buffer.
                     let send_buffer = BytesMut::with_capacity(msg_length as usize);
 
-
                     let next_state = MultiplexerReadState::ProcessingBody {
                         msg_length,
                         sender,
@@ -301,13 +296,14 @@ impl MultiplexerReadState {
 
                     return next_state.handle_receive(stream_map, buf).await;
                 } else {
-                    MultiplexerReadState::ProcessingHeader {
-                        position,
-                        header,
-                    }
+                    MultiplexerReadState::ProcessingHeader { position, header }
                 }
-            },
-            MultiplexerReadState::ProcessingBody { msg_length, sender, mut send_buffer } => {
+            }
+            MultiplexerReadState::ProcessingBody {
+                msg_length,
+                sender,
+                mut send_buffer,
+            } => {
                 // Append received bytes to the buffer.
                 let remaining_c = msg_length as usize - send_buffer.len();
                 let received_c = min(buf.len(), remaining_c);
@@ -358,7 +354,11 @@ struct MuxStream<T> {
 }
 
 impl<T> MuxStream<T> {
-    fn new(stream_id: StreamId, sender: Sender<(StreamId, Bytes)>, receiver: Receiver<BytesMut>) -> MuxStream<T> {
+    fn new(
+        stream_id: StreamId,
+        sender: Sender<(StreamId, Bytes)>,
+        receiver: Receiver<BytesMut>,
+    ) -> MuxStream<T> {
         let sender = PollSender::new(sender);
         let receiver = ReceiverStream::new(receiver);
         MuxStream {
@@ -382,12 +382,12 @@ where
     ) -> Poll<Option<Result<T, ProtocolError>>> {
         let p = futures::Stream::poll_next(Pin::new(&mut (self.receiver)), ctx);
         p.map(|o| {
-            o.map(|bytes|
+            o.map(|bytes| {
                 serde_cbor::from_slice(&bytes).map_err(|err| {
                     // log::error!("Failed to parse type {}: {}", type_name::<T>(), err);
                     ProtocolError::DeserializationError(err)
                 })
-            )
+            })
         })
     }
 
@@ -456,7 +456,4 @@ where
     }
 }
 
-impl<T> util::Stream<T> for MuxStream<T>
-where
-    T: for<'a> Deserialize<'a> + Serialize,
-{}
+impl<T> util::Stream<T> for MuxStream<T> where T: for<'a> Deserialize<'a> + Serialize {}

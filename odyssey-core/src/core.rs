@@ -29,7 +29,6 @@ pub struct Odyssey<OT: OdysseyType> {
     tokio_runtime: Runtime,
     /// Active stores.
     // stores: BTreeMap<OT::StoreId,ActiveStore>,
-
     phantom: PhantomData<OT>,
 }
 
@@ -97,7 +96,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
                         let stream = stream.finalize().into_inner();
 
                         // Start miniprotocols.
-                        protocol_version.run_miniprotocols_server(stream).await; // &stream);
+                        protocol_version.run_miniprotocols_server(stream).await;
                     });
 
                     // TODO: Store peer in state.
@@ -250,7 +249,6 @@ impl<OT: OdysseyType> Odyssey<OT> {
                     return;
                 }
             };
-
 
             // Run client handshake.
             let protocol_version = run_handshake_client(&stream).await;

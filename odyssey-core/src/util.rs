@@ -8,8 +8,8 @@ use std::any::type_name;
 use std::fmt::{self, Debug};
 use std::marker::PhantomData;
 use std::pin::Pin;
-use typeable::Typeable;
 use tokio::sync::mpsc::{Receiver, Sender};
+use typeable::Typeable;
 
 use crate::network::protocol::ProtocolError;
 use crate::store::Nonce;
