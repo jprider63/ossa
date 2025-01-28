@@ -258,18 +258,16 @@ impl MultiplexerReadState {
                 mut position, mut header
             } => {
                 // Read header.
-                if position < HEADER_LENGTH {
-                    let low_i = position;
-                    let remaining_c = HEADER_LENGTH - position;
-                    let received_c = min(buf.len(), remaining_c);
+                let low_i = position;
+                let remaining_c = HEADER_LENGTH - position;
+                let received_c = min(buf.len(), remaining_c);
 
-                    let high_i = position + received_c;
+                let high_i = position + received_c;
 
-                    let mut header_buf = buf.split_to(received_c);
-                    header_buf.copy_to_slice(&mut header[low_i..high_i]);
+                let mut header_buf = buf.split_to(received_c);
+                header_buf.copy_to_slice(&mut header[low_i..high_i]);
 
-                    position += received_c;
-                }
+                position += received_c;
 
                 // Check if we've received the entire header.
                 if position == HEADER_LENGTH {
