@@ -1,3 +1,4 @@
+pub mod multiplexer;
 pub mod p2p;
 pub mod protocol;
 
@@ -46,7 +47,7 @@ impl Manager {
 }
 
 // Manage a connection with a peer.
-// TODO: Switch everything to use a ConnectionManager or get rid of it.
+// TODO: Delete ConnectionManager.
 pub struct ConnectionManager<S> {
     // }:Stream> {
     connection: S,

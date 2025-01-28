@@ -2,6 +2,8 @@
 #![feature(impl_trait_in_assoc_type)]
 #![feature(type_alias_impl_trait)]
 
+// #![deny(unused_must_use)]
+
 pub mod core;
 pub mod network;
 pub mod protocol;

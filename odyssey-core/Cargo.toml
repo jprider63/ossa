@@ -20,10 +20,11 @@ rand = "*"
 serde = {version="*", features=["derive"]}
 serde_cbor = {version="*", features=[]}
 sha2 = "*"
-tokio = {version="*", features=["rt","rt-multi-thread","net"]}
+tokio = {version="1.43.0", features=["io-util","rt","rt-multi-thread","net"]}
 tokio-tower = "*"
 tokio-util = {version="*", features=["codec"]}
 tokio-serde = {version="*", features=["cbor"]}
+tokio-stream = "*"
 tower-service = "*"
 typeable = {path="../typeable"}
 

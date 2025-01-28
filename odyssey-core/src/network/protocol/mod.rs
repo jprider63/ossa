@@ -1,12 +1,18 @@
+use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_cbor::to_vec;
 use std::any::type_name;
 use std::fmt::Debug;
+use std::future::Future;
 use std::marker::Send;
 use tokio::net::TcpStream;
-use tokio_util::codec::{self, LengthDelimitedCodec};
+use tokio_util::{
+    codec::{self, LengthDelimitedCodec},
+    sync::PollSendError,
+};
 
+use crate::network::multiplexer;
 use crate::protocol::v0::{
     MsgStoreMetadataHeader, StoreMetadataHeaderRequest, StoreMetadataHeaderResponse,
 };
@@ -17,19 +23,26 @@ use crate::util::Stream;
 pub mod ecg_sync;
 pub mod keep_alive;
 
+pub(crate) trait MiniProtocol: Send {
+    type Message: Serialize + for<'a> Deserialize<'a> + Send;
+
+    fn run_client<S: Stream<Self::Message>>(self, stream: S) -> impl Future<Output = ()> + Send;
+    fn run_server<S: Stream<Self::Message>>(self, stream: S) -> impl Future<Output = ()> + Send;
+}
+
 // pub enum ProtocolVersion {
 //     V0,
 // }
 
 type MsgHandshake = ();
 
-pub(crate) fn run_handshake_server<S: Stream<MsgHandshake>>(stream: &S) -> Version {
+pub(crate) async fn run_handshake_server<S: Stream<MsgHandshake>>(stream: &S) -> Version {
     // TODO: Implement this and make it abstract.
 
     Version::V0
 }
 
-pub(crate) fn run_handshake_client<S: Stream<MsgHandshake>>(stream: &S) -> Version {
+pub(crate) async fn run_handshake_client<S: Stream<MsgHandshake>>(stream: &S) -> Version {
     // TODO: Implement this and make it abstract.
 
     Version::V0
@@ -92,6 +105,7 @@ pub enum ProtocolError {
     StreamSendError(std::io::Error),
     StreamReceiveError(std::io::Error),
     ProtocolDeviation, // Temporary?
+    ChannelSendError(PollSendError<(multiplexer::StreamId, Bytes)>),
 }
 
 /// Send a message over the given stream.

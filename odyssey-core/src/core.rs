@@ -3,7 +3,7 @@ use odyssey_crdt::time::CausalState;
 // use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use odyssey_crdt::CRDT;
 use serde::Serialize;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddrV4};
@@ -14,7 +14,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
 use tokio_util::codec::{self, LengthDelimitedCodec};
 
-use crate::network::protocol::run_handshake_server;
+use crate::network::protocol::{run_handshake_client, run_handshake_server};
 use crate::protocol::Version;
 use crate::storage::Storage;
 use crate::store;
@@ -22,10 +22,13 @@ use crate::store::ecg::v0::{Body, Header, OperationId};
 use crate::store::ecg::{self, ECGBody, ECGHeader};
 use crate::util::TypedStream;
 
-pub struct Odyssey<OT> {
+pub struct Odyssey<OT: OdysseyType> {
+    /// Thread running the Odyssey server.
     thread: thread::JoinHandle<()>,
     // command_channel: UnboundedSender<OdysseyCommand>,
     tokio_runtime: Runtime,
+    /// Active stores.
+    // stores: BTreeMap<OT::StoreId,ActiveStore>,
     phantom: PhantomData<OT>,
 }
 
@@ -77,19 +80,26 @@ impl<OT: OdysseyType> Odyssey<OT> {
                             continue;
                         }
                     };
+                    println!("Accepted connection from peer: {}", peer);
                     log::info!("Accepted connection from peer: {}", peer);
                     // Spawn async.
-                    tokio::spawn(async {
+                    let future_handle = tokio::spawn(async {
                         // let (read_stream, write_stream) = tcpstream.split();
                         let stream = codec::Framed::new(tcpstream, LengthDelimitedCodec::new());
 
                         // TODO XXX
                         // Handshake.
-                        // Diffie Hellman?
+                        // Diffie Hellman? TLS?
                         // Authenticate peer's public key?
                         let stream = TypedStream::new(stream);
-                        let Version::V0 = run_handshake_server(&stream);
+                        let protocol_version = run_handshake_server(&stream).await;
+                        let stream = stream.finalize().into_inner();
+
+                        // Start miniprotocols.
+                        protocol_version.run_miniprotocols_server(stream).await;
                     });
+
+                    // TODO: Store peer in state.
                 }
             });
         });
@@ -218,6 +228,41 @@ impl<OT: OdysseyType> Odyssey<OT> {
     // Disconnect from network.
     pub fn disconnect() {
         todo!("Turn off network connection (work offline)")
+    }
+
+    // Connect to a peer over ipv4.
+    pub fn connect_to_peer_ipv4(&self, address: SocketAddrV4) {
+        // Check if we're already connected to a peer at this address.
+        println!("TODO: Check if we're already connected to this peer.");
+
+        // Spawn async.
+        let future_handle = self.tokio_runtime.spawn(async move {
+            // Attempt to connect to peer, returning message on failure.
+            let stream = match TcpStream::connect(address).await {
+                Ok(tcpstream) => {
+                    let stream = codec::Framed::new(tcpstream, LengthDelimitedCodec::new());
+                    TypedStream::new(stream)
+                }
+                Err(err) => {
+                    println!("TODO: Log error");
+                    todo!();
+                    return;
+                }
+            };
+
+            // Run client handshake.
+            let protocol_version = run_handshake_client(&stream).await;
+            let stream = stream.finalize().into_inner();
+            println!("Connected to server!");
+
+            // Start miniprotocols.
+            println!("TODO: Start miniprotocols");
+            protocol_version.run_miniprotocols_client(stream).await;
+        });
+
+        // TODO: Store peer in state.
+
+        // Return channel with peer connection status.
     }
 }
 

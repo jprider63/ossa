@@ -5,7 +5,7 @@ use crate::network::protocol::ecg_sync::v0::server::ecg_sync_server;
 use crate::network::protocol::ecg_sync::v0::MsgECGSync;
 use crate::network::ConnectionManager;
 use crate::store::ecg::{self, ECGHeader};
-use crate::util::Channel;
+use crate::util::UnboundChannel;
 
 fn run_ecg_sync<Header: ECGHeader + Send + Clone + Debug>(
     st1: &mut ecg::State<Header>,
@@ -24,7 +24,7 @@ fn run_ecg_sync<Header: ECGHeader + Send + Clone + Debug>(
         // let channel: Channel<Result<BytesMut, std::io::Error>> = Channel::new();
         // let channel: Channel<Result<bytes::Bytes, std::io::Error>> = Channel::new();
         // let channel: Channel<Result<MsgECGSync<_>, std::io::Error>> = Channel::new();
-        let (channel1, channel2): (Channel<MsgECGSync<_>>, _) = Channel::new_pair();
+        let (channel1, channel2): (UnboundChannel<MsgECGSync<_>>, _) = UnboundChannel::new_pair();
         let mut conn1 = ConnectionManager::new(channel1);
         let mut conn2 = ConnectionManager::new(channel2);
 

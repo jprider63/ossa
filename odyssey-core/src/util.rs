@@ -8,6 +8,7 @@ use std::any::type_name;
 use std::fmt::{self, Debug};
 use std::marker::PhantomData;
 use std::pin::Pin;
+use tokio::sync::mpsc::{Receiver, Sender};
 use typeable::Typeable;
 
 use crate::network::protocol::ProtocolError;
@@ -88,20 +89,11 @@ pub trait Stream<T>:
     + Sync // JP: This is needed for async_recursion. Not sure if this makes sense in practice.
 {}
 
-// #[derive(Unpin)]
-// #[derive(Sync)]
-// TODO: Move this somewhere else
+// TODO: Move this somewhere else, or remove this since we have MuxStream now?
 pub struct TypedStream<S, T> {
     stream: S,
-    phantom: PhantomData<T>,
+    phantom: PhantomData<fn(T)>,
 }
-
-// TODO: Why is this necessary?
-unsafe impl<S, T> Send for TypedStream<S, T> where S: Send {}
-// TODO: Why is this necessary?
-unsafe impl<S, T> Sync for TypedStream<S, T> where S: Sync {}
-// TODO: Why is this necessary?
-impl<S, T> Unpin for TypedStream<S, T> where S: Unpin {}
 
 impl<S, T> TypedStream<S, T> {
     pub fn new(stream: S) -> TypedStream<S, T> {
@@ -198,20 +190,15 @@ where
 {
 }
 
-#[cfg(test)]
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-
-#[cfg(test)]
 pub struct Channel<T> {
-    send: UnboundedSender<T>,
-    recv: UnboundedReceiver<T>,
+    send: Sender<T>,
+    recv: Receiver<T>,
 }
 
-#[cfg(test)]
 impl<T> Channel<T> {
-    pub fn new_pair() -> (Channel<T>, Channel<T>) {
-        let (send1, recv1) = tokio::sync::mpsc::unbounded_channel();
-        let (send2, recv2) = tokio::sync::mpsc::unbounded_channel();
+    pub fn new_pair(capacity: usize) -> (Channel<T>, Channel<T>) {
+        let (send1, recv1) = tokio::sync::mpsc::channel(capacity);
+        let (send2, recv2) = tokio::sync::mpsc::channel(capacity);
         let c1 = Channel {
             send: send1,
             recv: recv2,
@@ -224,7 +211,6 @@ impl<T> Channel<T> {
     }
 }
 
-#[cfg(test)]
 impl<T> Stream<T> for Channel<T>
 where
     Channel<T>: Sync,
@@ -232,7 +218,6 @@ where
 {
 }
 
-#[cfg(test)]
 impl<T> futures::Stream for Channel<T> {
     type Item = Result<T, ProtocolError>;
 
@@ -251,8 +236,116 @@ impl<T> futures::Stream for Channel<T> {
     }
 }
 
-#[cfg(test)]
 impl<T> futures::Sink<T> for Channel<T> {
+    type Error = ProtocolError;
+
+    fn poll_ready(
+        mut self: Pin<&mut Self>,
+        ctx: &mut Context<'_>,
+    ) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> {
+        todo!()
+        // let p = Pin::new(&mut self.send).poll_ready(ctx);
+        // p.map(|r| {
+        //     r.map_err(|e| {
+        //         log::error!("Send error: {:?}", e);
+        //         ProtocolError::StreamSendError(std::io::Error::other("poll_ready error"))
+        //     })
+        // })
+    }
+
+    fn start_send(mut self: Pin<&mut Self>, x: T) -> Result<(), <Self as futures::Sink<T>>::Error> {
+        todo!()
+        // let p = Pin::new(&mut self.send).start_send(x);
+        // p.map_err(|e| {
+        //     log::error!("Send error: {:?}", e);
+        //     ProtocolError::StreamSendError(std::io::Error::other("start_send error"))
+        // })
+    }
+
+    fn poll_flush(
+        mut self: Pin<&mut Self>,
+        ctx: &mut Context<'_>,
+    ) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> {
+        todo!()
+        // let p = Pin::new(&mut self.send).poll_flush(ctx);
+        // p.map(|r| {
+        //     r.map_err(|e| {
+        //         log::error!("Send error: {:?}", e);
+        //         ProtocolError::StreamSendError(std::io::Error::other("poll_flush error"))
+        //     })
+        // })
+    }
+
+    fn poll_close(
+        mut self: Pin<&mut Self>,
+        ctx: &mut Context<'_>,
+    ) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> {
+        todo!()
+        // let p = Pin::new(&mut self.send).poll_close(ctx);
+        // p.map(|r| {
+        //     r.map_err(|e| {
+        //         log::error!("Send error: {:?}", e);
+        //         ProtocolError::StreamSendError(std::io::Error::other("poll_close error"))
+        //     })
+        // })
+    }
+}
+
+#[cfg(test)]
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+
+#[cfg(test)]
+pub struct UnboundChannel<T> {
+    send: UnboundedSender<T>,
+    recv: UnboundedReceiver<T>,
+}
+
+#[cfg(test)]
+impl<T> UnboundChannel<T> {
+    pub fn new_pair() -> (UnboundChannel<T>, UnboundChannel<T>) {
+        let (send1, recv1) = tokio::sync::mpsc::unbounded_channel();
+        let (send2, recv2) = tokio::sync::mpsc::unbounded_channel();
+        let c1 = UnboundChannel {
+            send: send1,
+            recv: recv2,
+        };
+        let c2 = UnboundChannel {
+            send: send2,
+            recv: recv1,
+        };
+        (c1, c2)
+    }
+}
+
+#[cfg(test)]
+impl<T> Stream<T> for UnboundChannel<T>
+where
+    UnboundChannel<T>: Sync,
+    UnboundChannel<T>: Send,
+{
+}
+
+#[cfg(test)]
+impl<T> futures::Stream for UnboundChannel<T> {
+    type Item = Result<T, ProtocolError>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        ctx: &mut Context<'_>,
+    ) -> Poll<Option<Result<T, ProtocolError>>> {
+        todo!()
+        // let p = futures::Stream::poll_next(Pin::new(&mut self.recv), ctx);
+        // p.map(|o| o.map(|t| Ok(t)))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        todo!()
+        // self.recv.size_hint()
+    }
+}
+
+#[cfg(test)]
+impl<T> futures::Sink<T> for UnboundChannel<T> {
     type Error = ProtocolError;
 
     fn poll_ready(

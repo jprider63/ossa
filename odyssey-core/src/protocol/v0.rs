@@ -1,7 +1,79 @@
 use async_session_types::{Eps, Recv, Send};
+use bytes::{BufMut, BytesMut};
+use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpStream,
+    runtime::Runtime,
+};
 
+use crate::network::{
+    multiplexer::{Multiplexer, Party},
+    protocol::MiniProtocol,
+};
+use crate::protocol::heartbeat::v0::Heartbeat;
 use crate::store;
+use crate::util;
+
+// Multiplexer:
+//  StreamId (u32)
+//  DataLength (u32?)
+//
+// Miniprotocols:
+// 0 - StreamManagement (CloseConnection, TerminateConnection, CreateStream, CloseStream? (probably not))
+// 1 - Heartbeat
+// 2 - AdvertiseStores
+// ...
+// N - (N is odd for server, even for client):
+//     - StoreSync i
+/// Miniprotocols initially run when connected for V0.
+fn initial_miniprotocols() -> Vec<impl MiniProtocol> {
+    vec![Heartbeat {}]
+}
+
+pub(crate) async fn run_miniprotocols_server(mut stream: TcpStream) {
+    // Start multiplexer.
+    let multiplexer = Multiplexer::new(Party::Server);
+
+    multiplexer
+        .run_with_miniprotocols(stream, initial_miniprotocols())
+        .await;
+
+    // // Wait for the socket to be readable
+    // match stream.readable().await {
+    //     Ok(()) => {},
+    //     Err(e) => todo!(),
+    // }
+
+    // // Try to read data, this may still fail with `WouldBlock`
+    // // if the readiness event is a false positive.
+    // match stream.try_read_buf(&mut buf) {
+    //     Ok(0) => break,
+    //     Ok(n) => {
+    //         println!("read {} bytes", n);
+
+    //     }
+    //     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+    //         continue;
+    //     }
+    //     Err(e) => {
+    //         todo!("handle this error"); // return Err(e.into());
+    //     }
+    // }
+
+    // // Wait for the socket to be writable
+    // stream.writable().await?;
+}
+
+pub(crate) async fn run_miniprotocols_client(mut stream: TcpStream) {
+    // Start multiplexer.
+    let multiplexer = Multiplexer::new(Party::Client);
+
+    multiplexer
+        .run_with_miniprotocols(stream, initial_miniprotocols())
+        .await;
+}
 
 // # Protocols run between peers.
 
