@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use tokio::{net::TcpStream, runtime::Runtime};
 
 pub mod heartbeat;
+pub mod manager;
 pub mod v0;
 
 /// The protocol version.

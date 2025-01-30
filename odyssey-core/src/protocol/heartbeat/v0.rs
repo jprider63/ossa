@@ -1,4 +1,3 @@
-use bytes::BytesMut;
 use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use std::future::Future;
@@ -7,7 +6,7 @@ use tokio::time::{sleep, Duration};
 
 use crate::{
     network::protocol::{receive, send, MiniProtocol},
-    util::{Channel, Stream},
+    util::Stream,
 };
 
 /// TODO:

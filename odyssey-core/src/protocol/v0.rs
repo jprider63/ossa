@@ -1,38 +1,67 @@
 use async_session_types::{Eps, Recv, Send};
-use bytes::{BufMut, BytesMut};
+use bytes::{BufMut, Bytes, BytesMut};
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
     runtime::Runtime,
+    sync::mpsc::{self, Receiver, Sender},
 };
+use tokio_util::sync::{PollSendError, PollSender};
+use tokio_stream::wrappers::ReceiverStream;
 
 use crate::network::{
-    multiplexer::{Multiplexer, Party},
+    multiplexer::{Multiplexer, Party, StreamId, spawn_miniprotocol_async},
     protocol::MiniProtocol,
 };
 use crate::protocol::heartbeat::v0::Heartbeat;
+use crate::protocol::manager::v0::Manager;
 use crate::store;
 use crate::util;
+
+// Required since Rust can't handle proper existentials.
+pub(crate) enum MiniProtocols {
+    Heartbeat(Heartbeat),
+    Manager(Manager),
+}
+
+impl MiniProtocols {
+    pub(crate) async fn spawn_async(
+        self,
+        is_client: bool,
+        stream_id: StreamId,
+        sender: Sender<(StreamId, Bytes)>,
+        receiver: Receiver<BytesMut>,
+    ) {
+        match self {
+            MiniProtocols::Heartbeat(p) => spawn_miniprotocol_async(p, is_client, stream_id, sender, receiver).await,
+            MiniProtocols::Manager(p) => spawn_miniprotocol_async(p, is_client, stream_id, sender, receiver).await,
+        }
+    }
+}
 
 // Multiplexer:
 //  StreamId (u32)
 //  DataLength (u32?)
 //
 // Miniprotocols:
-// 0 - StreamManagement (CloseConnection, TerminateConnection, CreateStream, CloseStream? (probably not))
-// 1 - Heartbeat
-// 2 - AdvertiseStores
+// 0 - Heartbeat
+// 1 - StreamManagement Client (AdvertiseStores, CloseConnection, TerminateConnection, CreateStream, CloseStream? (probably not))
+// 2 - StreamManagement Server
 // ...
 // N - (N is odd for server, even for client):
 //     - StoreSync i
 /// Miniprotocols initially run when connected for V0.
-fn initial_miniprotocols() -> Vec<impl MiniProtocol> {
-    vec![Heartbeat {}]
+fn initial_miniprotocols() -> Vec<MiniProtocols> {
+    vec![
+        MiniProtocols::Heartbeat(Heartbeat {}),
+        MiniProtocols::Manager(Manager::new(Party::Client)),
+        MiniProtocols::Manager(Manager::new(Party::Server)),
+    ]
 }
 
-pub(crate) async fn run_miniprotocols_server(mut stream: TcpStream) {
+pub(crate) async fn run_miniprotocols_server(stream: TcpStream) {
     // Start multiplexer.
     let multiplexer = Multiplexer::new(Party::Server);
 

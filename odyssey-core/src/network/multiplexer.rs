@@ -18,6 +18,7 @@ use tokio_util::sync::{PollSendError, PollSender};
 
 use crate::{
     network::protocol::{MiniProtocol, ProtocolError},
+    protocol::v0::MiniProtocols,
     util::{self, TypedStream},
 };
 
@@ -61,7 +62,7 @@ impl Multiplexer {
     pub(crate) async fn run_with_miniprotocols(
         self,
         mut stream: TcpStream,
-        miniprotocols: Vec<impl MiniProtocol + 'static>,
+        miniprotocols: Vec<MiniProtocols>,
     ) {
         println!("run_with_miniprotocols: {:?}", self.party);
 
@@ -79,25 +80,7 @@ impl Multiplexer {
             let (sender, receiver) = mpsc::channel(PROTOCOL_INCOMING_CAPACITY);
 
             // Spawn async for the miniprotocol.
-            let handle = tokio::spawn(async move {
-                println!("Started a miniprotocol!");
-
-                // TODO: Convert the channel to a T: Stream<MsgHeartbeat>
-                // Serialize/deserialize byte channel
-                // let stream: crate::util::Channel<_> = todo!();
-                // let stream: crate::util::Channel<BytesMut> = todo!();
-                // let stream: crate::util::Channel<Result<BytesMut, std::io::Error>> = todo!();
-                let stream = MuxStream::new(protocol_id, outgoing_channel_send, receiver);
-                println!("Here 1: {}", std::any::type_name_of_val(&p));
-                // let stream = TypedStream::new(stream);
-                if self.party.is_client() {
-                    println!("Run client");
-                    p.run_client(stream).await
-                } else {
-                    println!("Run server");
-                    p.run_server(stream).await
-                }
-            });
+            let handle = tokio::spawn(p.spawn_async(self.party.is_client(), protocol_id, outgoing_channel_send, receiver));
 
             let mp = MiniprotocolState { handle, sender };
             state.stream_map.insert(protocol_id, mp);
@@ -151,50 +134,8 @@ impl Multiplexer {
                             assert_eq!(length, buf.len());
                             state.read_state = state.read_state.handle_receive(&state.stream_map, buf).await;
                             println!("Test out: {:?}", state.read_state);
-
-
-                            // todo!("TODO");
-
-                            //
-
-                            // // Check length.
-                            // if length < 8 {
-                            //     todo!("Insufficient bytes");
-                            // }
-                            // // TODO: Check upper bound on length.
-                            // assert_eq!(length, buf.len());
-
-                            // println!("Received: {:?}", buf);
-
-                            // // Read stream id.
-                            // let stream_id = (*buf.split_to(4)).try_into().expect("TODO");
-                            // let stream_id = u32::from_be_bytes(stream_id);
-
-                            // println!("Received from stream: {}", stream_id);
-
-                            // // Check message length.
-                            // let msg_length = (*buf.split_to(4)).try_into().expect("TODO");
-                            // let msg_length = u32::from_be_bytes(msg_length);
-                            // // TODO: Check upper bound on msg_length.
-
-                            // println!("Received length: {}", msg_length);
-
-                            // let p = state.stream_map.get_mut(&stream_id).expect("TODO");
-
-                            // // TODO: Allocate buffer.
-
-
-                            // // TODO: This currently blocks if the channel is full
-                            // // p.sender.write_all_buf(&mut buf).await.expect("TODO");
-                            // p.sender.send(buf).await.expect("TODO");
-
-                            // if msg_length > BUFFER_SIZE as u32 - 8 {
-                            //     todo!("Handle larger messages")
-                            // }
                         }
                     }
-
-
                 }
             }
         }
@@ -339,6 +280,26 @@ impl MultiplexerReadState {
 struct MiniprotocolState {
     handle: JoinHandle<()>,
     sender: mpsc::Sender<BytesMut>,
+}
+
+pub(crate) async fn spawn_miniprotocol_async<P: MiniProtocol>(
+    p: P,
+    is_client: bool,
+    stream_id: StreamId,
+    sender: Sender<(StreamId, Bytes)>,
+    receiver: Receiver<BytesMut>,
+) {
+    // Serialize/deserialize byte channel
+    let stream = MuxStream::new(stream_id, sender, receiver);
+    println!("Here 1: {}", std::any::type_name_of_val(&p));
+
+    if is_client {
+        println!("Run client");
+        p.run_client(stream).await
+    } else {
+        println!("Run server");
+        p.run_server(stream).await
+    }
 }
 
 // struct FramedMiniprotocol<T> {
