@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 async-recursion = "*"
 async-session-types = "*"
-bitvec = "*"
+bitvec = {version="*", features = ["serde"]}
 bytes = "*"
 daggy = {version="*", features=["stable_dag"]}
 dynamic = "*"
