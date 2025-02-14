@@ -70,6 +70,13 @@ fn run_with_initiative<S: Stream<MsgManager>>(mut stream: S) -> impl Future<Outp
     }
 }
 
+fn hash_store_id_with_nonce(nonce: [u8; 4], store_id: &StoreId) -> Sha256Hash {
+    let mut h = <Sha256Hash as Hash>::new();
+    <Sha256Hash as Hash>::update(&mut h, nonce);
+    <Sha256Hash as Hash>::update(&mut h, store_id);
+    <Sha256Hash as Hash>::finalize(h)
+}
+
 type StoreId = Sha256Hash; // TODO
 async fn run_advertise_stores_server<S: Stream<MsgManager>>(stream: &mut S, store_ids: Vec<StoreId>) -> Vec<StoreId> {
     // TODO: Prioritize and choose stores.
@@ -79,12 +86,9 @@ async fn run_advertise_stores_server<S: Stream<MsgManager>>(stream: &mut S, stor
     let nonce = thread_rng().gen();
 
     // Truncate stores length to MAX_ADVERTISE_STORES.
-    let hashed_store_ids = store_ids.iter().take(MAX_ADVERTISE_STORES).map(|store_id| {
-        let mut h = <Sha256Hash as Hash>::new();
-        <Sha256Hash as Hash>::update(&mut h, nonce);
-        <Sha256Hash as Hash>::update(&mut h, store_id);
-        <Sha256Hash as Hash>::finalize(h)
-    }).collect();
+    let hashed_store_ids = store_ids.iter().take(MAX_ADVERTISE_STORES).map(|store_id| 
+                                                                           hash_store_id_with_nonce(nonce, store_id)
+    ).collect();
     let req = MsgManagerRequest::AdvertiseStores {
         nonce,
         store_ids: hashed_store_ids,
@@ -99,10 +103,7 @@ async fn run_advertise_stores_server<S: Stream<MsgManager>>(stream: &mut S, stor
 
 async fn run_advertise_stores_client<S: Stream<MsgManager>>(stream: &mut S, nonce: [u8; 4], their_store_ids: Vec<StoreId>, our_store_ids: Vec<StoreId>) -> BTreeSet<StoreId> {
     let our_store_ids: BTreeMap<Sha256Hash, StoreId> = our_store_ids.into_iter().map(|store_id| {
-        let mut h = <Sha256Hash as Hash>::new();
-        <Sha256Hash as Hash>::update(&mut h, nonce);
-        <Sha256Hash as Hash>::update(&mut h, store_id);
-        let h = <Sha256Hash as Hash>::finalize(h);
+        let h = hash_store_id_with_nonce(nonce, &store_id);
         (h, store_id)
     }).collect();
 
@@ -129,7 +130,7 @@ fn run_without_initiative<S: Stream<MsgManager>>(mut stream: S) -> impl Future<O
         println!("Mux manager started without initiative!");
         
         loop {
-        // Receive requests from initiator.
+            // Receive requests from initiator.
             let response: MsgManagerRequest = receive(&mut stream).await.expect("TODO");
             match response {
                 MsgManagerRequest::AdvertiseStores { nonce, store_ids } => {

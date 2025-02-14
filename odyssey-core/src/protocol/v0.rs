@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use async_session_types::{Eps, Recv, Send};
 use bytes::{BufMut, Bytes, BytesMut};
 use futures::{SinkExt, StreamExt};
@@ -6,7 +8,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
     runtime::Runtime,
-    sync::mpsc::{self, Receiver, Sender},
+    sync::{mpsc::{self, Receiver, Sender}, watch},
 };
 use tokio_util::sync::{PollSendError, PollSender};
 use tokio_stream::wrappers::ReceiverStream;
@@ -54,6 +56,7 @@ impl MiniProtocols {
 //     - StoreSync i
 /// Miniprotocols initially run when connected for V0.
 fn initial_miniprotocols() -> Vec<MiniProtocols> {
+    // Order impacts stream id in multiplexer!
     vec![
         MiniProtocols::Heartbeat(Heartbeat {}),
         MiniProtocols::Manager(Manager::new(Party::Client)),
@@ -61,12 +64,12 @@ fn initial_miniprotocols() -> Vec<MiniProtocols> {
     ]
 }
 
-pub(crate) async fn run_miniprotocols_server(stream: TcpStream) {
+pub(crate) async fn run_miniprotocols_server<StoreId>(stream: TcpStream, active_stores: watch::Receiver<BTreeSet<StoreId>>) {
     // Start multiplexer.
     let multiplexer = Multiplexer::new(Party::Server);
 
     multiplexer
-        .run_with_miniprotocols(stream, initial_miniprotocols())
+        .run_with_miniprotocols(stream, initial_miniprotocols(), active_stores)
         .await;
 
     // // Wait for the socket to be readable
@@ -95,12 +98,12 @@ pub(crate) async fn run_miniprotocols_server(stream: TcpStream) {
     // stream.writable().await?;
 }
 
-pub(crate) async fn run_miniprotocols_client(mut stream: TcpStream) {
+pub(crate) async fn run_miniprotocols_client<StoreId>(stream: TcpStream, active_stores: watch::Receiver<BTreeSet<StoreId>>) {
     // Start multiplexer.
     let multiplexer = Multiplexer::new(Party::Client);
 
     multiplexer
-        .run_with_miniprotocols(stream, initial_miniprotocols())
+        .run_with_miniprotocols(stream, initial_miniprotocols(), active_stores)
         .await;
 }
 

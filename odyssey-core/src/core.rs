@@ -3,6 +3,7 @@ use odyssey_crdt::time::CausalState;
 // use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use odyssey_crdt::CRDT;
 use serde::Serialize;
+use tokio::sync::watch;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -29,6 +30,7 @@ pub struct Odyssey<OT: OdysseyType> {
     tokio_runtime: Runtime,
     /// Active stores.
     // stores: BTreeMap<OT::StoreId,ActiveStore>,
+    active_stores: watch::Sender<BTreeSet<OT::StoreId>>, // JP: Make this encode more state that other's may want to subscribe to?
     phantom: PhantomData<OT>,
 }
 
@@ -37,6 +39,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
     pub fn start(config: OdysseyConfig) -> Self {
         // // Create channels to communicate with Odyssey thread.
         // let (send_odyssey_commands, mut recv_odyssey_commands) = futures_channel::mpsc::unbounded();
+        let (active_stores, active_stores_receiver) = watch::channel(BTreeSet::new());
 
         // Start async runtime.
         let runtime = match tokio::runtime::Runtime::new() {
@@ -83,6 +86,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
                     println!("Accepted connection from peer: {}", peer);
                     log::info!("Accepted connection from peer: {}", peer);
                     // Spawn async.
+                    let active_stores = active_stores_receiver.clone();
                     let future_handle = tokio::spawn(async {
                         // let (read_stream, write_stream) = tcpstream.split();
                         let stream = codec::Framed::new(tcpstream, LengthDelimitedCodec::new());
@@ -96,7 +100,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
                         let stream = stream.finalize().into_inner();
 
                         // Start miniprotocols.
-                        protocol_version.run_miniprotocols_server(stream).await;
+                        protocol_version.run_miniprotocols_server(stream, active_stores).await;
                     });
 
                     // TODO: Store peer in state.
@@ -108,6 +112,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
             thread: odyssey_thread,
             // command_channel: send_odyssey_commands,
             tokio_runtime: runtime,
+            active_stores,
             phantom: PhantomData,
         }
     }
@@ -201,6 +206,8 @@ impl<OT: OdysseyType> Odyssey<OT> {
         });
 
         // Register this store.
+        let store_id = todo!();
+        self.active_stores.send_if_modified(|active_stores| active_stores.insert(store_id));
 
         StoreHandle {
             future_handle,
@@ -235,6 +242,8 @@ impl<OT: OdysseyType> Odyssey<OT> {
         // Check if we're already connected to a peer at this address.
         println!("TODO: Check if we're already connected to this peer.");
 
+        let active_stores = self.active_stores.subscribe();
+
         // Spawn async.
         let future_handle = self.tokio_runtime.spawn(async move {
             // Attempt to connect to peer, returning message on failure.
@@ -257,7 +266,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
 
             // Start miniprotocols.
             println!("TODO: Start miniprotocols");
-            protocol_version.run_miniprotocols_client(stream).await;
+            protocol_version.run_miniprotocols_client(stream, active_stores).await;
         });
 
         // TODO: Store peer in state.
@@ -283,7 +292,7 @@ where
 
 /// Trait to define newtype wrapers that instantiate type families required by Odyssey.
 pub trait OdysseyType {
-    type StoreId; // <T>
+    type StoreId: Ord + Send + Sync + 'static; // <T>
     type ECGHeader<T: CRDT<Time = Self::Time, Op: Serialize>>: store::ecg::ECGHeader<T>;
     type Time;
     type CausalState<T: CRDT<Time = Self::Time, Op: Serialize>>: CausalState<Time = Self::Time>;

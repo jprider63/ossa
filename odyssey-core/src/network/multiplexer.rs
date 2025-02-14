@@ -4,13 +4,16 @@ use futures;
 use futures::task::{Context, Poll};
 use serde::{Deserialize, Serialize};
 use std::cmp::min;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::marker::PhantomData;
 use std::pin::Pin;
 use tokio::{
     io::{simplex, AsyncReadExt, AsyncWriteExt, SimplexStream, WriteHalf},
     net::TcpStream,
-    sync::mpsc::{self, Receiver, Sender},
+    sync::{
+        mpsc::{self, Receiver, Sender},
+        watch,
+    },
     task::JoinHandle,
 };
 use tokio_stream::wrappers::ReceiverStream;
@@ -59,10 +62,11 @@ impl Multiplexer {
 
     /// Run the multiplexer with these initial mini protocols.
     /// The minitprotocols are assigned identifiers in order, starting at 0.
-    pub(crate) async fn run_with_miniprotocols(
+    pub(crate) async fn run_with_miniprotocols<StoreId>(
         self,
         mut stream: TcpStream,
         miniprotocols: Vec<MiniProtocols>,
+        active_stores: watch::Receiver<BTreeSet<StoreId>>,
     ) {
         println!("run_with_miniprotocols: {:?}", self.party);
 

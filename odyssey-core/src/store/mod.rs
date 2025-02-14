@@ -9,7 +9,8 @@ use std::collections::BTreeSet;
 
 pub struct State<Header: ecg::ECGHeader<T>, T: CRDT> {
     pub(crate) ecg_state: ecg::State<Header, T>,
-    pub(crate) decrypted_state: Option<DecryptedState<Header, T>>,
+    pub(crate) decrypted_state: Option<DecryptedState<Header, T>>, // JP: Is this actually used?
+                                                                   // Does it make sense?
 }
 
 pub struct DecryptedState<Header: ecg::ECGHeader<T>, T: CRDT> {

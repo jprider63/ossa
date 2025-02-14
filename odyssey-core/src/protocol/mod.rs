@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
-use tokio::{net::TcpStream, runtime::Runtime};
+use std::collections::BTreeSet;
+use tokio::{net::TcpStream, sync::watch};
 
 pub mod heartbeat;
 pub mod manager;
@@ -16,15 +17,15 @@ impl Version {
         *self as u8
     }
 
-    pub async fn run_miniprotocols_server(&self, stream: TcpStream) {
+    pub async fn run_miniprotocols_server<StoreId>(&self, stream: TcpStream, active_stores: watch::Receiver<BTreeSet<StoreId>>) {
         match self {
-            Version::V0 => v0::run_miniprotocols_server(stream).await,
+            Version::V0 => v0::run_miniprotocols_server(stream, active_stores).await,
         }
     }
 
-    pub async fn run_miniprotocols_client(&self, stream: TcpStream) {
+    pub async fn run_miniprotocols_client<StoreId>(&self, stream: TcpStream, active_stores: watch::Receiver<BTreeSet<StoreId>>) {
         match self {
-            Version::V0 => v0::run_miniprotocols_client(stream).await,
+            Version::V0 => v0::run_miniprotocols_client(stream, active_stores).await,
         }
     }
 }
