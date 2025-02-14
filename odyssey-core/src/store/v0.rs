@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
-use typeable::Typeable;
-// use typeable::TypeId;
+use typeable::{Typeable, TypeId};
 
 use crate::protocol;
 use crate::util::{generate_nonce, Hash};
@@ -36,7 +35,7 @@ use crate::util::{generate_nonce, Hash};
 
 /// A store's Metadata header.
 #[derive(Debug, Deserialize, Serialize)]
-pub struct MetadataHeader<TypeId, Hash> {
+pub struct MetadataHeader<Hash> {
     /// A random nonce to distinguish the store.
     pub nonce: Nonce,
 
@@ -44,7 +43,7 @@ pub struct MetadataHeader<TypeId, Hash> {
     pub protocol_version: protocol::Version,
 
     /// Type of state that the store holds.
-    pub store_type: TypeId, // TODO: Switch to typeable::TypeId
+    pub store_type: TypeId,
 
     // TODO:
     // Owner?
@@ -59,8 +58,8 @@ pub struct MetadataHeader<TypeId, Hash> {
 
 // TODO: Signature of MetadataHeader by `owner`.
 
-impl<H: Hash> MetadataHeader<typeable::TypeId, H> {
-    pub fn generate<T: Typeable>(initial_state: &MetadataBody) -> MetadataHeader<typeable::TypeId, H> {
+impl<H: Hash> MetadataHeader<H> {
+    pub fn generate<T: Typeable>(initial_state: &MetadataBody) -> MetadataHeader<H> {
         let nonce = generate_nonce();
         let protocol_version = protocol::LATEST_VERSION;
         let store_type = T::type_ident();
@@ -110,7 +109,7 @@ impl MetadataBody {
     }
 
     /// Validate a `MetadataBody` given its header.
-    pub fn validate<TypeId, H: Hash>(&self, header: &MetadataHeader<TypeId, H>) -> bool {
+    pub fn validate<TypeId, H: Hash>(&self, header: &MetadataHeader<H>) -> bool {
         self.initial_state.len() == header.body_size && self.hash::<H>() == header.body_hash
     }
 }

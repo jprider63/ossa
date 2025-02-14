@@ -5,5 +5,6 @@ edition = "2021"
 
 [dependencies]
 lazy_static = "*"
+serde = "*"
 sha2 = "*"
 typeable_derive = {path="../typeable_derive"}

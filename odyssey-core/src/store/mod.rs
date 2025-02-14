@@ -12,7 +12,7 @@ pub use v0::{MetadataBody, MetadataHeader, Nonce};
 
 
 pub struct State<Header: ecg::ECGHeader<T>, T: CRDT, Hash> {
-    pub(crate) store_header: MetadataHeader<TypeId, Hash>,
+    pub(crate) store_header: MetadataHeader<Hash>,
     pub(crate) ecg_state: ecg::State<Header, T>,
     pub(crate) decrypted_state: Option<DecryptedState<Header, T>>, // JP: Is this actually used?
                                                                    // Does it make sense?

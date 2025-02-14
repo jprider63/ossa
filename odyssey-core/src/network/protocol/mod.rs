@@ -51,21 +51,19 @@ pub(crate) async fn run_handshake_client<S: Stream<MsgHandshake>>(stream: &S) ->
 // TODO: Generalize the argument.
 // pub(crate) async fn run_store_metadata_server<'a, StoreId:Deserialize<'a>>(stream: &mut codec::Framed<TcpStream, LengthDelimitedCodec>) -> () {
 pub(crate) async fn run_store_metadata_server<
-    TypeId,
     StoreId,
-    S: Stream<MsgStoreMetadataHeader<TypeId, StoreId>>,
+    S: Stream<MsgStoreMetadataHeader<StoreId>>,
 >(
     stream: &mut S,
 ) -> Result<(), ProtocolError>
 where
     StoreId: for<'a> Deserialize<'a> + Send + Debug,
-    TypeId: Send,
 {
     let req: StoreMetadataHeaderRequest<StoreId> = receive(stream).await?;
     log::info!("Received request: {:?}", req);
 
     // TODO: Proper response.
-    let response: StoreMetadataHeaderResponse<TypeId, StoreId> = StoreMetadataHeaderResponse {
+    let response: StoreMetadataHeaderResponse<StoreId> = StoreMetadataHeaderResponse {
         header: MetadataHeader {
             nonce: [0; 32],
             protocol_version: Version::V0,
@@ -81,16 +79,14 @@ where
 
 // pub async fn run_store_metadata_client<TypeId, StoreId, S:Stream<MsgStoreMetadataHeader<TypeId, StoreId>>>(stream: &mut codec::Framed<TcpStream, LengthDelimitedCodec>, request: &StoreMetadataHeaderRequest<StoreId>) -> Result<StoreMetadataHeaderResponse<TypeId, StoreId>, ProtocolError>
 pub async fn run_store_metadata_client<
-    TypeId,
     StoreId,
-    S: Stream<MsgStoreMetadataHeader<TypeId, StoreId>>,
+    S: Stream<MsgStoreMetadataHeader<StoreId>>,
 >(
     stream: &mut S,
     request: StoreMetadataHeaderRequest<StoreId>,
-) -> Result<StoreMetadataHeaderResponse<TypeId, StoreId>, ProtocolError>
+) -> Result<StoreMetadataHeaderResponse<StoreId>, ProtocolError>
 where
     StoreId: Serialize + for<'a> Deserialize<'a> + Debug,
-    TypeId: for<'a> Deserialize<'a> + Debug,
 {
     send(stream, request).await?;
 

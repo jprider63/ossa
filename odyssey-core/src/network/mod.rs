@@ -25,8 +25,8 @@ impl Manager {
     }
 
     //
-    pub fn createAndConnectToStore<TypeId, H>(
-        store_metadata: store::MetadataHeader<TypeId, H>,
+    pub fn createAndConnectToStore<H>(
+        store_metadata: store::MetadataHeader<H>,
     ) -> Result<(), String> {
         // TODO: async API that pushes errors, applied operations, connection/peer info, etc to a queue?
         unimplemented! {}

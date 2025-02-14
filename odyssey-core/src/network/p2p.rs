@@ -27,10 +27,9 @@ pub struct P2PSettings {
 }
 
 impl P2PManager {
-    pub fn initialize<TypeId, StoreId>(settings: P2PSettings) -> P2PManager
+    pub fn initialize<StoreId>(settings: P2PSettings) -> P2PManager
     where
         StoreId: for<'a> Deserialize<'a> + Serialize + Send + Debug,
-        TypeId: for<'a> Deserialize<'a> + Serialize + Send,
     {
         // Spawn thread.
         let p2p_thread = thread::spawn(move || {
@@ -78,9 +77,9 @@ impl P2PManager {
                         let stream = TypedStream::new(stream);
                         let Version::V0 = run_handshake_server(&stream).await;
 
-                        let mut stream: TypedStream<_, MsgStoreMetadataHeader<TypeId, StoreId>> =
+                        let mut stream: TypedStream<_, MsgStoreMetadataHeader<StoreId>> =
                             TypedStream::new(stream.finalize());
-                        run_store_metadata_server::<TypeId, StoreId, _>(&mut stream)
+                        run_store_metadata_server::<StoreId, _>(&mut stream)
                             .await
                             .expect("TODO");
                         // run_store_metadata_server::<TypeId, StoreId, codec::Framed<TcpStream, LengthDelimitedCodec>>(&mut stream).await.expect("TODO");

@@ -110,9 +110,9 @@ pub(crate) async fn run_miniprotocols_client<StoreId>(stream: TcpStream, active_
 // # Protocols run between peers.
 
 // request_store_metadata_header :: RequestStoreMetadataHeaderV0 -> Either<ProtocolError, ResponseStoreMetadataHeaderV0>
-pub type StoreMetadataHeader<TypeId, StoreId> = Send<
+pub type StoreMetadataHeader<StoreId> = Send<
     StoreMetadataHeaderRequest<StoreId>,
-    Recv<ProtocolResult<StoreMetadataHeaderResponse<TypeId, StoreId>>, Eps>,
+    Recv<ProtocolResult<StoreMetadataHeaderResponse<StoreId>>, Eps>,
 >;
 pub type StoreMetadataBody =
     Send<StoreMetadataBodyRequest, Recv<ProtocolResult<StoreMetadataBodyResponse>, Eps>>;
@@ -123,27 +123,27 @@ pub type StoreMetadataBody =
 
 // # Messages sent by protocols.
 #[derive(Debug, Serialize, Deserialize)]
-pub enum MsgStoreMetadataHeader<TypeId, StoreId> {
+pub enum MsgStoreMetadataHeader<StoreId> {
     Request(StoreMetadataHeaderRequest<StoreId>),
-    Response(StoreMetadataHeaderResponse<TypeId, StoreId>),
+    Response(StoreMetadataHeaderResponse<StoreId>),
 }
 
-impl<TypeId, StoreId> Into<MsgStoreMetadataHeader<TypeId, StoreId>>
+impl<StoreId> Into<MsgStoreMetadataHeader<StoreId>>
     for StoreMetadataHeaderRequest<StoreId>
 {
-    fn into(self) -> MsgStoreMetadataHeader<TypeId, StoreId> {
+    fn into(self) -> MsgStoreMetadataHeader<StoreId> {
         MsgStoreMetadataHeader::Request(self)
     }
 }
-impl<TypeId, StoreId> Into<MsgStoreMetadataHeader<TypeId, StoreId>>
-    for StoreMetadataHeaderResponse<TypeId, StoreId>
+impl<StoreId> Into<MsgStoreMetadataHeader<StoreId>>
+    for StoreMetadataHeaderResponse<StoreId>
 {
-    fn into(self) -> MsgStoreMetadataHeader<TypeId, StoreId> {
+    fn into(self) -> MsgStoreMetadataHeader<StoreId> {
         MsgStoreMetadataHeader::Response(self)
     }
 }
-impl<TypeId, StoreId> TryInto<StoreMetadataHeaderRequest<StoreId>>
-    for MsgStoreMetadataHeader<TypeId, StoreId>
+impl<StoreId> TryInto<StoreMetadataHeaderRequest<StoreId>>
+    for MsgStoreMetadataHeader<StoreId>
 {
     type Error = ();
     fn try_into(self) -> Result<StoreMetadataHeaderRequest<StoreId>, ()> {
@@ -153,11 +153,11 @@ impl<TypeId, StoreId> TryInto<StoreMetadataHeaderRequest<StoreId>>
         }
     }
 }
-impl<TypeId, StoreId> TryInto<StoreMetadataHeaderResponse<TypeId, StoreId>>
-    for MsgStoreMetadataHeader<TypeId, StoreId>
+impl<StoreId> TryInto<StoreMetadataHeaderResponse<StoreId>>
+    for MsgStoreMetadataHeader<StoreId>
 {
     type Error = ();
-    fn try_into(self) -> Result<StoreMetadataHeaderResponse<TypeId, StoreId>, ()> {
+    fn try_into(self) -> Result<StoreMetadataHeaderResponse<StoreId>, ()> {
         match self {
             MsgStoreMetadataHeader::Response(r) => Ok(r),
             MsgStoreMetadataHeader::Request(_) => Err(()),
@@ -172,8 +172,8 @@ pub struct StoreMetadataHeaderRequest<StoreId> {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct StoreMetadataHeaderResponse<TypeId, StoreId> {
-    pub header: store::v0::MetadataHeader<TypeId, StoreId>,
+pub struct StoreMetadataHeaderResponse<StoreId> {
+    pub header: store::v0::MetadataHeader<StoreId>,
     pub body: Option<StoreMetadataBodyResponse>,
 }
 
