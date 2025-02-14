@@ -3,10 +3,12 @@ use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_cbor::to_vec;
 use std::any::type_name;
+use std::collections::BTreeSet;
 use std::fmt::Debug;
 use std::future::Future;
 use std::marker::Send;
 use tokio::net::TcpStream;
+use tokio::sync::watch;
 use tokio_util::{
     codec::{self, LengthDelimitedCodec},
     sync::PollSendError,
@@ -26,8 +28,8 @@ pub mod keep_alive;
 pub(crate) trait MiniProtocol: Send {
     type Message: Serialize + for<'a> Deserialize<'a> + Send;
 
-    fn run_client<S: Stream<Self::Message>>(self, stream: S) -> impl Future<Output = ()> + Send;
-    fn run_server<S: Stream<Self::Message>>(self, stream: S) -> impl Future<Output = ()> + Send;
+    fn run_client<S: Stream<Self::Message>, StoreId: Send + Sync + 'static>(self, stream: S, active_stores: watch::Receiver<BTreeSet<StoreId>>,) -> impl Future<Output = ()> + Send;
+    fn run_server<S: Stream<Self::Message>, StoreId: Send + Sync + 'static>(self, stream: S, active_stores: watch::Receiver<BTreeSet<StoreId>>,) -> impl Future<Output = ()> + Send;
 }
 
 // pub enum ProtocolVersion {

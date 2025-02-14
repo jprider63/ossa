@@ -1,8 +1,12 @@
 use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use std::future::Future;
 use std::time::SystemTime;
-use tokio::time::{sleep, Duration};
+use tokio::{
+    sync::watch,
+    time::{sleep, Duration},
+};
 
 use crate::{
     network::protocol::{receive, send, MiniProtocol},
@@ -98,7 +102,7 @@ pub(crate) struct Heartbeat {}
 impl MiniProtocol for Heartbeat {
     type Message = MsgHeartbeat;
 
-    fn run_server<S: Stream<MsgHeartbeat>>(self, mut stream: S) -> impl Future<Output = ()> + Send {
+    fn run_server<S: Stream<Self::Message>, StoreId: Send + Sync + 'static>(self, mut stream: S, _: watch::Receiver<BTreeSet<StoreId>>,) -> impl Future<Output = ()> + Send {
         async move {
             println!("Heartbeat server started!");
 
@@ -141,7 +145,7 @@ impl MiniProtocol for Heartbeat {
         }
     }
 
-    fn run_client<S: Stream<MsgHeartbeat>>(self, mut stream: S) -> impl Future<Output = ()> + Send {
+    fn run_client<S: Stream<Self::Message>, StoreId: Send + Sync + 'static>(self, mut stream: S, _: watch::Receiver<BTreeSet<StoreId>>,) -> impl Future<Output = ()> + Send {
         async move {
             println!("Heartbeat client started!");
 

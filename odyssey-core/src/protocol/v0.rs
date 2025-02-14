@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
+use std::marker::Send;
 
-use async_session_types::{Eps, Recv, Send};
+// use async_session_types::{Eps, Recv, Send};
 use bytes::{BufMut, Bytes, BytesMut};
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -29,16 +30,17 @@ pub(crate) enum MiniProtocols {
 }
 
 impl MiniProtocols {
-    pub(crate) async fn spawn_async(
+    pub(crate) async fn spawn_async<StoreId: Send + Sync + 'static>(
         self,
         is_client: bool,
         stream_id: StreamId,
         sender: Sender<(StreamId, Bytes)>,
         receiver: Receiver<BytesMut>,
+        active_stores: watch::Receiver<BTreeSet<StoreId>>,
     ) {
         match self {
-            MiniProtocols::Heartbeat(p) => spawn_miniprotocol_async(p, is_client, stream_id, sender, receiver).await,
-            MiniProtocols::Manager(p) => spawn_miniprotocol_async(p, is_client, stream_id, sender, receiver).await,
+            MiniProtocols::Heartbeat(p) => spawn_miniprotocol_async(p, is_client, stream_id, sender, receiver, active_stores).await,
+            MiniProtocols::Manager(p) => spawn_miniprotocol_async(p, is_client, stream_id, sender, receiver, active_stores).await,
         }
     }
 }
@@ -64,7 +66,7 @@ fn initial_miniprotocols() -> Vec<MiniProtocols> {
     ]
 }
 
-pub(crate) async fn run_miniprotocols_server<StoreId>(stream: TcpStream, active_stores: watch::Receiver<BTreeSet<StoreId>>) {
+pub(crate) async fn run_miniprotocols_server<StoreId: Send + Sync + 'static>(stream: TcpStream, active_stores: watch::Receiver<BTreeSet<StoreId>>) {
     // Start multiplexer.
     let multiplexer = Multiplexer::new(Party::Server);
 
@@ -98,7 +100,7 @@ pub(crate) async fn run_miniprotocols_server<StoreId>(stream: TcpStream, active_
     // stream.writable().await?;
 }
 
-pub(crate) async fn run_miniprotocols_client<StoreId>(stream: TcpStream, active_stores: watch::Receiver<BTreeSet<StoreId>>) {
+pub(crate) async fn run_miniprotocols_client<StoreId: Send + Sync + 'static>(stream: TcpStream, active_stores: watch::Receiver<BTreeSet<StoreId>>) {
     // Start multiplexer.
     let multiplexer = Multiplexer::new(Party::Client);
 
@@ -110,12 +112,12 @@ pub(crate) async fn run_miniprotocols_client<StoreId>(stream: TcpStream, active_
 // # Protocols run between peers.
 
 // request_store_metadata_header :: RequestStoreMetadataHeaderV0 -> Either<ProtocolError, ResponseStoreMetadataHeaderV0>
-pub type StoreMetadataHeader<StoreId> = Send<
-    StoreMetadataHeaderRequest<StoreId>,
-    Recv<ProtocolResult<StoreMetadataHeaderResponse<StoreId>>, Eps>,
->;
-pub type StoreMetadataBody =
-    Send<StoreMetadataBodyRequest, Recv<ProtocolResult<StoreMetadataBodyResponse>, Eps>>;
+// pub type StoreMetadataHeader<StoreId> = Send<
+//     StoreMetadataHeaderRequest<StoreId>,
+//     Recv<ProtocolResult<StoreMetadataHeaderResponse<StoreId>>, Eps>,
+// >;
+// pub type StoreMetadataBody =
+//     Send<StoreMetadataBodyRequest, Recv<ProtocolResult<StoreMetadataBodyResponse>, Eps>>;
 
 //
 // TODO: Do we need to do a handshake to establish a MAC key (is an encryption needed)?.

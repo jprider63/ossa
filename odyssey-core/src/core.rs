@@ -185,21 +185,21 @@ impl<OT: OdysseyType> Odyssey<OT> {
                         }
 
                         // Send state to subscribers.
-                        for mut l in &listeners {
+                        for l in &listeners {
                             let snapshot = StateUpdate::Snapshot {
                                 snapshot: state.clone(),
                                 ecg_state: store.ecg_state.clone(),
                             };
-                            l.send(snapshot);
+                            l.send(snapshot).expect("TODO");
                         }
                     }
-                    StoreCommand::SubscribeState { mut send_state } => {
+                    StoreCommand::SubscribeState { send_state } => {
                         // Send current state.
                         let snapshot = StateUpdate::Snapshot {
                             snapshot: state.clone(),
                             ecg_state: store.ecg_state.clone(),
                         };
-                        send_state.send(snapshot);
+                        send_state.send(snapshot).expect("TODO");
 
                         // Register this subscriber.
                         listeners.push(send_state);

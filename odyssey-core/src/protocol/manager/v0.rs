@@ -3,6 +3,7 @@ use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
+use tokio::sync::watch;
 
 use crate::{
     network::{
@@ -35,7 +36,7 @@ impl Manager {
 impl MiniProtocol for Manager {
     type Message = MsgManager;
 
-    fn run_server<S: Stream<MsgManager>>(self, mut stream: S) -> impl Future<Output = ()> + Send {
+    fn run_server<S: Stream<Self::Message>, StoreId: Send + Sync + 'static>(self, stream: S, active_stores: watch::Receiver<BTreeSet<StoreId>>,) -> impl Future<Output = ()> + Send {
         async move {
             if self.server_has_initiative() {
                 run_with_initiative(stream).await
@@ -45,7 +46,8 @@ impl MiniProtocol for Manager {
         }
     }
 
-    fn run_client<S: Stream<MsgManager>>(self, mut stream: S) -> impl Future<Output = ()> + Send {
+    fn run_client<S: Stream<Self::Message>, StoreId: Send + Sync + 'static>(self, stream: S, active_stores: watch::Receiver<BTreeSet<StoreId>>,) -> impl Future<Output = ()> + Send {
+    // fn run_client<S: Stream<MsgManager>>(self, mut stream: S, active_stores: watch::Receiver<BTreeSet<StoreId>>) -> impl Future<Output = ()> + Send {
         async move {
             if self.server_has_initiative() {
                 run_without_initiative(stream).await

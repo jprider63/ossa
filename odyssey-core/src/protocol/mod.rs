@@ -17,13 +17,13 @@ impl Version {
         *self as u8
     }
 
-    pub async fn run_miniprotocols_server<StoreId>(&self, stream: TcpStream, active_stores: watch::Receiver<BTreeSet<StoreId>>) {
+    pub async fn run_miniprotocols_server<StoreId: Send + Sync + 'static>(&self, stream: TcpStream, active_stores: watch::Receiver<BTreeSet<StoreId>>) {
         match self {
             Version::V0 => v0::run_miniprotocols_server(stream, active_stores).await,
         }
     }
 
-    pub async fn run_miniprotocols_client<StoreId>(&self, stream: TcpStream, active_stores: watch::Receiver<BTreeSet<StoreId>>) {
+    pub async fn run_miniprotocols_client<StoreId: Send + Sync + 'static>(&self, stream: TcpStream, active_stores: watch::Receiver<BTreeSet<StoreId>>) {
         match self {
             Version::V0 => v0::run_miniprotocols_client(stream, active_stores).await,
         }

@@ -62,7 +62,7 @@ impl Multiplexer {
 
     /// Run the multiplexer with these initial mini protocols.
     /// The minitprotocols are assigned identifiers in order, starting at 0.
-    pub(crate) async fn run_with_miniprotocols<StoreId>(
+    pub(crate) async fn run_with_miniprotocols<StoreId: Send + Sync + 'static>(
         self,
         mut stream: TcpStream,
         miniprotocols: Vec<MiniProtocols>,
@@ -84,7 +84,8 @@ impl Multiplexer {
             let (sender, receiver) = mpsc::channel(PROTOCOL_INCOMING_CAPACITY);
 
             // Spawn async for the miniprotocol.
-            let handle = tokio::spawn(p.spawn_async(self.party.is_client(), protocol_id, outgoing_channel_send, receiver));
+            let active_stores = active_stores.clone();
+            let handle = tokio::spawn(p.spawn_async(self.party.is_client(), protocol_id, outgoing_channel_send, receiver, active_stores));
 
             let mp = MiniprotocolState { handle, sender };
             state.stream_map.insert(protocol_id, mp);
@@ -286,12 +287,13 @@ struct MiniprotocolState {
     sender: mpsc::Sender<BytesMut>,
 }
 
-pub(crate) async fn spawn_miniprotocol_async<P: MiniProtocol>(
+pub(crate) async fn spawn_miniprotocol_async<P: MiniProtocol, StoreId: Send + Sync + 'static>(
     p: P,
     is_client: bool,
     stream_id: StreamId,
     sender: Sender<(StreamId, Bytes)>,
     receiver: Receiver<BytesMut>,
+    active_stores: watch::Receiver<BTreeSet<StoreId>>,
 ) {
     // Serialize/deserialize byte channel
     let stream = MuxStream::new(stream_id, sender, receiver);
@@ -299,10 +301,10 @@ pub(crate) async fn spawn_miniprotocol_async<P: MiniProtocol>(
 
     if is_client {
         println!("Run client");
-        p.run_client(stream).await
+        p.run_client(stream, active_stores).await
     } else {
         println!("Run server");
-        p.run_server(stream).await
+        p.run_server(stream, active_stores).await
     }
 }
 
