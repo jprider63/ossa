@@ -32,6 +32,12 @@ impl fmt::Display for TypeId {
     }
 }
 
+impl AsRef<[u8]> for TypeId {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
 /// A trait that specifies unique identifiers for types in a deterministic way that can be shared
 /// on multiple machines over the network.
 ///

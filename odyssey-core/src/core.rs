@@ -14,6 +14,7 @@ use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
 use tokio_util::codec::{self, LengthDelimitedCodec};
+use typeable::Typeable;
 
 use crate::network::protocol::{run_handshake_client, run_handshake_server};
 use crate::protocol::Version;
@@ -21,7 +22,7 @@ use crate::storage::Storage;
 use crate::store;
 use crate::store::ecg::v0::{Body, Header, OperationId};
 use crate::store::ecg::{self, ECGBody, ECGHeader};
-use crate::util::TypedStream;
+use crate::util::{self, TypedStream};
 
 pub struct Odyssey<OT: OdysseyType> {
     /// Thread running the Odyssey server.
@@ -133,6 +134,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
         // T: CRDT<Time = OperationId<Header<OT::Hash, T>>>,
         // OperationId<Header::HeaderId>
         // <OT as OdysseyType>::Hash: 'static,
+        T: Typeable + Serialize,
         T::Op: Serialize,
         // OT::Time: CausalOrder<State = ecg::State<OT::ECGHeader<T>, T>>,
     {
@@ -140,7 +142,8 @@ impl<OT: OdysseyType> Odyssey<OT> {
         // Check if this store already exists and return that.
 
         // Create store by generating nonce, etc.
-        let mut store = store::State::<OT::ECGHeader<T>, T>::new(initial_state.clone());
+        let mut store = store::State::<OT::ECGHeader<T>, T, OT::StoreId>::new(initial_state.clone());
+        let store_id = store.store_id();
 
         // Initialize storage for this store.
 
@@ -206,7 +209,6 @@ impl<OT: OdysseyType> Odyssey<OT> {
         });
 
         // Register this store.
-        let store_id = todo!();
         self.active_stores.send_if_modified(|active_stores| active_stores.insert(store_id));
 
         StoreHandle {
@@ -292,7 +294,7 @@ where
 
 /// Trait to define newtype wrapers that instantiate type families required by Odyssey.
 pub trait OdysseyType {
-    type StoreId: Ord + Send + Sync + 'static; // <T>
+    type StoreId: util::Hash + Ord + Send + Sync + 'static; // <T>
     type ECGHeader<T: CRDT<Time = Self::Time, Op: Serialize>>: store::ecg::ECGHeader<T>;
     type Time;
     type CausalState<T: CRDT<Time = Self::Time, Op: Serialize>>: CausalState<Time = Self::Time>;

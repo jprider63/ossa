@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
+use typeable::Typeable;
+// use typeable::TypeId;
 
 use crate::protocol;
-use crate::util::Hash;
+use crate::util::{generate_nonce, Hash};
 
 // pub struct Store<Id, T> {
 //     id: Id,
@@ -42,7 +44,7 @@ pub struct MetadataHeader<TypeId, Hash> {
     pub protocol_version: protocol::Version,
 
     /// Type of state that the store holds.
-    pub store_type: TypeId,
+    pub store_type: TypeId, // TODO: Switch to typeable::TypeId
 
     // TODO:
     // Owner?
@@ -57,14 +59,29 @@ pub struct MetadataHeader<TypeId, Hash> {
 
 // TODO: Signature of MetadataHeader by `owner`.
 
-impl<TypeId: AsRef<[u8]>, H: Hash> MetadataHeader<TypeId, H> {
+impl<H: Hash> MetadataHeader<typeable::TypeId, H> {
+    pub fn generate<T: Typeable>(initial_state: &MetadataBody) -> MetadataHeader<typeable::TypeId, H> {
+        let nonce = generate_nonce();
+        let protocol_version = protocol::LATEST_VERSION;
+        let store_type = T::type_ident();
+        let body_size = initial_state.initial_state.len();
+        let body_hash = initial_state.hash();
+        MetadataHeader {
+            nonce,
+            protocol_version,
+            store_type,
+            body_size,
+            body_hash,
+        }
+    }
+
     /// Compute the store id for the `MetadataHeader`.
     /// This function must be updated any time `MetadataHeader` is updated.
-    fn store_id(&self) -> H {
+    pub fn store_id(&self) -> H {
         let mut h = H::new();
         H::update(&mut h, self.nonce);
         H::update(&mut h, [self.protocol_version.as_byte()]);
-        H::update(&mut h, &self.store_type);
+        H::update(&mut h, self.store_type);
         H::update(&mut h, self.body_size.to_be_bytes());
         H::update(&mut h, &self.body_hash);
         H::finalize(h)
@@ -79,6 +96,13 @@ pub struct MetadataBody {
 }
 
 impl MetadataBody {
+    pub(crate) fn new<T: Serialize>(initial_state: &T) -> MetadataBody {
+        let initial_state = serde_cbor::to_vec(initial_state).expect("TODO");
+        MetadataBody {
+            initial_state,
+        }
+    }
+
     pub fn hash<H: Hash>(&self) -> H {
         let mut h = H::new();
         H::update(&mut h, &self.initial_state);
