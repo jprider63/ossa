@@ -19,6 +19,7 @@ use tokio::{
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::{PollSendError, PollSender};
 
+use crate::core::OdysseyType;
 use crate::{
     network::protocol::{MiniProtocol, ProtocolError},
     protocol::v0::MiniProtocols,
@@ -62,11 +63,11 @@ impl Multiplexer {
 
     /// Run the multiplexer with these initial mini protocols.
     /// The minitprotocols are assigned identifiers in order, starting at 0.
-    pub(crate) async fn run_with_miniprotocols<StoreId: Send + Sync + 'static>(
+    pub(crate) async fn run_with_miniprotocols<O: OdysseyType>(
         self,
         mut stream: TcpStream,
         miniprotocols: Vec<MiniProtocols>,
-        active_stores: watch::Receiver<BTreeSet<StoreId>>,
+        active_stores: watch::Receiver<BTreeSet<O::StoreId>>,
     ) {
         println!("run_with_miniprotocols: {:?}", self.party);
 
@@ -85,7 +86,7 @@ impl Multiplexer {
 
             // Spawn async for the miniprotocol.
             let active_stores = active_stores.clone();
-            let handle = tokio::spawn(p.spawn_async(self.party.is_client(), protocol_id, outgoing_channel_send, receiver, active_stores));
+            let handle = tokio::spawn(p.spawn_async::<O>(self.party.is_client(), protocol_id, outgoing_channel_send, receiver, active_stores));
 
             let mp = MiniprotocolState { handle, sender };
             state.stream_map.insert(protocol_id, mp);
@@ -287,13 +288,13 @@ struct MiniprotocolState {
     sender: mpsc::Sender<BytesMut>,
 }
 
-pub(crate) async fn spawn_miniprotocol_async<P: MiniProtocol, StoreId: Send + Sync + 'static>(
+pub(crate) async fn spawn_miniprotocol_async<P: MiniProtocol, O: OdysseyType>(
     p: P,
     is_client: bool,
     stream_id: StreamId,
     sender: Sender<(StreamId, Bytes)>,
     receiver: Receiver<BytesMut>,
-    active_stores: watch::Receiver<BTreeSet<StoreId>>,
+    active_stores: watch::Receiver<BTreeSet<O::StoreId>>,
 ) {
     // Serialize/deserialize byte channel
     let stream = MuxStream::new(stream_id, sender, receiver);
@@ -301,10 +302,10 @@ pub(crate) async fn spawn_miniprotocol_async<P: MiniProtocol, StoreId: Send + Sy
 
     if is_client {
         println!("Run client");
-        p.run_client(stream, active_stores).await
+        p.run_client::<_, O>(stream, active_stores).await
     } else {
         println!("Run server");
-        p.run_server(stream, active_stores).await
+        p.run_server::<_, O>(stream, active_stores).await
     }
 }
 

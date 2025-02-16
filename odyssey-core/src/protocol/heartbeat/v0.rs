@@ -9,8 +9,7 @@ use tokio::{
 };
 
 use crate::{
-    network::protocol::{receive, send, MiniProtocol},
-    util::Stream,
+    core::OdysseyType, network::protocol::{receive, send, MiniProtocol}, util::Stream
 };
 
 /// TODO:
@@ -102,7 +101,7 @@ pub(crate) struct Heartbeat {}
 impl MiniProtocol for Heartbeat {
     type Message = MsgHeartbeat;
 
-    fn run_server<S: Stream<Self::Message>, StoreId: Send + Sync + 'static>(self, mut stream: S, _: watch::Receiver<BTreeSet<StoreId>>,) -> impl Future<Output = ()> + Send {
+    fn run_server<S: Stream<Self::Message>, O: OdysseyType>(self, mut stream: S, _: watch::Receiver<BTreeSet<O::StoreId>>,) -> impl Future<Output = ()> + Send {
         async move {
             println!("Heartbeat server started!");
 
@@ -145,7 +144,7 @@ impl MiniProtocol for Heartbeat {
         }
     }
 
-    fn run_client<S: Stream<Self::Message>, StoreId: Send + Sync + 'static>(self, mut stream: S, _: watch::Receiver<BTreeSet<StoreId>>,) -> impl Future<Output = ()> + Send {
+    fn run_client<S: Stream<Self::Message>, O: OdysseyType>(self, mut stream: S, _: watch::Receiver<BTreeSet<O::StoreId>>,) -> impl Future<Output = ()> + Send {
         async move {
             println!("Heartbeat client started!");
 

@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 use tokio::sync::watch;
 
+use crate::core::OdysseyType;
 use crate::{
     network::{
         multiplexer::Party,
@@ -36,35 +37,34 @@ impl Manager {
 impl MiniProtocol for Manager {
     type Message = MsgManager;
 
-    fn run_server<S: Stream<Self::Message>, StoreId: Send + Sync + 'static>(self, stream: S, active_stores: watch::Receiver<BTreeSet<StoreId>>,) -> impl Future<Output = ()> + Send {
+    fn run_server<S: Stream<Self::Message>, O: OdysseyType>(self, stream: S, active_stores: watch::Receiver<BTreeSet<O::StoreId>>,) -> impl Future<Output = ()> + Send {
         async move {
             if self.server_has_initiative() {
-                run_with_initiative(stream).await
+                run_with_initiative::<_, O>(stream, active_stores).await
             } else {
-                run_without_initiative(stream).await
+                run_without_initiative::<_, O>(stream, active_stores).await
             }
         }
     }
 
-    fn run_client<S: Stream<Self::Message>, StoreId: Send + Sync + 'static>(self, stream: S, active_stores: watch::Receiver<BTreeSet<StoreId>>,) -> impl Future<Output = ()> + Send {
+    fn run_client<S: Stream<Self::Message>, O: OdysseyType>(self, stream: S, active_stores: watch::Receiver<BTreeSet<O::StoreId>>,) -> impl Future<Output = ()> + Send {
     // fn run_client<S: Stream<MsgManager>>(self, mut stream: S, active_stores: watch::Receiver<BTreeSet<StoreId>>) -> impl Future<Output = ()> + Send {
         async move {
             if self.server_has_initiative() {
-                run_without_initiative(stream).await
+                run_without_initiative::<_, O>(stream, active_stores).await
             } else {
-                run_with_initiative(stream).await
+                run_with_initiative::<_, O>(stream, active_stores).await
             }
         }
     }
 }
 
-fn run_with_initiative<S: Stream<MsgManager>>(mut stream: S) -> impl Future<Output = ()> + Send {
+fn run_with_initiative<S: Stream<MsgManager>, O: OdysseyType>(mut stream: S, active_stores: watch::Receiver<BTreeSet<O::StoreId>>,) -> impl Future<Output = ()> + Send {
     async move {
         println!("Mux manager started with initiative!");
 
         // Advertise stores.
-        let stores = todo!();
-        let shared_stores = run_advertise_stores_server(&mut stream, stores).await;
+        let shared_stores = run_advertise_stores_server::<_, O>(&mut stream, active_stores).await;
 
         loop {
             todo!()
@@ -72,24 +72,24 @@ fn run_with_initiative<S: Stream<MsgManager>>(mut stream: S) -> impl Future<Outp
     }
 }
 
-fn hash_store_id_with_nonce(nonce: [u8; 4], store_id: &StoreId) -> Sha256Hash {
+fn hash_store_id_with_nonce<StoreId: AsRef<[u8]>>(nonce: [u8; 4], store_id: &StoreId) -> Sha256Hash {
     let mut h = <Sha256Hash as Hash>::new();
     <Sha256Hash as Hash>::update(&mut h, nonce);
     <Sha256Hash as Hash>::update(&mut h, store_id);
     <Sha256Hash as Hash>::finalize(h)
 }
 
-type StoreId = Sha256Hash; // TODO
-async fn run_advertise_stores_server<S: Stream<MsgManager>>(stream: &mut S, store_ids: Vec<StoreId>) -> Vec<StoreId> {
+async fn run_advertise_stores_server<S: Stream<MsgManager>, O: OdysseyType>(stream: &mut S, mut store_ids: watch::Receiver<BTreeSet<O::StoreId>>) -> Vec<O::StoreId> {
     // TODO: Prioritize and choose stores.
+    // Truncate stores length to MAX_ADVERTISE_STORES.
+    let store_ids: Vec<O::StoreId> = store_ids.borrow_and_update().iter().take(MAX_ADVERTISE_STORES).cloned().collect();
 
 
     // Send store advertising request.
     let nonce = thread_rng().gen();
 
-    // Truncate stores length to MAX_ADVERTISE_STORES.
-    let hashed_store_ids = store_ids.iter().take(MAX_ADVERTISE_STORES).map(|store_id| 
-                                                                           hash_store_id_with_nonce(nonce, store_id)
+    let hashed_store_ids = store_ids.iter().map(|store_id| 
+        hash_store_id_with_nonce(nonce, store_id)
     ).collect();
     let req = MsgManagerRequest::AdvertiseStores {
         nonce,
@@ -103,10 +103,10 @@ async fn run_advertise_stores_server<S: Stream<MsgManager>>(stream: &mut S, stor
     store_ids.into_iter().zip(response.have_stores).filter_map(|(store_id, is_shared)| if is_shared { Some(store_id) } else { None }).collect()
 }
 
-async fn run_advertise_stores_client<S: Stream<MsgManager>>(stream: &mut S, nonce: [u8; 4], their_store_ids: Vec<StoreId>, our_store_ids: Vec<StoreId>) -> BTreeSet<StoreId> {
-    let our_store_ids: BTreeMap<Sha256Hash, StoreId> = our_store_ids.into_iter().map(|store_id| {
-        let h = hash_store_id_with_nonce(nonce, &store_id);
-        (h, store_id)
+async fn run_advertise_stores_client<S: Stream<MsgManager>, O: OdysseyType>(stream: &mut S, nonce: [u8; 4], their_store_ids: Vec<Sha256Hash>, mut our_store_ids: watch::Receiver<BTreeSet<O::StoreId>>) -> BTreeSet<O::StoreId> {
+    let our_store_ids: BTreeMap<Sha256Hash, O::StoreId> = our_store_ids.borrow_and_update().iter().map(|store_id| {
+        let h = hash_store_id_with_nonce(nonce, store_id);
+        (h, *store_id)
     }).collect();
 
     let mut have_stores = StoreBitmap::ZERO;
@@ -127,7 +127,7 @@ async fn run_advertise_stores_client<S: Stream<MsgManager>>(stream: &mut S, nonc
     mutual_store_ids
 }
 
-fn run_without_initiative<S: Stream<MsgManager>>(mut stream: S) -> impl Future<Output = ()> + Send {
+fn run_without_initiative<S: Stream<MsgManager>, O: OdysseyType>(mut stream: S, active_stores: watch::Receiver<BTreeSet<O::StoreId>>,) -> impl Future<Output = ()> + Send {
     async move {
         println!("Mux manager started without initiative!");
         
@@ -136,8 +136,7 @@ fn run_without_initiative<S: Stream<MsgManager>>(mut stream: S) -> impl Future<O
             let response: MsgManagerRequest = receive(&mut stream).await.expect("TODO");
             match response {
                 MsgManagerRequest::AdvertiseStores { nonce, store_ids } => {
-                    let stores = todo!();
-                    let shared_stores = run_advertise_stores_client(&mut stream, nonce, store_ids, stores).await;
+                    let shared_stores = run_advertise_stores_client::<_, O>(&mut stream, nonce, store_ids, active_stores).await;
                     todo!()
                 }
             }
@@ -153,18 +152,21 @@ pub(crate) enum MsgManager {
 
 
 #[derive(Debug, Serialize, Deserialize)]
-enum MsgManagerRequest {
+pub(crate) enum MsgManagerRequest {
     // Advertise stores using a poor man's PSI.
     AdvertiseStores {
         nonce: [u8; 4],
-        store_ids: Vec<Sha256Hash>, // Hash of store ids, using the nonce as a salt.
+        store_ids: Vec<Sha256Hash>,
+        // Hash of store ids, using the nonce as a salt.
+        // Maximum length is MAX_ADVERTISE_STORES.
+        // TODO: Verify length while parsing.
     },
 }
 
 pub const MAX_ADVERTISE_STORES: usize = 256;
 pub type StoreBitmap = BitArr!(for MAX_ADVERTISE_STORES, in u8, Msb0);
 #[derive(Debug, Serialize, Deserialize)]
-struct MsgManagerAdvertiseStoresResponse {
+pub(crate) struct MsgManagerAdvertiseStoresResponse {
     have_stores: StoreBitmap,
 }
 

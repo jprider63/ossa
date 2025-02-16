@@ -101,7 +101,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
                         let stream = stream.finalize().into_inner();
 
                         // Start miniprotocols.
-                        protocol_version.run_miniprotocols_server(stream, active_stores).await;
+                        protocol_version.run_miniprotocols_server::<OT>(stream, active_stores).await;
                     });
 
                     // TODO: Store peer in state.
@@ -268,7 +268,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
 
             // Start miniprotocols.
             println!("TODO: Start miniprotocols");
-            protocol_version.run_miniprotocols_client(stream, active_stores).await;
+            protocol_version.run_miniprotocols_client::<OT>(stream, active_stores).await;
         });
 
         // TODO: Store peer in state.
@@ -293,8 +293,8 @@ where
 }
 
 /// Trait to define newtype wrapers that instantiate type families required by Odyssey.
-pub trait OdysseyType {
-    type StoreId: util::Hash + Ord + Send + Sync + 'static; // <T>
+pub trait OdysseyType: 'static {
+    type StoreId: util::Hash + Copy + Ord + Send + Sync + 'static; // Hashable instead of AsRef???
     type ECGHeader<T: CRDT<Time = Self::Time, Op: Serialize>>: store::ecg::ECGHeader<T>;
     type Time;
     type CausalState<T: CRDT<Time = Self::Time, Op: Serialize>>: CausalState<Time = Self::Time>;

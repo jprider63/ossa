@@ -14,10 +14,10 @@ use tokio::{
 use tokio_util::sync::{PollSendError, PollSender};
 use tokio_stream::wrappers::ReceiverStream;
 
-use crate::network::{
-    multiplexer::{Multiplexer, Party, StreamId, spawn_miniprotocol_async},
+use crate::{core::OdysseyType, network::{
+    multiplexer::{spawn_miniprotocol_async, Multiplexer, Party, StreamId},
     protocol::MiniProtocol,
-};
+}};
 use crate::protocol::heartbeat::v0::Heartbeat;
 use crate::protocol::manager::v0::Manager;
 use crate::store;
@@ -30,17 +30,17 @@ pub(crate) enum MiniProtocols {
 }
 
 impl MiniProtocols {
-    pub(crate) async fn spawn_async<StoreId: Send + Sync + 'static>(
+    pub(crate) async fn spawn_async<O: OdysseyType>(
         self,
         is_client: bool,
         stream_id: StreamId,
         sender: Sender<(StreamId, Bytes)>,
         receiver: Receiver<BytesMut>,
-        active_stores: watch::Receiver<BTreeSet<StoreId>>,
+        active_stores: watch::Receiver<BTreeSet<O::StoreId>>,
     ) {
         match self {
-            MiniProtocols::Heartbeat(p) => spawn_miniprotocol_async(p, is_client, stream_id, sender, receiver, active_stores).await,
-            MiniProtocols::Manager(p) => spawn_miniprotocol_async(p, is_client, stream_id, sender, receiver, active_stores).await,
+            MiniProtocols::Heartbeat(p) => spawn_miniprotocol_async::<_, O>(p, is_client, stream_id, sender, receiver, active_stores).await,
+            MiniProtocols::Manager(p) => spawn_miniprotocol_async::<_, O>(p, is_client, stream_id, sender, receiver, active_stores).await,
         }
     }
 }
@@ -66,12 +66,12 @@ fn initial_miniprotocols() -> Vec<MiniProtocols> {
     ]
 }
 
-pub(crate) async fn run_miniprotocols_server<StoreId: Send + Sync + 'static>(stream: TcpStream, active_stores: watch::Receiver<BTreeSet<StoreId>>) {
+pub(crate) async fn run_miniprotocols_server<O: OdysseyType>(stream: TcpStream, active_stores: watch::Receiver<BTreeSet<O::StoreId>>) {
     // Start multiplexer.
     let multiplexer = Multiplexer::new(Party::Server);
 
     multiplexer
-        .run_with_miniprotocols(stream, initial_miniprotocols(), active_stores)
+        .run_with_miniprotocols::<O>(stream, initial_miniprotocols(), active_stores)
         .await;
 
     // // Wait for the socket to be readable
@@ -100,12 +100,12 @@ pub(crate) async fn run_miniprotocols_server<StoreId: Send + Sync + 'static>(str
     // stream.writable().await?;
 }
 
-pub(crate) async fn run_miniprotocols_client<StoreId: Send + Sync + 'static>(stream: TcpStream, active_stores: watch::Receiver<BTreeSet<StoreId>>) {
+pub(crate) async fn run_miniprotocols_client<O: OdysseyType>(stream: TcpStream, active_stores: watch::Receiver<BTreeSet<O::StoreId>>) {
     // Start multiplexer.
     let multiplexer = Multiplexer::new(Party::Client);
 
     multiplexer
-        .run_with_miniprotocols(stream, initial_miniprotocols(), active_stores)
+        .run_with_miniprotocols::<O>(stream, initial_miniprotocols(), active_stores)
         .await;
 }
 
