@@ -7,10 +7,10 @@ use sha2::{Digest, Sha256};
 use std::fmt;
 pub use typeable_derive::Typeable;
 
-use crate::internal::{helper_type_args, helper_type_constructor, helper_usize};
+use crate::internal::{helper_type_args_count, helper_type_ident, helper_type_constructor, helper_usize};
 
 /// A unique identifier for a type. It is typically derived from the sha256 hash of the type's declaration.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct TypeId([u8; 32]);
 
 impl TypeId {
@@ -50,7 +50,8 @@ impl AsRef<[u8]> for TypeId {
 /// implementations should cause the type identifier to change. In practice, this may require tag
 /// updates (ex. changing a tag from "v1" to "v2" when a type's implementation changes).
 ///
-/// The following is the grammar of how the type is hashed to create its identifier.
+/// The following is the grammar of how the type is hashed to create its identifier. Primitive
+/// types may have custom encodings that do not match this grammar.
 ///
 /// typeable :=
 ///   type_name type_arg_count tag type_body
@@ -127,21 +128,23 @@ derive_typeable_primitive!(i128);
 derive_typeable_primitive!(f32);
 derive_typeable_primitive!(f64);
 
-impl<T, const N: usize> Typeable for [T; N] {
+impl<T: Typeable, const N: usize> Typeable for [T; N] {
     fn type_ident() -> TypeId {
         let mut h = Sha256::new();
         helper_string_non_ascii(&mut h, "[]");
-        helper_type_args(&mut h, 1);
+        helper_type_args_count(&mut h, 1);
         helper_usize(&mut h, N);
+        helper_type_ident::<T>(&mut h);
         TypeId(h.finalize().into())
     }
 }
 
-impl<T> Typeable for Vec<T> {
+impl<T: Typeable> Typeable for Vec<T> {
     fn type_ident() -> TypeId {
         let mut h = Sha256::new();
         helper_type_constructor(&mut h, "Vec");
-        helper_type_args(&mut h, 1);
+        helper_type_args_count(&mut h, 1);
+        helper_type_ident::<T>(&mut h);
         TypeId(h.finalize().into())
     }
 }
