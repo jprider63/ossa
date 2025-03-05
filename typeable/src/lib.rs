@@ -1,3 +1,5 @@
+#[cfg(feature = "im")]
+mod im;
 pub mod internal;
 #[cfg(feature = "serde")]
 mod serde;
@@ -94,7 +96,10 @@ pub trait Typeable {
 
 macro_rules! derive_typeable_primitive {
     ( $type_name: ident ) => {
-        mod $type_name {
+        derive_typeable_primitive!($type_name, $type_name);
+    };
+    ( $type_name: ident, $mod_name: ident ) => {
+        mod $mod_name {
             use super::*;
 
             lazy_static! {
@@ -128,6 +133,7 @@ derive_typeable_primitive!(i64);
 derive_typeable_primitive!(i128);
 derive_typeable_primitive!(f32);
 derive_typeable_primitive!(f64);
+derive_typeable_primitive!(String, string);
 
 impl<T: Typeable, const N: usize> Typeable for [T; N] {
     fn type_ident() -> TypeId {

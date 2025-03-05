@@ -4,10 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
+im = ["dep:im"]
 serde = ["dep:serde"]
 
 [dependencies]
 lazy_static = "*"
+im = {version = "*", optional = true}
 serde = {version = "*", optional = true}
 sha2 = "*"
 typeable_derive = {path = "../typeable_derive"}
