@@ -3,8 +3,11 @@ name = "typeable"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+serde = ["dep:serde"]
+
 [dependencies]
 lazy_static = "*"
-serde = "*"
+serde = {version = "*", optional = true}
 sha2 = "*"
-typeable_derive = {path="../typeable_derive"}
+typeable_derive = {path = "../typeable_derive"}
