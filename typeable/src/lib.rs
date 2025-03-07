@@ -155,3 +155,13 @@ impl<T: Typeable> Typeable for Vec<T> {
         TypeId(h.finalize().into())
     }
 }
+
+impl<T: Typeable> Typeable for Option<T> {
+    fn type_ident() -> TypeId {
+        let mut h = Sha256::new();
+        helper_type_constructor(&mut h, "Option");
+        helper_type_args_count(&mut h, 1);
+        helper_type_ident::<T>(&mut h);
+        TypeId(h.finalize().into())
+    }
+}
