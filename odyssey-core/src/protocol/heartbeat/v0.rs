@@ -28,17 +28,17 @@ pub(crate) enum MsgHeartbeat {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct MsgHeartbeatRequest {
+pub(crate) struct MsgHeartbeatRequest {
     server_time: SystemTime,
     heartbeat: u64,
 }
 #[derive(Debug, Serialize, Deserialize)]
-struct MsgHeartbeatClientResponse {
+pub(crate) struct MsgHeartbeatClientResponse {
     heartbeat: u64,
     client_time: SystemTime,
 }
 #[derive(Debug, Serialize, Deserialize)]
-struct MsgHeartbeatServerResponse {
+pub(crate) struct MsgHeartbeatServerResponse {
     heartbeat: u64,
 }
 

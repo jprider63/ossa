@@ -17,10 +17,8 @@ use tokio_util::codec::{self, LengthDelimitedCodec};
 use typeable::Typeable;
 
 use crate::network::protocol::{run_handshake_client, run_handshake_server};
-use crate::protocol::Version;
 use crate::storage::Storage;
 use crate::store;
-use crate::store::ecg::v0::{Body, Header, OperationId};
 use crate::store::ecg::{self, ECGBody, ECGHeader};
 use crate::util::{self, TypedStream};
 
@@ -142,25 +140,17 @@ impl<OT: OdysseyType> Odyssey<OT> {
         }
     }
 
-    pub fn create_store<T: CRDT<Time = OT::Time> + Clone + Send + 'static, S: Storage>(
+    pub fn create_store<T, S: Storage>(
         &self,
         initial_state: T,
-        storage: S,
+        _storage: S,
     ) -> StoreHandle<OT, T>
     where
-        // T::Op: Send,
-        <OT as OdysseyType>::ECGHeader<T>: Send + Clone + 'static,
-        <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: Send,
-        <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: ECGBody<T>,
-        <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::HeaderId: Send,
-        // T: CRDT<Op = <<<OT as OdysseyType>::ECGHeader<T> as ECGHeader>::Body as ECGBody>::Operation>,
-        // T: CRDT<Time = <<OT as OdysseyType>::ECGHeader<T> as ECGHeader>::OperationId>,
-        // T: CRDT<Time = OperationId<Header<OT::Hash, T>>>,
-        // OperationId<Header::HeaderId>
-        // <OT as OdysseyType>::Hash: 'static,
-        T: Typeable + Serialize,
+        T: CRDT<Time = OT::Time> + Clone + Send + 'static + Typeable + Serialize,
         T::Op: Serialize,
-        // OT::Time: CausalOrder<State = ecg::State<OT::ECGHeader<T>, T>>,
+        <OT as OdysseyType>::ECGHeader<T>: Send + Clone + 'static,
+        <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: Send + ECGBody<T>,
+        <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::HeaderId: Send,
     {
         // Create store by generating nonce, etc.
         let store = store::State::<OT::ECGHeader<T>, T, OT::StoreId>::new(initial_state.clone());
@@ -177,7 +167,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
             false
         });
         if already_exists {
-            return self.create_store(initial_state, storage);
+            return self.create_store(initial_state, _storage);
         }
 
         // Launch the store.
@@ -193,8 +183,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
     ) -> StoreHandle<OT, T>
     where
         <OT as OdysseyType>::ECGHeader<T>: Send + Clone + 'static,
-        <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: Send,
-        <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: ECGBody<T>,
+        <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: Send + ECGBody<T>,
         <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::HeaderId: Send,
         T: CRDT<Time = OT::Time> + Clone + Send + 'static,
         T::Op: Serialize,
@@ -255,8 +244,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
                     TypedStream::new(stream)
                 }
                 Err(err) => {
-                    println!("TODO: Log error");
-                    todo!();
+                    todo!("TODO: Log error");
                     return;
                 }
             };
