@@ -9,10 +9,12 @@ edition = "2021"
 async-recursion = "*"
 async-session-types = "*"
 bitvec = {version="*", features = ["serde"]}
+bs58 = "*"
 bytes = "*"
 daggy = {version="*", features=["stable_dag"]}
 dynamic = "*"
 futures = "*"
+hex = "*"
 lazy_static = "*"
 log = "*"
 odyssey-crdt = {path="../odyssey-crdt"}
@@ -26,7 +28,7 @@ tokio-util = {version="*", features=["codec"]}
 tokio-serde = {version="*", features=["cbor"]}
 tokio-stream = "*"
 tower-service = "*"
-typeable = {path="../typeable"}
+typeable = {path="../typeable", features=["serde"]}
 
 [dev-dependencies]
 petgraph = "*"

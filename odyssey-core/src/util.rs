@@ -5,7 +5,7 @@ use rand::{rngs::OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::any::type_name;
-use std::fmt::{self, Debug};
+use std::fmt::{self, Debug, Display};
 use std::marker::PhantomData;
 use std::pin::Pin;
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -52,6 +52,15 @@ impl Debug for Sha256Hash {
     }
 }
 
+impl Display for Sha256Hash {
+    // bs58
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        let base58 = bs58::encode(self.0).into_string();
+        write!(f, "{base58}")?;
+        Ok(())
+    }
+}
+
 impl AsRef<[u8]> for Sha256Hash {
     fn as_ref(&self) -> &[u8] {
         self.0.as_ref()
@@ -77,6 +86,29 @@ impl Hash for Sha256Hash {
 
     fn finalize(state: Self::HashState) -> Self {
         Sha256Hash(state.finalize().into())
+    }
+}
+
+#[derive(Debug)]
+pub enum Sha256HashParseError {
+    Base58(bs58::decode::Error),
+    Hex(hex::FromHexError),
+}
+impl std::str::FromStr for Sha256Hash {
+    type Err = Sha256HashParseError;
+    fn from_str(s: &str) -> Result<Self, Sha256HashParseError> {
+        // "0xA01BE6E4A62BA7D0988FD6F1FE5DC964FD818628A96B472AA3472E6EFFB9A74F"
+        let mut store_id = [0; 32];
+        if s.len() == 66 {
+            // Parse as Hex (with 0x).
+            hex::decode_to_slice(&s[2..], &mut store_id).map_err(Sha256HashParseError::Hex)?;
+        } else if s.len() == 64 {
+            // Parse as Hex.
+            hex::decode_to_slice(s, &mut store_id).map_err(Sha256HashParseError::Hex)?;
+        } else {
+            bs58::decode(s).onto(&mut store_id).map_err(Sha256HashParseError::Base58)?;
+        }
+        Ok(Sha256Hash(store_id))
     }
 }
 
