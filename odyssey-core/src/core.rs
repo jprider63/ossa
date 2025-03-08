@@ -163,7 +163,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
         // OT::Time: CausalOrder<State = ecg::State<OT::ECGHeader<T>, T>>,
     {
         // Create store by generating nonce, etc.
-        let mut store = store::State::<OT::ECGHeader<T>, T, OT::StoreId>::new(initial_state.clone());
+        let store = store::State::<OT::ECGHeader<T>, T, OT::StoreId>::new(initial_state.clone());
         let store_id = store.store_id();
 
         // Check if this store id already exists and try again if there's a conflict.
@@ -442,7 +442,7 @@ where
         <<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: ECGBody<T>,
     {
         // TODO: Divide into 256 operation chunks.
-        if op.len() == 0 {
+        if op.is_empty() {
             return vec![];
         }
 
@@ -455,15 +455,15 @@ where
         self.send_command_chan.send(StoreCommand::Apply {
             operation_header: header,
             operation_body: body,
-        });
+        }).expect("TODO");
 
         times
     }
 
     pub fn subscribe_to_state(&mut self) -> UnboundedReceiver<StateUpdate<O::ECGHeader<T>, T>> {
-        let (send_state, mut recv_state) = tokio::sync::mpsc::unbounded_channel();
+        let (send_state, recv_state) = tokio::sync::mpsc::unbounded_channel();
         self.send_command_chan
-            .send(StoreCommand::SubscribeState { send_state });
+            .send(StoreCommand::SubscribeState { send_state }).expect("TODO");
 
         recv_state
     }

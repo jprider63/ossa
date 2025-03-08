@@ -125,7 +125,7 @@ impl MiniProtocol for Heartbeat {
                     heartbeat,
                 };
                 println!("Sending heartbeat: {req:?}");
-                send(&mut stream, req).await;
+                send(&mut stream, req).await.expect("TODO");
 
                 // Get response.
                 let client_response: MsgHeartbeatClientResponse =
@@ -139,7 +139,7 @@ impl MiniProtocol for Heartbeat {
                 // Send response.
                 let server_response = MsgHeartbeatServerResponse { heartbeat };
                 println!("Sending response: {server_response:?}");
-                send(&mut stream, server_response).await;
+                send(&mut stream, server_response).await.expect("TODO");
             }
         }
     }
@@ -160,7 +160,7 @@ impl MiniProtocol for Heartbeat {
                     client_time,
                 };
                 println!("Sending response.\n{client_response:?}");
-                send(&mut stream, client_response).await;
+                send(&mut stream, client_response).await.expect("TODO");
 
                 // Wait for response.
                 let server_response: MsgHeartbeatServerResponse =

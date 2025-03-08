@@ -259,7 +259,7 @@ impl MultiplexerReadState {
 
                 // Send message if we've received the entire message.
                 if send_buffer.len() == msg_length as usize {
-                    sender.send(send_buffer).await;
+                    sender.send(send_buffer).await.expect("TODO");
 
                     let next_state = MultiplexerReadState::new();
 
