@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
+use typeable::Typeable;
 
 use crate::{
     time::{compare_with_tiebreak, CausalState},
@@ -7,7 +8,7 @@ use crate::{
 };
 
 // TODO: Define CBOR properly
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Typeable, Serialize, Deserialize)]
 /// Last writer wins (LWW) register.
 pub struct LWW<T, A> {
     time: T,

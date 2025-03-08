@@ -1,16 +1,31 @@
 use im::{OrdMap, OrdSet};
 use serde::{Deserialize, Serialize};
+use serde::ser::{SerializeStruct, Serializer};
 use std::fmt::{self, Debug};
+use typeable::Typeable;
 
 use crate::time::CausalState;
 use crate::CRDT;
 
 /// Two phase map.
-#[derive(Clone)]
+#[derive(Clone, Typeable)]
 pub struct TwoPMap<K, V> {
     // JP: Drop `K`?
     map: OrdMap<K, V>,
     tombstones: OrdSet<K>,
+}
+
+// TODO: Standardized serialization.
+impl<K: Serialize + Ord + Clone, V: Serialize + Clone> Serialize for TwoPMap<K, V> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut s = serializer.serialize_struct("TwoPMap", 2)?;
+        s.serialize_field("map", &self.map)?;
+        s.serialize_field("tombstones", &self.tombstones)?;
+        s.end()
+    }
 }
 
 impl<K: Ord + Debug, V: Debug> Debug for TwoPMap<K, V> {
