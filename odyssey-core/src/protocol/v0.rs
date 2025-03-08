@@ -14,7 +14,7 @@ use tokio::{
 use tokio_util::sync::{PollSendError, PollSender};
 use tokio_stream::wrappers::ReceiverStream;
 
-use crate::{core::OdysseyType, network::{
+use crate::{core::{OdysseyType, StoreStatuses}, network::{
     multiplexer::{spawn_miniprotocol_async, Multiplexer, Party, StreamId},
     protocol::MiniProtocol,
 }};
@@ -36,7 +36,7 @@ impl MiniProtocols {
         stream_id: StreamId,
         sender: Sender<(StreamId, Bytes)>,
         receiver: Receiver<BytesMut>,
-        active_stores: watch::Receiver<BTreeSet<O::StoreId>>,
+        active_stores: watch::Receiver<StoreStatuses<O::StoreId>>,
     ) {
         match self {
             MiniProtocols::Heartbeat(p) => spawn_miniprotocol_async::<_, O>(p, is_client, stream_id, sender, receiver, active_stores).await,
@@ -66,7 +66,7 @@ fn initial_miniprotocols() -> Vec<MiniProtocols> {
     ]
 }
 
-pub(crate) async fn run_miniprotocols_server<O: OdysseyType>(stream: TcpStream, active_stores: watch::Receiver<BTreeSet<O::StoreId>>) {
+pub(crate) async fn run_miniprotocols_server<O: OdysseyType>(stream: TcpStream, active_stores: watch::Receiver<StoreStatuses<O::StoreId>>) {
     // Start multiplexer.
     let multiplexer = Multiplexer::new(Party::Server);
 
@@ -100,7 +100,7 @@ pub(crate) async fn run_miniprotocols_server<O: OdysseyType>(stream: TcpStream, 
     // stream.writable().await?;
 }
 
-pub(crate) async fn run_miniprotocols_client<O: OdysseyType>(stream: TcpStream, active_stores: watch::Receiver<BTreeSet<O::StoreId>>) {
+pub(crate) async fn run_miniprotocols_client<O: OdysseyType>(stream: TcpStream, active_stores: watch::Receiver<StoreStatuses<O::StoreId>>) {
     // Start multiplexer.
     let multiplexer = Multiplexer::new(Party::Client);
 

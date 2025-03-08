@@ -19,7 +19,7 @@ use tokio::{
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::{PollSendError, PollSender};
 
-use crate::core::OdysseyType;
+use crate::core::{OdysseyType, StoreStatuses};
 use crate::{
     network::protocol::{MiniProtocol, ProtocolError},
     protocol::v0::MiniProtocols,
@@ -67,7 +67,7 @@ impl Multiplexer {
         self,
         mut stream: TcpStream,
         miniprotocols: Vec<MiniProtocols>,
-        active_stores: watch::Receiver<BTreeSet<O::StoreId>>,
+        active_stores: watch::Receiver<StoreStatuses<O::StoreId>>,
     ) {
         println!("run_with_miniprotocols: {:?}", self.party);
 
@@ -294,7 +294,7 @@ pub(crate) async fn spawn_miniprotocol_async<P: MiniProtocol, O: OdysseyType>(
     stream_id: StreamId,
     sender: Sender<(StreamId, Bytes)>,
     receiver: Receiver<BytesMut>,
-    active_stores: watch::Receiver<BTreeSet<O::StoreId>>,
+    active_stores: watch::Receiver<StoreStatuses<O::StoreId>>,
 ) {
     // Serialize/deserialize byte channel
     let stream = MuxStream::new(stream_id, sender, receiver);

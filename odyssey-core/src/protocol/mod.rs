@@ -1,8 +1,7 @@
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
 use tokio::{net::TcpStream, sync::watch};
 
-use crate::core::OdysseyType;
+use crate::core::{OdysseyType, StoreStatuses};
 
 pub mod heartbeat;
 pub mod manager;
@@ -19,13 +18,13 @@ impl Version {
         *self as u8
     }
 
-    pub async fn run_miniprotocols_server<O: OdysseyType>(&self, stream: TcpStream, active_stores: watch::Receiver<BTreeSet<O::StoreId>>) {
+    pub async fn run_miniprotocols_server<O: OdysseyType>(&self, stream: TcpStream, active_stores: watch::Receiver<StoreStatuses<O::StoreId>>) {
         match self {
             Version::V0 => v0::run_miniprotocols_server::<O>(stream, active_stores).await,
         }
     }
 
-    pub async fn run_miniprotocols_client<O: OdysseyType>(&self, stream: TcpStream, active_stores: watch::Receiver<BTreeSet<O::StoreId>>) {
+    pub async fn run_miniprotocols_client<O: OdysseyType>(&self, stream: TcpStream, active_stores: watch::Receiver<StoreStatuses<O::StoreId>>) {
         match self {
             Version::V0 => v0::run_miniprotocols_client::<O>(stream, active_stores).await,
         }

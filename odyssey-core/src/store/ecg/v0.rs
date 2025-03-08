@@ -16,7 +16,7 @@ use crate::{
     util,
 };
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord, Typeable, Deserialize, Serialize)]
 pub struct HeaderId<Hash>(Hash);
 
 // TODO: Move this to the right location.
@@ -172,7 +172,7 @@ fn tmp_hash<T: Serialize, Hash: util::Hash>(x: &T) -> Hash {
 
 // OperationID's are header ids and index (HeaderId, u8)
 // TODO: Move this to odyssey-crdt::time??
-#[derive(Serialize, Deserialize, Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Serialize, Deserialize, Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Typeable)]
 pub struct OperationId<HeaderId> {
     pub header_id: Option<HeaderId>, // None when in the initial state?
     pub operation_position: u8,
