@@ -1,7 +1,7 @@
 use bytes::{Bytes, BytesMut};
 use futures;
 use futures::task::{Context, Poll};
-use rand::{rngs::OsRng, RngCore};
+use rand::{rngs::OsRng, TryRngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::any::type_name;
@@ -17,7 +17,7 @@ use crate::store::Nonce;
 /// Generate a random nonce.
 pub(crate) fn generate_nonce() -> Nonce {
     let mut nonce = [0; 32];
-    OsRng.fill_bytes(&mut nonce);
+    OsRng.try_fill_bytes(&mut nonce).expect("Nonce generation failed");
     nonce
 }
 
