@@ -4,7 +4,6 @@ use futures::task::{Context, Poll};
 use rand::{rngs::OsRng, TryRngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::any::type_name;
 use std::fmt::{self, Debug, Display};
 use std::marker::PhantomData;
 use std::pin::Pin;
@@ -31,7 +30,7 @@ fn test() {
 }
 
 // TODO: Remove this trait
-pub trait Hash: PartialEq + AsRef<[u8]> {
+pub trait Hash: PartialEq + AsRef<[u8]> + Copy {
     type HashState;
 
     fn new() -> Self::HashState;

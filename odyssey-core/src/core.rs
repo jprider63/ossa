@@ -43,7 +43,9 @@ pub enum StoreStatus {
     Initializing,
     // Store's async handler is running.
     Running {
-        store_handle: JoinHandle<()>,
+        store_handle: JoinHandle<()>, // JP: Does this belong here? The state is owned here, but
+                                      // the miniprotocols probably don't need to block waiting on
+                                      // it...
         // send_command_chan: UnboundedSender<StoreCommand<O::ECGHeader<T>, T>>,
         // https://www.reddit.com/r/rust/comments/1exjiab/the_amazing_pattern_i_discovered_hashmap_with/
     },
@@ -55,6 +57,10 @@ impl StoreStatus {
             StoreStatus::Initializing => true,
             StoreStatus::Running {..} => false,
         }
+    }
+
+    pub(crate) fn is_initialized(&self) -> bool {
+        !self.is_initializing()
     }
 }
 
@@ -203,9 +209,9 @@ impl<OT: OdysseyType> Odyssey<OT> {
         }
 
         // TODO:
-        // - Load store if we have it locally.
+        // - Load store from disk if we have it locally.
         // Spawn async handler.
-        let state = todo!();
+        let state = store::State::Downloading { store_id };
         let store_handler = self.launch_store(todo!(), store_id, state);
         debug!("Joined store: {}", store_id);
         store_handler
@@ -225,7 +231,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
 
     // Disconnect from network.
     pub fn disconnect() {
-        todo!("Turn off network connection (work offline)")
+        todo!("Turn off network connections (work offline)")
     }
 
     // Connect to a peer over ipv4.
@@ -264,6 +270,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
         // Return channel with peer connection status.
     }
 
+    // TODO: Separate state (that keeps state, syncs with other peers, etc) and optional user API (that sends state updates)?
     fn launch_store<T: CRDT<Time = OT::Time> + Clone + Send + 'static>(
         &self,
         initial_state: T,
@@ -272,8 +279,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
     ) -> StoreHandle<OT, T>
     where
         <OT as OdysseyType>::ECGHeader<T>: Send + Clone + 'static,
-        <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: Send,
-        <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: ECGBody<T>,
+        <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: ECGBody<T> + Send,
         <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::HeaderId: Send,
         T::Op: Serialize,
     {
@@ -287,6 +293,18 @@ impl<OT: OdysseyType> Odyssey<OT> {
 
         // Spawn routine that owns this store.
         let future_handle = self.tokio_runtime.spawn(async move {
+            store::run_handler(store).await;
+
+
+
+
+
+
+
+
+
+
+
             let mut state = initial_state;
             let mut listeners: Vec<UnboundedSender<StateUpdate<OT::ECGHeader<T>, T>>> = vec![];
 
@@ -382,9 +400,9 @@ pub trait OdysseyType: 'static {
     // type Hash: Clone + Copy + Debug + Ord + Send;
 
     // TODO: This should be refactored and provided automatically.
-    fn to_causal_state<'a, T: CRDT<Time = Self::Time, Op: Serialize>>(
-        st: &'a store::ecg::State<Self::ECGHeader<T>, T>,
-    ) -> &'a Self::CausalState<T>;
+    fn to_causal_state<T: CRDT<Time = Self::Time, Op: Serialize>>(
+        st: &store::ecg::State<Self::ECGHeader<T>, T>,
+    ) -> &Self::CausalState<T>;
 }
 
 enum StoreCommand<Header: ECGHeader<T>, T: CRDT> {

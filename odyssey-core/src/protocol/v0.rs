@@ -73,31 +73,6 @@ pub(crate) async fn run_miniprotocols_server<O: OdysseyType>(stream: TcpStream, 
     multiplexer
         .run_with_miniprotocols::<O>(stream, initial_miniprotocols(), active_stores)
         .await;
-
-    // // Wait for the socket to be readable
-    // match stream.readable().await {
-    //     Ok(()) => {},
-    //     Err(e) => todo!(),
-    // }
-
-    // // Try to read data, this may still fail with `WouldBlock`
-    // // if the readiness event is a false positive.
-    // match stream.try_read_buf(&mut buf) {
-    //     Ok(0) => break,
-    //     Ok(n) => {
-    //         println!("read {} bytes", n);
-
-    //     }
-    //     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-    //         continue;
-    //     }
-    //     Err(e) => {
-    //         todo!("handle this error"); // return Err(e.into());
-    //     }
-    // }
-
-    // // Wait for the socket to be writable
-    // stream.writable().await?;
 }
 
 pub(crate) async fn run_miniprotocols_client<O: OdysseyType>(stream: TcpStream, active_stores: watch::Receiver<StoreStatuses<O::StoreId>>) {
