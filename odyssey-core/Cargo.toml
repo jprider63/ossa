@@ -16,7 +16,6 @@ dynamic = "*"
 futures = "*"
 hex = "*"
 lazy_static = "*"
-log = "*"
 odyssey-crdt = {path="../odyssey-crdt"}
 rand = "*"
 serde = {version="*", features=["derive"]}
@@ -28,6 +27,7 @@ tokio-util = {version="*", features=["codec"]}
 tokio-serde = {version="*", features=["cbor"]}
 tokio-stream = "*"
 tower-service = "*"
+tracing = "*"
 typeable = {path="../typeable", features=["serde"]}
 
 [dev-dependencies]

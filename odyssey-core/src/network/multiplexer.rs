@@ -18,6 +18,7 @@ use tokio::{
 };
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::{PollSendError, PollSender};
+use tracing::{debug, error};
 
 use crate::core::{OdysseyType, StoreStatuses};
 use crate::{
@@ -69,7 +70,7 @@ impl Multiplexer {
         miniprotocols: Vec<MiniProtocols>,
         active_stores: watch::Receiver<StoreStatuses<O::StoreId>>,
     ) {
-        println!("run_with_miniprotocols: {:?}", self.party);
+        debug!("run_with_miniprotocols: {:?}", self.party);
 
         // Create multiplexer state.
         let mut state: MultiplexerState = MultiplexerState::new();
@@ -120,11 +121,11 @@ impl Multiplexer {
                             // TODO: prepend this to the buffer so we don't make two system calls.
                             stream.write_u32(stream_id).await.expect("TODO");
 
-                            println!("Sending on stream: {}", stream_id);
+                            debug!("Sending on stream: {}", stream_id);
 
                             let length = msg.len().try_into().expect("TODO");
                             stream.write_u32(length).await.expect("TODO");
-                            println!("Sending length: {}", length);
+                            debug!("Sending length: {}", length);
 
                             // Write message.
                             stream.write_all_buf(&mut msg).await.expect("TODO");
@@ -139,7 +140,7 @@ impl Multiplexer {
                         Ok(length) => {
                             assert_eq!(length, buf.len());
                             state.read_state = state.read_state.handle_receive(&state.stream_map, buf).await;
-                            println!("Test out: {:?}", state.read_state);
+                            debug!("Test out: {:?}", state.read_state);
                         }
                     }
                 }
@@ -193,8 +194,8 @@ impl MultiplexerReadState {
         stream_map: &BTreeMap<StreamId, MiniprotocolState>,
         mut buf: BytesMut,
     ) -> MultiplexerReadState {
-        println!("Test in:  {:?}", self);
-        println!("{:?}", buf);
+        debug!("Test in:  {:?}", self);
+        debug!("{:?}", buf);
         match self {
             MultiplexerReadState::ProcessingHeader {
                 mut position,
@@ -217,7 +218,7 @@ impl MultiplexerReadState {
                     // Parse stream id.
                     let stream_id = header[0..4].try_into().unwrap();
                     let stream_id = u32::from_be_bytes(stream_id);
-                    println!("Received stream id: {stream_id:?}");
+                    debug!("Received stream id: {stream_id:?}");
 
                     let p = stream_map.get(&stream_id).expect("TODO");
                     let sender = p.sender.clone();
@@ -225,7 +226,7 @@ impl MultiplexerReadState {
                     // Parse message length.
                     let msg_length = header[4..8].try_into().unwrap();
                     let msg_length = u32::from_be_bytes(msg_length);
-                    println!("Received msg_length: {msg_length:?}");
+                    debug!("Received msg_length: {msg_length:?}");
 
                     // Check upper bound on message length.
                     if msg_length > MAX_MESSAGE_LENGTH {
@@ -265,7 +266,7 @@ impl MultiplexerReadState {
 
                     // Keep working if there are still bytes left in the buffer.
                     if !buf.is_empty() {
-                        println!("Buffer isn't empty!");
+                        debug!("Buffer isn't empty!");
                         return next_state.handle_receive(stream_map, buf).await;
                     } else {
                         next_state
@@ -298,13 +299,13 @@ pub(crate) async fn spawn_miniprotocol_async<P: MiniProtocol, O: OdysseyType>(
 ) {
     // Serialize/deserialize byte channel
     let stream = MuxStream::new(stream_id, sender, receiver);
-    println!("Here 1: {}", std::any::type_name_of_val(&p));
+    debug!("Here 1: {}", std::any::type_name_of_val(&p));
 
     if is_client {
-        println!("Run client");
+        debug!("Run client");
         p.run_client::<_, O>(stream, active_stores).await
     } else {
-        println!("Run server");
+        debug!("Run server");
         p.run_server::<_, O>(stream, active_stores).await
     }
 }
@@ -352,7 +353,7 @@ where
         p.map(|o| {
             o.map(|bytes| {
                 serde_cbor::from_slice(&bytes).map_err(|err| {
-                    // log::error!("Failed to parse type {}: {}", type_name::<T>(), err);
+                    // error!("Failed to parse type {}: {}", type_name::<T>(), err);
                     ProtocolError::DeserializationError(err)
                 })
             })
@@ -377,7 +378,7 @@ where
         let p = Pin::new(&mut self.sender).poll_ready(ctx);
         p.map(|r| {
             r.map_err(|e| {
-                log::error!("Send error: {:?}", e);
+                error!("Send error: {:?}", e);
                 ProtocolError::ChannelSendError(e)
             })
         })
@@ -390,7 +391,7 @@ where
                 let stream_id = self.stream_id;
                 let p = Pin::new(&mut self.sender).start_send((stream_id, cbor.into()));
                 p.map_err(|e| {
-                    log::error!("Send error: {:?}", e);
+                    error!("Send error: {:?}", e);
                     ProtocolError::ChannelSendError(e)
                 })
             }
@@ -404,7 +405,7 @@ where
         let p = Pin::new(&mut self.sender).poll_flush(ctx);
         p.map(|r| {
             r.map_err(|e| {
-                log::error!("Send error: {:?}", e);
+                error!("Send error: {:?}", e);
                 ProtocolError::ChannelSendError(e)
             })
         })
@@ -417,7 +418,7 @@ where
         let p = Pin::new(&mut self.sender).poll_close(ctx);
         p.map(|r| {
             r.map_err(|e| {
-                log::error!("Send error: {:?}", e);
+                error!("Send error: {:?}", e);
                 ProtocolError::ChannelSendError(e)
             })
         })

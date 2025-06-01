@@ -14,6 +14,7 @@ use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
 use tokio_util::codec::{self, LengthDelimitedCodec};
+use tracing::{debug, error, info, warn};
 use typeable::Typeable;
 
 use crate::network::protocol::{run_handshake_client, run_handshake_server};
@@ -68,7 +69,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
         let runtime = match tokio::runtime::Runtime::new() {
             Ok(r) => r,
             Err(err) => {
-                log::error!("Failed to initialize tokio runtime: {}", err);
+                error!("Failed to initialize tokio runtime: {}", err);
                 todo!()
             }
         };
@@ -82,7 +83,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
                 let listener = match TcpListener::bind(&address).await {
                     Ok(l) => l,
                     Err(err) => {
-                        log::error!("Failed to bind to port ({}): {}", &address, err);
+                        error!("Failed to bind to port ({}): {}", &address, err);
                         return;
                     }
                 };
@@ -96,18 +97,17 @@ impl<OT: OdysseyType> Odyssey<OT> {
                 //     unreachable!();
                 // });
 
-                println!("Starting server");
+                info!("Starting server");
                 loop {
                     // Accept connection.
                     let (tcpstream, peer) = match listener.accept().await {
                         Ok(r) => r,
                         Err(err) => {
-                            log::error!("Failed to accept connection: {}", err);
+                            error!("Failed to accept connection: {}", err);
                             continue;
                         }
                     };
-                    println!("Accepted connection from peer: {}", peer);
-                    log::info!("Accepted connection from peer: {}", peer);
+                    info!("Accepted connection from peer: {}", peer);
                     // Spawn async.
                     let active_stores = active_stores_receiver.clone();
                     let future_handle = tokio::spawn(async {
@@ -172,7 +172,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
 
         // Launch the store.
         let store_handle = self.launch_store(initial_state, store_id, store);
-        println!("Created store: {}", store_id);
+        info!("Created store: {}", store_id);
         store_handle
     }
 
@@ -207,7 +207,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
         // Spawn async handler.
         let state = todo!();
         let store_handler = self.launch_store(todo!(), store_id, state);
-        println!("Joined store: {}", store_id);
+        debug!("Joined store: {}", store_id);
         store_handler
 
 
@@ -231,7 +231,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
     // Connect to a peer over ipv4.
     pub fn connect_to_peer_ipv4(&self, address: SocketAddrV4) {
         // Check if we're already connected to a peer at this address.
-        println!("TODO: Check if we're already connected to this peer.");
+        warn!("TODO: Check if we're already connected to this peer.");
 
         let active_stores = self.active_stores.subscribe();
 
@@ -252,10 +252,10 @@ impl<OT: OdysseyType> Odyssey<OT> {
             // Run client handshake.
             let protocol_version = run_handshake_client(&stream).await;
             let stream = stream.finalize().into_inner();
-            println!("Connected to server!");
+            debug!("Connected to server!");
 
             // Start miniprotocols.
-            println!("TODO: Start miniprotocols");
+            debug!("Start miniprotocols");
             protocol_version.run_miniprotocols_client::<OT>(stream, active_stores).await;
         });
 
@@ -290,7 +290,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
             let mut state = initial_state;
             let mut listeners: Vec<UnboundedSender<StateUpdate<OT::ECGHeader<T>, T>>> = vec![];
 
-            println!("Creating store");
+            debug!("Creating store");
             // TODO: Create ECGState, ...
             while let Some(cmd) = recv_commands.recv().await {
                 match cmd {

@@ -13,6 +13,7 @@ use tokio_util::{
     codec::{self, LengthDelimitedCodec},
     sync::PollSendError,
 };
+use tracing::{debug, error, info};
 
 use crate::{core::{OdysseyType, StoreStatuses}, network::multiplexer};
 use crate::protocol::v0::{
@@ -62,7 +63,7 @@ where
     StoreId: for<'a> Deserialize<'a> + Send + Debug,
 {
     let req: StoreMetadataHeaderRequest<StoreId> = receive(stream).await?;
-    log::info!("Received request: {:?}", req);
+    info!("Received request: {:?}", req);
 
     // TODO: Proper response.
     let response: StoreMetadataHeaderResponse<StoreId> = StoreMetadataHeaderResponse {
@@ -115,7 +116,7 @@ where
     match stream.send(message.into()).await {
         Err(err) => {
             // TODO: Push the error up the stack instead of recording it here?
-            log::error!("Failed to send {}: {:?}", type_name::<T>(), err);
+            error!("Failed to send {}: {:?}", type_name::<T>(), err);
             Err(err)
         }
         Ok(()) => Ok(()),
@@ -131,21 +132,21 @@ where
 {
     match stream.next().await {
         None => {
-            log::error!("Failed to receive data from peer"); // Closed connection?
+            error!("Failed to receive data from peer"); // Closed connection?
             Err(ProtocolError::ReceivedNoData)
         }
         Some(Err(err)) => {
-            log::error!("Error while receiving data from peer: {:?}", err);
+            error!("Error while receiving data from peer: {:?}", err);
             Err(err)
         }
         Some(Ok(msg)) => {
             match msg.try_into() {
                 Err(err) => {
-                    log::error!("Received unexpected data from peer"); // : {:?}", err);
+                    error!("Received unexpected data from peer"); // : {:?}", err);
                     Err(ProtocolError::ProtocolDeviation)
                 }
                 Ok(msg) => {
-                    log::debug!("Received data from peer: {:?}", msg);
+                    debug!("Received data from peer: {:?}", msg);
                     Ok(msg)
                 }
             }
