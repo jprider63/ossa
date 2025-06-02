@@ -103,6 +103,7 @@ fn manage_peers() {
 pub(crate) async fn run_handler<OT: OdysseyType, T: CRDT<Time = OT::Time> + Clone + Send + 'static>(
     mut store: State<OT::ECGHeader<T>, T, OT::StoreId>,
     mut recv_commands: UnboundedReceiver<StoreCommand<OT::ECGHeader<T>, T>>,
+    mut recv_commands_untyped: UnboundedReceiver<UntypedStoreCommand>,
 )
 where
     <OT as OdysseyType>::ECGHeader<T>: Send + Clone + 'static,
@@ -112,85 +113,102 @@ where
 {
     let mut listeners: Vec<UnboundedSender<StateUpdate<OT::ECGHeader<T>, T>>> = vec![];
 
-    while let Some(cmd) = recv_commands.recv().await {
-        match cmd {
-            StoreCommand::Apply {
-                operation_header,
-                operation_body,
-            } => {
-                store.state_machine = match store.state_machine {
-                    StateMachine::Downloading { store_id } => {
-                        // Rank and connect to a few peers.
-                        manage_peers();
-
-                        StateMachine::Downloading { store_id }
-                    }
-                    StateMachine::Syncing { store_header, ecg_state, decrypted_state } => {
-                        let mut ecg_state = ecg_state;
-                        let mut decrypted_state = decrypted_state;
-
-                        // Update ECG state.
-                        let success = ecg_state.insert_header(operation_header.clone());
-                        if !success {
-                            todo!("Invalid header"); // : {:?}", operation_header);
-                        }
-
-                        // Update state.
-                        // TODO: Get new time?.. Or take it as an argument
-                        // Operation ID/time is function of tips, current operation, ...? How do we
-                        // do batching? (HeaderId(h) | Self, Index(u8)) ? This requires having all
-                        // the batched operations?
-                        let causal_state = OT::to_causal_state(&ecg_state);
-                        for (time, operation) in
-                            operation_header.zip_operations_with_time(operation_body)
-                        {
-                            decrypted_state.latest_state = decrypted_state.latest_state.apply(causal_state, time, operation);
-                        }
-
-                        // Send state to subscribers.
-                        for l in &listeners {
-                            let snapshot = StateUpdate::Snapshot {
-                                snapshot: decrypted_state.latest_state.clone(),
-                                ecg_state: ecg_state.clone(),
-                            };
-                            l.send(snapshot).expect("TODO");
-                        }
-
-                        StateMachine::Syncing { store_header, ecg_state, decrypted_state }
-                    }
+    loop {
+        tokio::select! {
+            cmd_m = recv_commands.recv() => {
+                let Some(cmd) = cmd_m else {
+                    todo!();
+                    return;
                 };
-            }
-            StoreCommand::SubscribeState { send_state } => {
-                // Send current state.
-                let snapshot = match &store.state_machine {
-                    StateMachine::Downloading { .. } => {
-                        StateUpdate::Downloading
-                    }
-                    StateMachine::Syncing { store_header: _, ref ecg_state, ref decrypted_state } => {
-                        StateUpdate::Snapshot {
-                            snapshot: decrypted_state.latest_state.clone(),
-                            ecg_state: ecg_state.clone(),
-                        }
-                    }
-                };
-                send_state.send(snapshot).expect("TODO");
+                match cmd {
+                    StoreCommand::Apply {
+                        operation_header,
+                        operation_body,
+                    } => {
+                        store.state_machine = match store.state_machine {
+                            StateMachine::Downloading { store_id } => {
+                                // Rank and connect to a few peers.
+                                manage_peers();
 
-                // Register this subscriber.
-                listeners.push(send_state);
-            }
-            StoreCommand::RegisterPeers { peers } => {
-                // Add peer to known peers.
-                for peer in peers {
-                    store.peers.insert(peer);
+                                StateMachine::Downloading { store_id }
+                            }
+                            StateMachine::Syncing { store_header, ecg_state, decrypted_state } => {
+                                let mut ecg_state = ecg_state;
+                                let mut decrypted_state = decrypted_state;
+
+                                // Update ECG state.
+                                let success = ecg_state.insert_header(operation_header.clone());
+                                if !success {
+                                    todo!("Invalid header"); // : {:?}", operation_header);
+                                }
+
+                                // Update state.
+                                // TODO: Get new time?.. Or take it as an argument
+                                // Operation ID/time is function of tips, current operation, ...? How do we
+                                // do batching? (HeaderId(h) | Self, Index(u8)) ? This requires having all
+                                // the batched operations?
+                                let causal_state = OT::to_causal_state(&ecg_state);
+                                for (time, operation) in
+                                    operation_header.zip_operations_with_time(operation_body)
+                                {
+                                    decrypted_state.latest_state = decrypted_state.latest_state.apply(causal_state, time, operation);
+                                }
+
+                                // Send state to subscribers.
+                                for l in &listeners {
+                                    let snapshot = StateUpdate::Snapshot {
+                                        snapshot: decrypted_state.latest_state.clone(),
+                                        ecg_state: ecg_state.clone(),
+                                    };
+                                    l.send(snapshot).expect("TODO");
+                                }
+
+                                StateMachine::Syncing { store_header, ecg_state, decrypted_state }
+                            }
+                        };
+                    }
+                    StoreCommand::SubscribeState { send_state } => {
+                        // Send current state.
+                        let snapshot = match &store.state_machine {
+                            StateMachine::Downloading { .. } => {
+                                StateUpdate::Downloading
+                            }
+                            StateMachine::Syncing { store_header: _, ref ecg_state, ref decrypted_state } => {
+                                StateUpdate::Snapshot {
+                                    snapshot: decrypted_state.latest_state.clone(),
+                                    ecg_state: ecg_state.clone(),
+                                }
+                            }
+                        };
+                        send_state.send(snapshot).expect("TODO");
+
+                        // Register this subscriber.
+                        listeners.push(send_state);
+                    }
+                
                 }
+            }
+            cmd_m = recv_commands_untyped.recv() => {
+                let Some(cmd) = cmd_m else {
+                    todo!();
+                    return;
+                };
+                match cmd {
+                    UntypedStoreCommand::RegisterPeers { peers } => {
+                        // Add peer to known peers.
+                        for peer in peers {
+                            store.peers.insert(peer);
+                        }
 
-                manage_peers();
+                        manage_peers();
+                    }
+                }
             }
         }
     }
 }
 
-pub(crate) enum StoreCommand<Header: ECGHeader<T>, T: CRDT> {
+pub(crate) enum StoreCommand<Header: ECGHeader<T>, T> {
     Apply {
         operation_header: Header,     // <Hash, T>,
         operation_body: Header::Body, // <Hash, T>,
@@ -199,17 +217,27 @@ pub(crate) enum StoreCommand<Header: ECGHeader<T>, T: CRDT> {
     SubscribeState {
         send_state: UnboundedSender<StateUpdate<Header, T>>,
     },
-    /// Register the discovered peers.
-    RegisterPeers {
-        peers: Vec<()>,
-    }
 }
 
-pub enum StateUpdate<Header: ECGHeader<T>, T: CRDT> {
+pub enum StateUpdate<Header: ECGHeader<T>, T> {
     Downloading,
     Snapshot {
         snapshot: T,
         ecg_state: ecg::State<Header, T>,
         // TODO: ECG DAG
     },
+}
+
+// trait UntypedCRDT: CRDT<Op = dyn Any, Time = dyn Any> {} // Any + Sized + 'static +  
+// trait UntypedECGHeader: ECGHeader<dyn Any> {} // Any + Sized + 'static + 
+// 
+// struct UntypedStoreCommand(StoreCommand<dyn UntypedECGHeader, dyn UntypedCRDT>);
+// struct UntypedStoreCommand(StoreCommand<dyn UntypedECGHeader, dyn Any>);
+
+/// Untyped variant of `StoreCommand` since existentials don't work.
+pub enum UntypedStoreCommand {
+    /// Register the discovered peers.
+    RegisterPeers {
+        peers: Vec<()>,
+    }
 }

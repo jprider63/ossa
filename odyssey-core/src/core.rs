@@ -4,7 +4,6 @@ use odyssey_crdt::time::CausalState;
 use odyssey_crdt::CRDT;
 use serde::Serialize;
 use tokio::sync::watch;
-use std::any::Any;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Debug, Display};
 use std::marker::PhantomData;
@@ -20,7 +19,7 @@ use typeable::Typeable;
 
 use crate::network::protocol::{run_handshake_client, run_handshake_server};
 use crate::storage::Storage;
-use crate::store::{self, StateUpdate, StoreCommand};
+use crate::store::{self, StateUpdate, StoreCommand, UntypedStoreCommand};
 use crate::store::ecg::{self, ECGBody, ECGHeader};
 use crate::util::{self, TypedStream};
 
@@ -51,13 +50,10 @@ pub enum StoreStatus {
         // https://www.reddit.com/r/rust/comments/1exjiab/the_amazing_pattern_i_discovered_hashmap_with/
         // send_command_chan: UnboundedSender<StoreCommand<store::ecg::v0::Header<dyn Hash, dyn CRDT>, dyn CRDT>>,
         // send_command_chan: UnboundedSender<UntypedStoreCommand>,
+        send_command_chan: UnboundedSender<UntypedStoreCommand>,
     },
 }
 
-// trait UntypedCRDT: CRDT<Op = dyn Any, Time = dyn Any> {} // Any + Sized + 'static +  
-// trait UntypedECGHeader: ECGHeader<dyn UntypedCRDT> {} // Any + Sized + 'static + 
-// 
-// struct UntypedStoreCommand(StoreCommand<dyn UntypedECGHeader, dyn UntypedCRDT>);
 
 impl StoreStatus {
     pub(crate) fn is_initializing(&self) -> bool {
@@ -297,18 +293,22 @@ impl<OT: OdysseyType> Odyssey<OT> {
         // Create channels to handle requests and send updates.
         let (send_commands, recv_commands) =
             tokio::sync::mpsc::unbounded_channel::<store::StoreCommand<OT::ECGHeader<T>, T>>();
+        let (send_commands_untyped, recv_commands_untyped) =
+            tokio::sync::mpsc::unbounded_channel::<store::UntypedStoreCommand>();
+
 
         // Add to DHT
 
         // Spawn routine that owns this store.
         let future_handle = self.tokio_runtime.spawn(async move {
-            store::run_handler::<OT, T>(store, recv_commands).await;
+            store::run_handler::<OT, T>(store, recv_commands, recv_commands_untyped).await;
         });
 
         // Register this store.
         self.active_stores.send_if_modified(|active_stores| {
             let _ = active_stores.insert(store_id, StoreStatus::Running {
                 store_handle: future_handle,
+                send_command_chan: send_commands_untyped,
             });
             true
         });

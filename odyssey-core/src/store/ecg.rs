@@ -12,7 +12,7 @@ use std::marker::PhantomData;
 pub mod v0;
 
 /// Trait that ECG headers (nodes?) must implement.
-pub trait ECGHeader<T: CRDT> {
+pub trait ECGHeader<T: ?Sized> {
     type HeaderId: Ord + Copy + Debug;
 
     // /// Type identifying operations that implements CausalOrder so that it can be used as CRDT::Time.
@@ -35,11 +35,12 @@ pub trait ECGHeader<T: CRDT> {
     // TODO: Can we return the following instead? impl Iterator<(T::Time, Item = T::Time)>
     fn zip_operations_with_time(&self, body: Self::Body) -> Vec<(T::Time, T::Op)>
     where
+        T: CRDT + Sized,
         <Self as ECGHeader<T>>::Body: ECGBody<T>;
 
     /// Retrieve the times for each operation in this ECG header and body.
     // TODO: Can we return the following instead? impl Iterator<Item = T::Time>
-    fn get_operation_times(&self, body: &Self::Body) -> Vec<T::Time>;
+    fn get_operation_times(&self, body: &Self::Body) -> Vec<T::Time> where T: CRDT;
 }
 
 pub trait ECGBody<T: CRDT> {
@@ -64,7 +65,7 @@ struct NodeInfo<Header> {
 }
 
 #[derive(Debug)]
-pub struct State<Header: ECGHeader<T>, T: CRDT> {
+pub struct State<Header: ECGHeader<T>, T> {
     dependency_graph: StableDag<Header::HeaderId, ()>, // JP: Hold the operations? Depth? Do we need StableDag?
 
     /// Nodes at the top of the DAG that depend on the initial state.
