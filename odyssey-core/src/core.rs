@@ -4,6 +4,7 @@ use odyssey_crdt::time::CausalState;
 use odyssey_crdt::CRDT;
 use serde::Serialize;
 use tokio::sync::watch;
+use std::any::Any;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Debug, Display};
 use std::marker::PhantomData;
@@ -19,7 +20,7 @@ use typeable::Typeable;
 
 use crate::network::protocol::{run_handshake_client, run_handshake_server};
 use crate::storage::Storage;
-use crate::store;
+use crate::store::{self, StateUpdate, StoreCommand};
 use crate::store::ecg::{self, ECGBody, ECGHeader};
 use crate::util::{self, TypedStream};
 
@@ -48,8 +49,15 @@ pub enum StoreStatus {
                                       // it...
         // send_command_chan: UnboundedSender<StoreCommand<O::ECGHeader<T>, T>>,
         // https://www.reddit.com/r/rust/comments/1exjiab/the_amazing_pattern_i_discovered_hashmap_with/
+        // send_command_chan: UnboundedSender<StoreCommand<store::ecg::v0::Header<dyn Hash, dyn CRDT>, dyn CRDT>>,
+        // send_command_chan: UnboundedSender<UntypedStoreCommand>,
     },
 }
+
+// trait UntypedCRDT: CRDT<Op = dyn Any, Time = dyn Any> {} // Any + Sized + 'static +  
+// trait UntypedECGHeader: ECGHeader<dyn UntypedCRDT> {} // Any + Sized + 'static + 
+// 
+// struct UntypedStoreCommand(StoreCommand<dyn UntypedECGHeader, dyn UntypedCRDT>);
 
 impl StoreStatus {
     pub(crate) fn is_initializing(&self) -> bool {
@@ -159,7 +167,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
         <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::HeaderId: Send,
     {
         // Create store by generating nonce, etc.
-        let store = store::State::<OT::ECGHeader<T>, T, OT::StoreId>::new(initial_state.clone());
+        let store = store::State::<OT::ECGHeader<T>, T, OT::StoreId>::new_syncing(initial_state.clone());
         let store_id = store.store_id();
 
         // Check if this store id already exists and try again if there's a conflict.
@@ -173,11 +181,12 @@ impl<OT: OdysseyType> Odyssey<OT> {
             false
         });
         if already_exists {
+            // This will generate a new nonce if there's a conflict.
             return self.create_store(initial_state, _storage);
         }
 
         // Launch the store.
-        let store_handle = self.launch_store(initial_state, store_id, store);
+        let store_handle = self.launch_store(store_id, store);
         info!("Created store: {}", store_id);
         store_handle
     }
@@ -205,14 +214,15 @@ impl<OT: OdysseyType> Odyssey<OT> {
             false
         });
         if is_active {
+            // TODO: Get handle of existing store.
             return todo!();
         }
 
         // TODO:
         // - Load store from disk if we have it locally.
         // Spawn async handler.
-        let state = store::State::Downloading { store_id };
-        let store_handler = self.launch_store(todo!(), store_id, state);
+        let state = store::State::new_downloading(store_id);
+        let store_handler = self.launch_store(store_id, state);
         debug!("Joined store: {}", store_id);
         store_handler
 
@@ -273,9 +283,8 @@ impl<OT: OdysseyType> Odyssey<OT> {
     // TODO: Separate state (that keeps state, syncs with other peers, etc) and optional user API (that sends state updates)?
     fn launch_store<T: CRDT<Time = OT::Time> + Clone + Send + 'static>(
         &self,
-        initial_state: T,
         store_id: OT::StoreId,
-        mut store: store::State<OT::ECGHeader<T>, T, OT::StoreId>,
+        store: store::State<OT::ECGHeader<T>, T, OT::StoreId>,
     ) -> StoreHandle<OT, T>
     where
         <OT as OdysseyType>::ECGHeader<T>: Send + Clone + 'static,
@@ -286,76 +295,14 @@ impl<OT: OdysseyType> Odyssey<OT> {
         // Initialize storage for this store.
 
         // Create channels to handle requests and send updates.
-        let (send_commands, mut recv_commands) =
-            tokio::sync::mpsc::unbounded_channel::<StoreCommand<OT::ECGHeader<T>, T>>();
+        let (send_commands, recv_commands) =
+            tokio::sync::mpsc::unbounded_channel::<store::StoreCommand<OT::ECGHeader<T>, T>>();
 
         // Add to DHT
 
         // Spawn routine that owns this store.
         let future_handle = self.tokio_runtime.spawn(async move {
-            store::run_handler(store).await;
-
-
-
-
-
-
-
-
-
-
-
-            let mut state = initial_state;
-            let mut listeners: Vec<UnboundedSender<StateUpdate<OT::ECGHeader<T>, T>>> = vec![];
-
-            debug!("Creating store");
-            // TODO: Create ECGState, ...
-            while let Some(cmd) = recv_commands.recv().await {
-                match cmd {
-                    StoreCommand::Apply {
-                        operation_header,
-                        operation_body,
-                    } => {
-                        // Update ECG state.
-                        let success = store.ecg_state.insert_header(operation_header.clone());
-                        if !success {
-                            todo!("Invalid header"); // : {:?}", operation_header);
-                        }
-
-                        // Update state.
-                        // TODO: Get new time?.. Or take it as an argument
-                        // Operation ID/time is function of tips, current operation, ...? How do we
-                        // do batching? (HeaderId(h) | Self, Index(u8)) ? This requires having all
-                        // the batched operations?
-                        let causal_state = OT::to_causal_state(&store.ecg_state);
-                        for (time, operation) in
-                            operation_header.zip_operations_with_time(operation_body)
-                        {
-                            state = state.apply(causal_state, time, operation);
-                        }
-
-                        // Send state to subscribers.
-                        for l in &listeners {
-                            let snapshot = StateUpdate::Snapshot {
-                                snapshot: state.clone(),
-                                ecg_state: store.ecg_state.clone(),
-                            };
-                            l.send(snapshot).expect("TODO");
-                        }
-                    }
-                    StoreCommand::SubscribeState { send_state } => {
-                        // Send current state.
-                        let snapshot = StateUpdate::Snapshot {
-                            snapshot: state.clone(),
-                            ecg_state: store.ecg_state.clone(),
-                        };
-                        send_state.send(snapshot).expect("TODO");
-
-                        // Register this subscriber.
-                        listeners.push(send_state);
-                    }
-                }
-            }
+            store::run_handler::<OT, T>(store, recv_commands).await;
         });
 
         // Register this store.
@@ -405,23 +352,6 @@ pub trait OdysseyType: 'static {
     ) -> &Self::CausalState<T>;
 }
 
-enum StoreCommand<Header: ECGHeader<T>, T: CRDT> {
-    Apply {
-        operation_header: Header,     // <Hash, T>,
-        operation_body: Header::Body, // <Hash, T>,
-    },
-    SubscribeState {
-        send_state: UnboundedSender<StateUpdate<Header, T>>,
-    },
-}
-
-pub enum StateUpdate<Header: ECGHeader<T>, T: CRDT> {
-    Snapshot {
-        snapshot: T,
-        ecg_state: ecg::State<Header, T>,
-        // TODO: ECG DAG
-    },
-}
 
 impl<O: OdysseyType, T: CRDT<Time = O::Time>> StoreHandle<O, T>
 where

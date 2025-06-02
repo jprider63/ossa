@@ -94,7 +94,9 @@ fn run_with_initiative<S: Stream<MsgManager>, O: OdysseyType>(mut stream: S, mut
 // Or: Map<StoreId, watch::Sender<Set<PeerId>>? ***
 // Or: Spawn sync threads for each shared store.
 
-fn handle_shared_stores<O: OdysseyType>(shared_stores: Vec<O::StoreId>) {
+fn handle_shared_stores<O: OdysseyType>(
+    shared_stores: Vec<O::StoreId>,
+) {
     // TODO: Store the shared stores?
 
     // Spawn sync threads for each shared store.

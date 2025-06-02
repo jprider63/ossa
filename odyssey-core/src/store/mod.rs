@@ -1,5 +1,6 @@
 use odyssey_crdt::CRDT;
 use serde::Serialize;
+use tokio::sync::mpsc::{UnboundedSender, UnboundedReceiver};
 use std::collections::BTreeSet;
 use typeable::{TypeId, Typeable};
 
@@ -11,19 +12,26 @@ pub mod v0; // TODO: Move this to network::protocol
 pub use v0::{MetadataBody, MetadataHeader, Nonce};
 
 
+pub struct State<Header: ecg::ECGHeader<T>, T: CRDT, Hash> {
+    // Peers that also have this store.
+    peers: BTreeSet<()>, // PeerId>,
+    state_machine: StateMachine<Header, T, Hash>,
+}
+
 // States are:
 // - Initializing - Setting up the thread that owns the store (not defined here).
 // - Downloading - Don't have the header so we're downloading it.
 // - Syncing - Have the header and syncing updates between peers.
-pub enum State<Header: ecg::ECGHeader<T>, T: CRDT, Hash> {
+pub enum StateMachine<Header: ecg::ECGHeader<T>, T: CRDT, Hash> {
     Downloading {
         store_id: Hash,
     },
     Syncing {
         store_header: MetadataHeader<Hash>,
         ecg_state: ecg::State<Header, T>,
-        decrypted_state: Option<DecryptedState<Header, T>>, // JP: Is this actually used?
-                                                                       // Does it make sense?
+        decrypted_state: DecryptedState<Header, T>, // Temporary
+        // decrypted_state: Option<DecryptedState<Header, T>>, // JP: Is this actually used?
+                                                               // Does it make sense?
     }
 }
 
@@ -36,7 +44,9 @@ pub struct DecryptedState<Header: ecg::ECGHeader<T>, T: CRDT> {
 }
 
 impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash> State<Header, T, Hash> {
-    pub fn new(initial_state: T) -> State<Header, T, Hash>
+    /// Initialize a new store with the given state. This initializes the header, including
+    /// generating a random nonce.
+    pub fn new_syncing(initial_state: T) -> State<Header, T, Hash>
     where
         T: Serialize + Typeable,
     {
@@ -47,29 +57,52 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash> State<Header, T, Hash
             latest_headers: BTreeSet::new(),
         };
 
-        State::Syncing {
+        let state_machine = StateMachine::Syncing {
             store_header,
             ecg_state: ecg::State::new(),
-            decrypted_state: Some(decrypted_state),
+            decrypted_state, // : Some(decrypted_state),
+        };
+        State {
+            peers: BTreeSet::new(),
+            state_machine
+        }
+    }
+
+    /// Create a new store with the given store id that is downloading the store's header.
+    pub(crate) fn new_downloading(store_id: Hash) -> Self {
+        let state_machine = StateMachine::Downloading {
+            store_id
+        };
+
+        State {
+            peers: BTreeSet::new(),
+            state_machine,
         }
     }
 
     pub fn store_id(&self) -> Hash {
-        match self {
-            State::Downloading{store_id} => {
+        match &self.state_machine {
+            StateMachine::Downloading{store_id} => {
                 *store_id
             }
-            State::Syncing { store_header, .. } => {
+            StateMachine::Syncing { store_header, .. } => {
                 store_header.store_id()
             }
         }
     }
 }
 
+/// Manage peers by ranking them, randomize, potentially connecting to some of them, etc.
+fn manage_peers() {
+    todo!()
+}
+
+
 /// Run the handler that owns this store and manages its state. This handler is typically run in
 /// its own tokio thread.
 pub(crate) async fn run_handler<OT: OdysseyType, T: CRDT<Time = OT::Time> + Clone + Send + 'static>(
     mut store: State<OT::ECGHeader<T>, T, OT::StoreId>,
+    mut recv_commands: UnboundedReceiver<StoreCommand<OT::ECGHeader<T>, T>>,
 )
 where
     <OT as OdysseyType>::ECGHeader<T>: Send + Clone + 'static,
@@ -77,17 +110,106 @@ where
     <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::HeaderId: Send,
     T::Op: Serialize,
 {
-    match store {
-        State::Downloading {..} => {
-            // Get peers that have this store too. ? Or the other thread will do this
-            // automatically?
+    let mut listeners: Vec<UnboundedSender<StateUpdate<OT::ECGHeader<T>, T>>> = vec![];
 
-            // Wait until the store is downloaded.
-            todo!("Wait until the store is downloaded")
-            // Update state to be syncing.
-        },
-        State::Syncing {..} => {
-            todo!()
-        },
+    while let Some(cmd) = recv_commands.recv().await {
+        match cmd {
+            StoreCommand::Apply {
+                operation_header,
+                operation_body,
+            } => {
+                store.state_machine = match store.state_machine {
+                    StateMachine::Downloading { store_id } => {
+                        // Rank and connect to a few peers.
+                        manage_peers();
+
+                        StateMachine::Downloading { store_id }
+                    }
+                    StateMachine::Syncing { store_header, ecg_state, decrypted_state } => {
+                        let mut ecg_state = ecg_state;
+                        let mut decrypted_state = decrypted_state;
+
+                        // Update ECG state.
+                        let success = ecg_state.insert_header(operation_header.clone());
+                        if !success {
+                            todo!("Invalid header"); // : {:?}", operation_header);
+                        }
+
+                        // Update state.
+                        // TODO: Get new time?.. Or take it as an argument
+                        // Operation ID/time is function of tips, current operation, ...? How do we
+                        // do batching? (HeaderId(h) | Self, Index(u8)) ? This requires having all
+                        // the batched operations?
+                        let causal_state = OT::to_causal_state(&ecg_state);
+                        for (time, operation) in
+                            operation_header.zip_operations_with_time(operation_body)
+                        {
+                            decrypted_state.latest_state = decrypted_state.latest_state.apply(causal_state, time, operation);
+                        }
+
+                        // Send state to subscribers.
+                        for l in &listeners {
+                            let snapshot = StateUpdate::Snapshot {
+                                snapshot: decrypted_state.latest_state.clone(),
+                                ecg_state: ecg_state.clone(),
+                            };
+                            l.send(snapshot).expect("TODO");
+                        }
+
+                        StateMachine::Syncing { store_header, ecg_state, decrypted_state }
+                    }
+                };
+            }
+            StoreCommand::SubscribeState { send_state } => {
+                // Send current state.
+                let snapshot = match &store.state_machine {
+                    StateMachine::Downloading { .. } => {
+                        StateUpdate::Downloading
+                    }
+                    StateMachine::Syncing { store_header: _, ref ecg_state, ref decrypted_state } => {
+                        StateUpdate::Snapshot {
+                            snapshot: decrypted_state.latest_state.clone(),
+                            ecg_state: ecg_state.clone(),
+                        }
+                    }
+                };
+                send_state.send(snapshot).expect("TODO");
+
+                // Register this subscriber.
+                listeners.push(send_state);
+            }
+            StoreCommand::RegisterPeers { peers } => {
+                // Add peer to known peers.
+                for peer in peers {
+                    store.peers.insert(peer);
+                }
+
+                manage_peers();
+            }
+        }
     }
+}
+
+pub(crate) enum StoreCommand<Header: ECGHeader<T>, T: CRDT> {
+    Apply {
+        operation_header: Header,     // <Hash, T>,
+        operation_body: Header::Body, // <Hash, T>,
+    },
+    // TODO: Support unsubscribe.
+    SubscribeState {
+        send_state: UnboundedSender<StateUpdate<Header, T>>,
+    },
+    /// Register the discovered peers.
+    RegisterPeers {
+        peers: Vec<()>,
+    }
+}
+
+pub enum StateUpdate<Header: ECGHeader<T>, T: CRDT> {
+    Downloading,
+    Snapshot {
+        snapshot: T,
+        ecg_state: ecg::State<Header, T>,
+        // TODO: ECG DAG
+    },
 }
