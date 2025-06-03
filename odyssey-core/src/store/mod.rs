@@ -92,8 +92,14 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash> State<Header, T, Hash
     }
 }
 
+// JP: Or should Odyssey own this/peers?
 /// Manage peers by ranking them, randomize, potentially connecting to some of them, etc.
-fn manage_peers() {
+fn manage_peers<OT: OdysseyType, T: CRDT<Time = OT::Time> + Clone + Send + 'static>(
+    store: &mut State<OT::ECGHeader<T>, T, OT::StoreId>,
+)
+where
+    T::Op: Serialize,
+{
     todo!()
 }
 
@@ -128,7 +134,7 @@ where
                         store.state_machine = match store.state_machine {
                             StateMachine::Downloading { store_id } => {
                                 // Rank and connect to a few peers.
-                                manage_peers();
+                                manage_peers::<OT,T>(&mut store);
 
                                 StateMachine::Downloading { store_id }
                             }
@@ -200,7 +206,10 @@ where
                             store.peers.insert(peer);
                         }
 
-                        manage_peers();
+                        // Spawn sync threads for each shared store.
+                        // TODO: Only do this if server?
+                        // Check if we already are syncing these.
+                        manage_peers::<OT,T>(&mut store);
                     }
                 }
             }
@@ -235,6 +244,7 @@ pub enum StateUpdate<Header: ECGHeader<T>, T> {
 // struct UntypedStoreCommand(StoreCommand<dyn UntypedECGHeader, dyn Any>);
 
 /// Untyped variant of `StoreCommand` since existentials don't work.
+#[derive(Clone, Debug)]
 pub enum UntypedStoreCommand {
     /// Register the discovered peers.
     RegisterPeers {

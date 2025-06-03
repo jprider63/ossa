@@ -66,6 +66,13 @@ impl StoreStatus {
     pub(crate) fn is_initialized(&self) -> bool {
         !self.is_initializing()
     }
+
+    pub(crate) fn command_channel(&self) -> Option<&UnboundedSender<UntypedStoreCommand>> {
+        match self {
+            StoreStatus::Initializing => None,
+            StoreStatus::Running {send_command_chan, ..} => Some(send_command_chan),
+        }
+    }
 }
 
 impl<OT: OdysseyType> Odyssey<OT> {
@@ -85,7 +92,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
         };
         let runtime_handle = runtime.handle().clone();
 
-        // Spawn thread.
+        // Spawn server thread.
         let odyssey_thread = thread::spawn(move || {
             runtime_handle.block_on(async {
                 // Start listening for connections.

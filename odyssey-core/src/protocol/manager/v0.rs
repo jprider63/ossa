@@ -1,6 +1,7 @@
 use bitvec::{BitArr, prelude::Msb0};
 use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc::UnboundedSender;
 use tracing::debug;
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
@@ -8,6 +9,7 @@ use tokio::sync::watch;
 use tokio::time::{sleep, Duration};
 
 use crate::core::{OdysseyType, StoreStatus, StoreStatuses};
+use crate::store::UntypedStoreCommand;
 use crate::{
     network::{
         multiplexer::Party,
@@ -95,16 +97,15 @@ fn run_with_initiative<S: Stream<MsgManager>, O: OdysseyType>(mut stream: S, mut
 // Or: Spawn sync threads for each shared store.
 
 fn handle_shared_stores<O: OdysseyType>(
-    shared_stores: Vec<O::StoreId>,
+    shared_stores: Vec<(O::StoreId, UnboundedSender<UntypedStoreCommand>)>,
 ) {
     // TODO: Store the shared stores?
+    let peers = vec![()]; // todo!()];
+    let cmd = UntypedStoreCommand::RegisterPeers { peers };
 
-    // Spawn sync threads for each shared store.
-    // TODO: Only do this if server?
-
-    // Check if we already are syncing these.
-
-    todo!("{:?}", shared_stores);
+    for (_store_id, store_sender) in shared_stores {
+        store_sender.send(cmd.clone()).expect("TODO");
+    }
 }
 
 fn hash_store_id_with_nonce<StoreId: AsRef<[u8]>>(nonce: [u8; 4], store_id: &StoreId) -> Sha256Hash {
@@ -114,16 +115,16 @@ fn hash_store_id_with_nonce<StoreId: AsRef<[u8]>>(nonce: [u8; 4], store_id: &Sto
     <Sha256Hash as Hash>::finalize(h)
 }
 
-async fn run_advertise_stores_server<S: Stream<MsgManager>, O: OdysseyType>(stream: &mut S, store_ids: &mut watch::Receiver<StoreStatuses<O::StoreId>>) -> Vec<O::StoreId> {
+async fn run_advertise_stores_server<S: Stream<MsgManager>, O: OdysseyType>(stream: &mut S, store_ids: &mut watch::Receiver<StoreStatuses<O::StoreId>>) -> Vec<(O::StoreId, UnboundedSender<UntypedStoreCommand>)> {
     // TODO: Prioritize and choose stores.
     // Truncate stores length to MAX_ADVERTISE_STORES.
-    let store_ids: Vec<O::StoreId> = store_ids.borrow_and_update().iter().filter(|e| e.1.is_initialized()).take(MAX_ADVERTISE_STORES).map(|e| e.0).cloned().collect();
+    let store_ids: Vec<(O::StoreId, UnboundedSender<UntypedStoreCommand>)> = store_ids.borrow_and_update().iter().filter_map(|e| e.1.command_channel().map(|c| (e.0, c))).take(MAX_ADVERTISE_STORES).map(|(&s, c)| (s, c.clone())).collect();
 
 
     // Send store advertising request.
     let nonce = thread_rng().gen();
 
-    let hashed_store_ids = store_ids.iter().map(|store_id| 
+    let hashed_store_ids = store_ids.iter().map(|(store_id, _)|
         hash_store_id_with_nonce(nonce, store_id)
     ).collect();
     let req = MsgManagerRequest::AdvertiseStores {
@@ -135,7 +136,7 @@ async fn run_advertise_stores_server<S: Stream<MsgManager>, O: OdysseyType>(stre
     // Wait for response.
     let response: MsgManagerAdvertiseStoresResponse = receive(stream).await.expect("TODO");
 
-    store_ids.into_iter().zip(response.have_stores).filter_map(|(store_id, is_shared)| if is_shared { Some(store_id) } else { None }).collect()
+    store_ids.into_iter().zip(response.have_stores).filter_map(|((store_id, chan), is_shared)| if is_shared { Some((store_id, chan)) } else { None }).collect()
 }
 
 async fn run_advertise_stores_client<S: Stream<MsgManager>, O: OdysseyType>(stream: &mut S, nonce: [u8; 4], their_store_ids: Vec<Sha256Hash>, our_store_ids: &mut watch::Receiver<StoreStatuses<O::StoreId>>) -> BTreeSet<O::StoreId> {
@@ -171,6 +172,7 @@ fn run_without_initiative<S: Stream<MsgManager>, O: OdysseyType>(mut stream: S, 
             match response {
                 MsgManagerRequest::AdvertiseStores { nonce, store_ids } => {
                     let shared_stores = run_advertise_stores_client::<_, O>(&mut stream, nonce, store_ids, &mut active_stores).await;
+                    // TODO: Store and handle peers too?
                     debug!("Sent server store ids: {:?}", shared_stores);
                 }
             }
