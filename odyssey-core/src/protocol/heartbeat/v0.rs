@@ -1,5 +1,6 @@
-use rand::{thread_rng, Rng};
+use rand::{rng, Rng};
 use serde::{Deserialize, Serialize};
+use tracing::debug;
 use std::collections::BTreeSet;
 use std::future::Future;
 use std::time::SystemTime;
@@ -103,19 +104,19 @@ impl MiniProtocol for Heartbeat {
 
     fn run_server<S: Stream<Self::Message>, O: OdysseyType>(self, mut stream: S, _: watch::Receiver<StoreStatuses<O::StoreId>>,) -> impl Future<Output = ()> + Send {
         async move {
-            println!("Heartbeat server started!");
+            debug!("Heartbeat server started!");
 
             loop {
                 let (sleep_time, heartbeat) = {
-                    let mut rng = thread_rng();
+                    let mut rng = rng();
 
-                    let sleep_time = HEARTBEAT_SLEEP + rng.gen_range(0..HEARTBEAT_RANGE);
-                    let heartbeat = rng.gen();
+                    let sleep_time = HEARTBEAT_SLEEP + rng.random_range(0..HEARTBEAT_RANGE);
+                    let heartbeat = rng.random();
                     (sleep_time, heartbeat)
                 };
 
                 // Sleep
-                println!("Sleeping for {sleep_time} seconds");
+                debug!("Sleeping for {sleep_time} seconds");
                 sleep(Duration::new(sleep_time, 0)).await;
 
                 // Send request.
@@ -124,21 +125,21 @@ impl MiniProtocol for Heartbeat {
                     server_time,
                     heartbeat,
                 };
-                println!("Sending heartbeat: {req:?}");
+                debug!("Sending heartbeat: {req:?}");
                 send(&mut stream, req).await.expect("TODO");
 
                 // Get response.
                 let client_response: MsgHeartbeatClientResponse =
                     receive(&mut stream).await.expect("TODO");
                 let latency = server_time.elapsed();
-                println!("Recieved heartbeat response.\nResponse:{client_response:?}\nLatency: {latency:?}");
+                debug!("Recieved heartbeat response.\nResponse:{client_response:?}\nLatency: {latency:?}");
                 if client_response.heartbeat != heartbeat {
                     todo!("Heartbeat does not match");
                 }
 
                 // Send response.
                 let server_response = MsgHeartbeatServerResponse { heartbeat };
-                println!("Sending response: {server_response:?}");
+                debug!("Sending response: {server_response:?}");
                 send(&mut stream, server_response).await.expect("TODO");
             }
         }
@@ -146,12 +147,12 @@ impl MiniProtocol for Heartbeat {
 
     fn run_client<S: Stream<Self::Message>, O: OdysseyType>(self, mut stream: S, _: watch::Receiver<StoreStatuses<O::StoreId>>,) -> impl Future<Output = ()> + Send {
         async move {
-            println!("Heartbeat client started!");
+            debug!("Heartbeat client started!");
 
             loop {
                 // Wait for request.
                 let request: MsgHeartbeatRequest = receive(&mut stream).await.expect("TODO");
-                println!("Received heartbeat request.\n{request:?}");
+                debug!("Received heartbeat request.\n{request:?}");
 
                 // Send response.
                 let client_time = SystemTime::now();
@@ -159,14 +160,14 @@ impl MiniProtocol for Heartbeat {
                     heartbeat: request.heartbeat,
                     client_time,
                 };
-                println!("Sending response.\n{client_response:?}");
+                debug!("Sending response.\n{client_response:?}");
                 send(&mut stream, client_response).await.expect("TODO");
 
                 // Wait for response.
                 let server_response: MsgHeartbeatServerResponse =
                     receive(&mut stream).await.expect("TODO");
                 let latency = client_time.elapsed();
-                println!("Received heartbeat response.\n{server_response:?}\nLatency:{latency:?}");
+                debug!("Received heartbeat response.\n{server_response:?}\nLatency:{latency:?}");
                 if server_response.heartbeat != request.heartbeat {
                     todo!("Heartbeat does not match");
                 }

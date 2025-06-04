@@ -4,6 +4,7 @@
 
 // #![deny(unused_must_use)]
 
+pub mod auth;
 pub mod core;
 pub mod network;
 pub mod protocol;

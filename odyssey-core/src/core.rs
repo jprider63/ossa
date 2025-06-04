@@ -3,11 +3,12 @@ use odyssey_crdt::time::CausalState;
 // use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use odyssey_crdt::CRDT;
 use serde::Serialize;
-use tokio::sync::watch;
+use tokio::sync::{watch, RwLock};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Debug, Display};
 use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddrV4};
+use std::sync::Arc;
 use std::thread;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::runtime::Runtime;
@@ -17,6 +18,7 @@ use tokio_util::codec::{self, LengthDelimitedCodec};
 use tracing::{debug, error, info, warn};
 use typeable::Typeable;
 
+use crate::auth::{generate_identity, DeviceId, Identity};
 use crate::network::protocol::{run_handshake_client, run_handshake_server};
 use crate::storage::Storage;
 use crate::store::{self, StateUpdate, StoreCommand, UntypedStoreCommand};
@@ -31,7 +33,10 @@ pub struct Odyssey<OT: OdysseyType> {
     /// Active stores.
     // stores: BTreeMap<OT::StoreId,ActiveStore>,
     active_stores: watch::Sender<StoreStatuses<OT::StoreId>>, // JP: Make this encode more state that other's may want to subscribe to?
+    shared_state: SharedState, // JP: Could have another thread own and manage this state
+                                  // instead?
     phantom: PhantomData<OT>,
+    identity_keys: Identity,
 }
 pub type StoreStatuses<StoreId> = BTreeMap<StoreId, StoreStatus>; // Rename this MiniProtocolArgs?
 
@@ -52,6 +57,11 @@ pub enum StoreStatus {
         // send_command_chan: UnboundedSender<UntypedStoreCommand>,
         send_command_chan: UnboundedSender<UntypedStoreCommand>,
     },
+}
+
+#[derive(Clone,Debug)]
+struct SharedState {
+    peer_state: Arc<RwLock<BTreeMap<DeviceId, UnboundedSender<()>>>>,
 }
 
 
@@ -78,9 +88,17 @@ impl StoreStatus {
 impl<OT: OdysseyType> Odyssey<OT> {
     // Start odyssey.
     pub fn start(config: OdysseyConfig) -> Self {
+        // TODO: Load identity or take it as an argument.
+        let identity_keys = generate_identity();
+
         // // Create channels to communicate with Odyssey thread.
         // let (send_odyssey_commands, mut recv_odyssey_commands) = futures_channel::mpsc::unbounded();
         let (active_stores, active_stores_receiver) = watch::channel(BTreeMap::new());
+        let device_id = DeviceId::new(identity_keys.auth_key().verifying_key());
+
+        let shared_state_ = SharedState {
+            peer_state: Arc::new(RwLock::new(BTreeMap::new())),
+        };
 
         // Start async runtime.
         let runtime = match tokio::runtime::Runtime::new() {
@@ -91,10 +109,11 @@ impl<OT: OdysseyType> Odyssey<OT> {
             }
         };
         let runtime_handle = runtime.handle().clone();
+        let shared_state = shared_state_.clone();
 
         // Spawn server thread.
         let odyssey_thread = thread::spawn(move || {
-            runtime_handle.block_on(async {
+            runtime_handle.block_on(async move {
                 // Start listening for connections.
                 let address = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), config.port);
                 let listener = match TcpListener::bind(&address).await {
@@ -127,7 +146,11 @@ impl<OT: OdysseyType> Odyssey<OT> {
                     info!("Accepted connection from peer: {}", peer);
                     // Spawn async.
                     let active_stores = active_stores_receiver.clone();
-                    let future_handle = tokio::spawn(async {
+                    // let device_id = DeviceId::new(identity_keys.auth_key().verifying_key());
+                    let shared_state = shared_state.clone();
+
+
+                    let future_handle = tokio::spawn(async move {
                         // let (read_stream, write_stream) = tcpstream.split();
                         let stream = codec::Framed::new(tcpstream, LengthDelimitedCodec::new());
 
@@ -135,18 +158,27 @@ impl<OT: OdysseyType> Odyssey<OT> {
                         // Handshake.
                         // Diffie Hellman? TLS?
                         // Authenticate peer's public key?
-                        let stream = TypedStream::new(stream);
-                        let protocol_version = run_handshake_server(&stream).await;
+                        let mut stream = TypedStream::new(stream);
+                        let handshake_result = run_handshake_server(&mut stream, &device_id).await;
                         let stream = stream.finalize().into_inner();
 
-                        // Start miniprotocols.
-                        protocol_version.run_miniprotocols_server::<OT>(stream, active_stores).await;
+                        info!("Handshake complete with peer: {:?}", handshake_result.peer_id());
+                        // Store peer in state.
+                        if let Some(recv) = initiate_peer(handshake_result.peer_id(), &shared_state).await {
+                            // Start miniprotocols.
+                            handshake_result.version().run_miniprotocols_server::<OT>(stream, active_stores).await;
+                        } else {
+                            info!("Disconnecting. Already connected to peer: {:?}", handshake_result.peer_id());
+                        }
                     });
 
-                    // TODO: Store peer in state.
                 }
             });
         });
+
+
+
+        // TODO: Store identity key
 
         Odyssey {
             thread: odyssey_thread,
@@ -154,6 +186,8 @@ impl<OT: OdysseyType> Odyssey<OT> {
             tokio_runtime: runtime,
             active_stores,
             phantom: PhantomData,
+            shared_state: shared_state_,
+            identity_keys,
         }
     }
 
@@ -247,17 +281,24 @@ impl<OT: OdysseyType> Odyssey<OT> {
         todo!("Turn off network connections (work offline)")
     }
 
+    fn device_id(&self) -> DeviceId {
+        DeviceId::new(self.identity_keys.auth_key().verifying_key())
+    }
+
+
     // Connect to a peer over ipv4.
     pub fn connect_to_peer_ipv4(&self, address: SocketAddrV4) {
         // Check if we're already connected to a peer at this address.
         warn!("TODO: Check if we're already connected to this peer.");
 
         let active_stores = self.active_stores.subscribe();
+        let device_id = self.device_id();
+        let shared_state = self.shared_state.clone();
 
         // Spawn async.
         let future_handle = self.tokio_runtime.spawn(async move {
             // Attempt to connect to peer, returning message on failure.
-            let stream = match TcpStream::connect(address).await {
+            let mut stream = match TcpStream::connect(address).await {
                 Ok(tcpstream) => {
                     let stream = codec::Framed::new(tcpstream, LengthDelimitedCodec::new());
                     TypedStream::new(stream)
@@ -269,16 +310,20 @@ impl<OT: OdysseyType> Odyssey<OT> {
             };
 
             // Run client handshake.
-            let protocol_version = run_handshake_client(&stream).await;
+            let handshake_result = run_handshake_client(&mut stream, &device_id).await;
             let stream = stream.finalize().into_inner();
             debug!("Connected to server!");
 
-            // Start miniprotocols.
-            debug!("Start miniprotocols");
-            protocol_version.run_miniprotocols_client::<OT>(stream, active_stores).await;
+            info!("Handshake complete with peer: {:?}", handshake_result.peer_id());
+            // Store peer in state.
+            if let Some(recv) = initiate_peer(handshake_result.peer_id(), &shared_state).await {
+                // Start miniprotocols.
+                debug!("Start miniprotocols");
+                handshake_result.version().run_miniprotocols_client::<OT>(stream, active_stores).await;
+            } else {
+                info!("Disconnecting. Already connected to peer: {:?}", handshake_result.peer_id());
+            }
         });
-
-        // TODO: Store peer in state.
 
         // Return channel with peer connection status.
     }
@@ -325,6 +370,23 @@ impl<OT: OdysseyType> Odyssey<OT> {
             send_command_chan: send_commands,
             phantom: PhantomData,
         }
+    }
+
+}
+
+/// Initiates a peer by creating a channel to send commands and by inserting it into the shared state. On success, returns the receiver. If the peer already exists, fails with `None`.
+async fn initiate_peer(peer_id: DeviceId, shared_state: &SharedState) -> Option<UnboundedReceiver<()>> {
+    let (send, recv) = tokio::sync::mpsc::unbounded_channel();
+    let inserted = {
+        let mut w = shared_state.peer_state.write().await;
+        w.try_insert(peer_id, send).is_ok()
+    };
+    if inserted {
+        Some(recv)
+    }
+    else {
+        // JP: Record if we're already connected to the peer?
+        None
     }
 
 }

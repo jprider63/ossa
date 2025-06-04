@@ -119,6 +119,7 @@ where
 {
     let mut listeners: Vec<UnboundedSender<StateUpdate<OT::ECGHeader<T>, T>>> = vec![];
 
+    // TODO: Check when done
     loop {
         tokio::select! {
             cmd_m = recv_commands.recv() => {

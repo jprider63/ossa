@@ -15,7 +15,7 @@ use tokio_util::{
 };
 use tracing::{debug, error, info};
 
-use crate::{core::{OdysseyType, StoreStatuses}, network::multiplexer};
+use crate::{auth::DeviceId, core::{OdysseyType, StoreStatuses}, network::multiplexer};
 use crate::protocol::v0::{
     MsgStoreMetadataHeader, StoreMetadataHeaderRequest, StoreMetadataHeaderResponse,
 };
@@ -37,18 +37,52 @@ pub(crate) trait MiniProtocol: Send {
 //     V0,
 // }
 
-type MsgHandshake = ();
+type MsgHandshake = DeviceId;
 
-pub(crate) async fn run_handshake_server<S: Stream<MsgHandshake>>(stream: &S) -> Version {
-    // TODO: Implement this and make it abstract.
-
-    Version::V0
+pub(crate) struct HandshakeResult {
+    version: Version,
+    peer_id: DeviceId,
 }
 
-pub(crate) async fn run_handshake_client<S: Stream<MsgHandshake>>(stream: &S) -> Version {
+impl HandshakeResult {
+    pub(crate) fn version(&self) -> Version {
+        self.version
+    }
+
+    pub(crate) fn peer_id(&self) -> DeviceId {
+        self.peer_id
+    }
+}
+
+// TODO: Actually setup TLS connection and get their DeviceId.
+pub(crate) async fn run_handshake_server<S: Stream<MsgHandshake>>(stream: &mut S, device_id: &DeviceId) -> HandshakeResult {
     // TODO: Implement this and make it abstract.
 
-    Version::V0
+    // Get their DeviceId.
+    let peer_id = receive(stream).await.expect("TODO");
+
+    // Send our DeviceId.
+    send(stream, *device_id).await.expect("TODO");
+
+    HandshakeResult {
+        peer_id,
+        version: Version::V0,
+    }
+}
+
+pub(crate) async fn run_handshake_client<S: Stream<MsgHandshake>>(stream: &mut S, device_id: &DeviceId) -> HandshakeResult {
+    // TODO: Implement this and make it abstract.
+
+    // Send our DeviceId.
+    send(stream, *device_id).await.expect("TODO");
+
+    // Get their DeviceId.
+    let peer_id = receive(stream).await.expect("TODO");
+
+    HandshakeResult {
+        peer_id,
+        version: Version::V0,
+    }
 }
 
 // TODO: Generalize the argument.
