@@ -75,48 +75,45 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug> MiniProtocol for M
 
 impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug> Manager<StoreId> {
     /// Manager run in mode that sends requests to peer.
-    fn run_with_initiative<S: Stream<MsgManager>>(mut self, mut stream: S) -> impl Future<Output = ()> + Send {
-        async move {
-            debug!("Mux manager started with initiative!");
+    async fn run_with_initiative<S: Stream<MsgManager>>(mut self, mut stream: S) {
+        debug!("Mux manager started with initiative!");
     
-            // Advertise stores.
-            let shared_stores = run_advertise_stores_server(&mut stream, &mut self.active_stores).await;
-            handle_shared_stores(self.peer_id, shared_stores);
+        // Advertise stores.
+        let shared_stores = run_advertise_stores_server(&mut stream, &mut self.active_stores).await;
+        handle_shared_stores(self.peer_id, shared_stores);
     
-            loop {
-                debug!("Mux manager looping with initiative!");
-                tokio::select! {
-                    changed_e = self.active_stores.changed() => {
-                        changed_e.expect("TODO");
+        loop {
+            debug!("Mux manager looping with initiative!");
+            tokio::select! {
+                changed_e = self.active_stores.changed() => {
+                    changed_e.expect("TODO");
     
-                        let shared_stores = run_advertise_stores_server(&mut stream, &mut self.active_stores).await;
-                        handle_shared_stores(self.peer_id, shared_stores);
-                    }
+                    let shared_stores = run_advertise_stores_server(&mut stream, &mut self.active_stores).await;
+                    debug!("Client sent store ids: {:?}", shared_stores);
+                    handle_shared_stores(self.peer_id, shared_stores);
                 }
             }
         }
     }
 
     /// Manager run in mode that responds to requests from peer.
-    fn run_without_initiative<S: Stream<MsgManager>>(mut self, mut stream: S) -> impl Future<Output = ()> + Send {
-        async move {
-            debug!("Mux manager started without initiative!");
-            
-            loop {
-                debug!("Mux manager looping without initiative!");
-                // Receive requests from initiator.
-                let response: MsgManagerRequest = receive(&mut stream).await.expect("TODO");
-                match response {
-                    MsgManagerRequest::AdvertiseStores { nonce, store_ids } => {
-                        let shared_stores = run_advertise_stores_client(&mut stream, nonce, store_ids, &mut self.active_stores).await;
-                        // TODO: Store and handle peers too?
-                        debug!("Sent server store ids: {:?}", shared_stores);
-                    }
+    async fn run_without_initiative<S: Stream<MsgManager>>(mut self, mut stream: S) {
+        debug!("Mux manager started without initiative!");
+        
+        loop {
+            debug!("Mux manager looping without initiative!");
+            // Receive requests from initiator.
+            let response: MsgManagerRequest = receive(&mut stream).await.expect("TODO");
+            match response {
+                MsgManagerRequest::AdvertiseStores { nonce, store_ids } => {
+                    let shared_stores = run_advertise_stores_client(&mut stream, nonce, store_ids, &mut self.active_stores).await;
+                    // TODO: Store and handle peers too?
+                    debug!("Server sent store ids: {:?}", shared_stores);
+                    // handle_shared_stores(self.peer_id, shared_stores);
                 }
             }
         }
     }
-
 }
 
 
