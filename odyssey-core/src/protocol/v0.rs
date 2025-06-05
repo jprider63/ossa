@@ -5,6 +5,7 @@ use std::marker::Send;
 use bytes::{BufMut, Bytes, BytesMut};
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
+use std::fmt::Debug;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
@@ -15,32 +16,32 @@ use tokio_util::sync::{PollSendError, PollSender};
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::{auth::DeviceId, core::{OdysseyType, StoreStatuses}, network::{
-    multiplexer::{spawn_miniprotocol_async, Multiplexer, Party, StreamId},
+    multiplexer::{run_miniprotocol_async, Multiplexer, Party, StreamId},
     protocol::MiniProtocol,
 }};
+use crate::protocol::MiniProtocolArgs;
 use crate::protocol::heartbeat::v0::Heartbeat;
 use crate::protocol::manager::v0::Manager;
 use crate::store;
 use crate::util;
 
 // Required since Rust can't handle proper existentials.
-pub(crate) enum MiniProtocols {
+pub(crate) enum MiniProtocols<StoreId> {
     Heartbeat(Heartbeat),
-    Manager(Manager),
+    Manager(Manager<StoreId>),
 }
 
-impl MiniProtocols {
-    pub(crate) async fn spawn_async<O: OdysseyType>(
+impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug> MiniProtocols<StoreId> {
+    pub(crate) async fn run_async<O: OdysseyType>(
         self,
         is_client: bool,
         stream_id: StreamId,
         sender: Sender<(StreamId, Bytes)>,
         receiver: Receiver<BytesMut>,
-        active_stores: watch::Receiver<StoreStatuses<O::StoreId>>,
     ) {
         match self {
-            MiniProtocols::Heartbeat(p) => spawn_miniprotocol_async::<_, O>(p, is_client, stream_id, sender, receiver, active_stores).await,
-            MiniProtocols::Manager(p) => spawn_miniprotocol_async::<_, O>(p, is_client, stream_id, sender, receiver, active_stores).await,
+            MiniProtocols::Heartbeat(p) => run_miniprotocol_async::<_, O>(p, is_client, stream_id, sender, receiver).await,
+            MiniProtocols::Manager(p) => run_miniprotocol_async::<_, O>(p, is_client, stream_id, sender, receiver).await,
         }
     }
 }
@@ -57,30 +58,30 @@ impl MiniProtocols {
 // N - (N is odd for server, even for client):
 //     - StoreSync i
 /// Miniprotocols initially run when connected for V0.
-fn initial_miniprotocols(peer_id: DeviceId) -> Vec<MiniProtocols> {
+fn initial_miniprotocols<StoreId>(args: MiniProtocolArgs<StoreId>) -> Vec<MiniProtocols<StoreId>> {
     // Order impacts stream id in multiplexer!
     vec![
         MiniProtocols::Heartbeat(Heartbeat {}),
-        MiniProtocols::Manager(Manager::new(Party::Client, peer_id)),
-        MiniProtocols::Manager(Manager::new(Party::Server, peer_id)),
+        MiniProtocols::Manager(Manager::new(Party::Client, args.peer_id, args.active_stores.clone())),
+        MiniProtocols::Manager(Manager::new(Party::Server, args.peer_id, args.active_stores)),
     ]
 }
 
-pub(crate) async fn run_miniprotocols_server<O: OdysseyType>(stream: TcpStream, peer_id: DeviceId, active_stores: watch::Receiver<StoreStatuses<O::StoreId>>) {
+pub(crate) async fn run_miniprotocols_server<O: OdysseyType>(stream: TcpStream, args: MiniProtocolArgs<O::StoreId>) {
     // Start multiplexer.
     let multiplexer = Multiplexer::new(Party::Server);
 
     multiplexer
-        .run_with_miniprotocols::<O>(stream, initial_miniprotocols(peer_id), active_stores)
+        .run_with_miniprotocols::<O>(stream, initial_miniprotocols(args))
         .await;
 }
 
-pub(crate) async fn run_miniprotocols_client<O: OdysseyType>(stream: TcpStream, peer_id: DeviceId, active_stores: watch::Receiver<StoreStatuses<O::StoreId>>) {
+pub(crate) async fn run_miniprotocols_client<O: OdysseyType>(stream: TcpStream, args: MiniProtocolArgs<O::StoreId>) {
     // Start multiplexer.
     let multiplexer = Multiplexer::new(Party::Client);
 
     multiplexer
-        .run_with_miniprotocols::<O>(stream, initial_miniprotocols(peer_id), active_stores)
+        .run_with_miniprotocols::<O>(stream, initial_miniprotocols(args))
         .await;
 }
 

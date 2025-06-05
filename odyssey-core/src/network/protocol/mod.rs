@@ -29,8 +29,10 @@ pub mod keep_alive;
 pub(crate) trait MiniProtocol: Send {
     type Message: Serialize + for<'a> Deserialize<'a> + Send;
 
-    fn run_client<S: Stream<Self::Message>, O: OdysseyType>(self, stream: S, active_stores: watch::Receiver<StoreStatuses<O::StoreId>>,) -> impl Future<Output = ()> + Send;
-    fn run_server<S: Stream<Self::Message>, O: OdysseyType>(self, stream: S, active_stores: watch::Receiver<StoreStatuses<O::StoreId>>,) -> impl Future<Output = ()> + Send;
+    // fn run_client<S: Stream<Self::Message>, O: OdysseyType>(self, stream: S, active_stores: watch::Receiver<StoreStatuses<O::StoreId>>,) -> impl Future<Output = ()> + Send;
+    // fn run_server<S: Stream<Self::Message>, O: OdysseyType>(self, stream: S, active_stores: watch::Receiver<StoreStatuses<O::StoreId>>,) -> impl Future<Output = ()> + Send;
+    fn run_client<S: Stream<Self::Message>>(self, stream: S) -> impl Future<Output = ()> + Send;
+    fn run_server<S: Stream<Self::Message>>(self, stream: S) -> impl Future<Output = ()> + Send;
 }
 
 // pub enum ProtocolVersion {

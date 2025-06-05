@@ -20,6 +20,7 @@ use typeable::Typeable;
 
 use crate::auth::{generate_identity, DeviceId, Identity};
 use crate::network::protocol::{run_handshake_client, run_handshake_server};
+use crate::protocol::MiniProtocolArgs;
 use crate::storage::Storage;
 use crate::store::{self, StateUpdate, StoreCommand, UntypedStoreCommand};
 use crate::store::ecg::{self, ECGBody, ECGHeader};
@@ -166,7 +167,8 @@ impl<OT: OdysseyType> Odyssey<OT> {
                         // Store peer in state.
                         if let Some(recv) = initiate_peer(handshake_result.peer_id(), &shared_state).await {
                             // Start miniprotocols.
-                            handshake_result.version().run_miniprotocols_server::<OT>(stream, handshake_result.peer_id(), active_stores).await;
+                            let args = MiniProtocolArgs::new(handshake_result.peer_id(), active_stores);
+                            handshake_result.version().run_miniprotocols_server::<OT>(stream, args).await;
                         } else {
                             info!("Disconnecting. Already connected to peer: {:?}", handshake_result.peer_id());
                         }
@@ -316,7 +318,8 @@ impl<OT: OdysseyType> Odyssey<OT> {
             if let Some(recv) = initiate_peer(handshake_result.peer_id(), &shared_state).await {
                 // Start miniprotocols.
                 debug!("Start miniprotocols");
-                handshake_result.version().run_miniprotocols_client::<OT>(stream, handshake_result.peer_id(), active_stores).await;
+                let args = MiniProtocolArgs::new(handshake_result.peer_id(), active_stores);
+                handshake_result.version().run_miniprotocols_client::<OT>(stream, args).await;
             } else {
                 info!("Disconnecting. Already connected to peer: {:?}", handshake_result.peer_id());
             }

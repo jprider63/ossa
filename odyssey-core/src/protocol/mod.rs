@@ -7,9 +7,15 @@ pub mod heartbeat;
 pub mod manager;
 pub mod v0;
 
-struct MiniProtocolArgs<StoreId> {
+pub(crate) struct MiniProtocolArgs<StoreId> {
     peer_id: DeviceId,
     active_stores: watch::Receiver<StoreStatuses<StoreId>>,
+}
+
+impl<StoreId> MiniProtocolArgs<StoreId> {
+    pub(crate) fn new(peer_id: DeviceId, active_stores: watch::Receiver<StoreStatuses<StoreId>>) -> Self {
+        Self { peer_id, active_stores }
+    }
 }
 
 /// The protocol version.
@@ -23,15 +29,15 @@ impl Version {
         *self as u8
     }
 
-    pub async fn run_miniprotocols_server<O: OdysseyType>(&self, stream: TcpStream, peer_id: DeviceId, active_stores: watch::Receiver<StoreStatuses<O::StoreId>>) {
+    pub async fn run_miniprotocols_server<O: OdysseyType>(&self, stream: TcpStream, args: MiniProtocolArgs<O::StoreId>) {
         match self {
-            Version::V0 => v0::run_miniprotocols_server::<O>(stream, peer_id, active_stores).await,
+            Version::V0 => v0::run_miniprotocols_server::<O>(stream, args).await,
         }
     }
 
-    pub async fn run_miniprotocols_client<O: OdysseyType>(&self, stream: TcpStream, peer_id: DeviceId, active_stores: watch::Receiver<StoreStatuses<O::StoreId>>) {
+    pub async fn run_miniprotocols_client<O: OdysseyType>(&self, stream: TcpStream, args: MiniProtocolArgs<O::StoreId>) {
         match self {
-            Version::V0 => v0::run_miniprotocols_client::<O>(stream, peer_id, active_stores).await,
+            Version::V0 => v0::run_miniprotocols_client::<O>(stream, args).await,
         }
     }
 }

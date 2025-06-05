@@ -102,7 +102,7 @@ pub(crate) struct Heartbeat {}
 impl MiniProtocol for Heartbeat {
     type Message = MsgHeartbeat;
 
-    fn run_server<S: Stream<Self::Message>, O: OdysseyType>(self, mut stream: S, _: watch::Receiver<StoreStatuses<O::StoreId>>,) -> impl Future<Output = ()> + Send {
+    fn run_server<S: Stream<Self::Message>>(self, mut stream: S) -> impl Future<Output = ()> + Send {
         async move {
             debug!("Heartbeat server started!");
 
@@ -145,7 +145,7 @@ impl MiniProtocol for Heartbeat {
         }
     }
 
-    fn run_client<S: Stream<Self::Message>, O: OdysseyType>(self, mut stream: S, _: watch::Receiver<StoreStatuses<O::StoreId>>,) -> impl Future<Output = ()> + Send {
+    fn run_client<S: Stream<Self::Message>>(self, mut stream: S) -> impl Future<Output = ()> + Send {
         async move {
             debug!("Heartbeat client started!");
 
