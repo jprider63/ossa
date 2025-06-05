@@ -166,7 +166,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
                         // Store peer in state.
                         if let Some(recv) = initiate_peer(handshake_result.peer_id(), &shared_state).await {
                             // Start miniprotocols.
-                            handshake_result.version().run_miniprotocols_server::<OT>(stream, active_stores).await;
+                            handshake_result.version().run_miniprotocols_server::<OT>(stream, handshake_result.peer_id(), active_stores).await;
                         } else {
                             info!("Disconnecting. Already connected to peer: {:?}", handshake_result.peer_id());
                         }
@@ -316,7 +316,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
             if let Some(recv) = initiate_peer(handshake_result.peer_id(), &shared_state).await {
                 // Start miniprotocols.
                 debug!("Start miniprotocols");
-                handshake_result.version().run_miniprotocols_client::<OT>(stream, active_stores).await;
+                handshake_result.version().run_miniprotocols_client::<OT>(stream, handshake_result.peer_id(), active_stores).await;
             } else {
                 info!("Disconnecting. Already connected to peer: {:?}", handshake_result.peer_id());
             }

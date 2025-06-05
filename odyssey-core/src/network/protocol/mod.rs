@@ -13,7 +13,7 @@ use tokio_util::{
     codec::{self, LengthDelimitedCodec},
     sync::PollSendError,
 };
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, trace};
 
 use crate::{auth::DeviceId, core::{OdysseyType, StoreStatuses}, network::multiplexer};
 use crate::protocol::v0::{
@@ -184,7 +184,7 @@ where
                     Err(ProtocolError::ProtocolDeviation)
                 }
                 Ok(msg) => {
-                    debug!("Received data from peer: {:?}", msg);
+                    trace!("Received data from peer: {:?}", msg);
                     Ok(msg)
                 }
             }

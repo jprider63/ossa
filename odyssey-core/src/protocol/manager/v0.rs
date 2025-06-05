@@ -8,6 +8,7 @@ use std::future::Future;
 use tokio::sync::watch;
 use tokio::time::{sleep, Duration};
 
+use crate::auth::DeviceId;
 use crate::core::{OdysseyType, StoreStatus, StoreStatuses};
 use crate::store::UntypedStoreCommand;
 use crate::{
@@ -21,12 +22,14 @@ use crate::{
 // MiniProtocol instance for stream/connection management.
 pub(crate) struct Manager {
     party_with_initiative: Party,
+    peer_id: DeviceId, // DeviceId of peer we're connected to.
 }
 
 impl Manager {
-    pub(crate) fn new(initiative: Party) -> Manager {
+    pub(crate) fn new(initiative: Party, peer_id: DeviceId) -> Manager {
         Manager {
             party_with_initiative: initiative,
+            peer_id,
         }
     }
 
@@ -44,9 +47,9 @@ impl MiniProtocol for Manager {
     fn run_server<S: Stream<Self::Message>, O: OdysseyType>(self, stream: S, active_stores: watch::Receiver<StoreStatuses<O::StoreId>>,) -> impl Future<Output = ()> + Send {
         async move {
             if self.server_has_initiative() {
-                run_with_initiative::<_, O>(stream, active_stores).await
+                self.run_with_initiative::<_, O>(stream, active_stores).await
             } else {
-                run_without_initiative::<_, O>(stream, active_stores).await
+                self.run_without_initiative::<_, O>(stream, active_stores).await
             }
             debug!("Manager server exiting");
         }
@@ -56,38 +59,61 @@ impl MiniProtocol for Manager {
     // fn run_client<S: Stream<MsgManager>>(self, mut stream: S, active_stores: watch::Receiver<BTreeSet<StoreId>>) -> impl Future<Output = ()> + Send {
         async move {
             if self.server_has_initiative() {
-                run_without_initiative::<_, O>(stream, active_stores).await
+                self.run_without_initiative::<_, O>(stream, active_stores).await
             } else {
                 // Sleep for 5 seconds to not duplicate effort from the server.
                 sleep(Duration::new(5, 0)).await;
-                run_with_initiative::<_, O>(stream, active_stores).await
+                self.run_with_initiative::<_, O>(stream, active_stores).await
             }
             debug!("Manager client exiting");
         }
     }
 }
 
-/// Manager run in mode that sends requests to peer.
-fn run_with_initiative<S: Stream<MsgManager>, O: OdysseyType>(mut stream: S, mut active_stores: watch::Receiver<StoreStatuses<O::StoreId>>,) -> impl Future<Output = ()> + Send {
-    async move {
-        debug!("Mux manager started with initiative!");
-
-        // Advertise stores.
-        let shared_stores = run_advertise_stores_server::<_, O>(&mut stream, &mut active_stores).await;
-        handle_shared_stores::<O>(shared_stores);
-
-        loop {
-            debug!("Mux manager looping with initiative!");
-            tokio::select! {
-                changed_e = active_stores.changed() => {
-                    changed_e.expect("TODO");
-
-                    let shared_stores = run_advertise_stores_server::<_, O>(&mut stream, &mut active_stores).await;
-                    handle_shared_stores::<O>(shared_stores);
+impl Manager {
+    /// Manager run in mode that sends requests to peer.
+    fn run_with_initiative<S: Stream<MsgManager>, O: OdysseyType>(self, mut stream: S, mut active_stores: watch::Receiver<StoreStatuses<O::StoreId>>,) -> impl Future<Output = ()> + Send {
+        async move {
+            debug!("Mux manager started with initiative!");
+    
+            // Advertise stores.
+            let shared_stores = run_advertise_stores_server::<_, O>(&mut stream, &mut active_stores).await;
+            handle_shared_stores::<O>(self.peer_id, shared_stores);
+    
+            loop {
+                debug!("Mux manager looping with initiative!");
+                tokio::select! {
+                    changed_e = active_stores.changed() => {
+                        changed_e.expect("TODO");
+    
+                        let shared_stores = run_advertise_stores_server::<_, O>(&mut stream, &mut active_stores).await;
+                        handle_shared_stores::<O>(self.peer_id, shared_stores);
+                    }
                 }
             }
         }
     }
+
+    /// Manager run in mode that responds to requests from peer.
+    fn run_without_initiative<S: Stream<MsgManager>, O: OdysseyType>(self, mut stream: S, mut active_stores: watch::Receiver<StoreStatuses<O::StoreId>>,) -> impl Future<Output = ()> + Send {
+        async move {
+            debug!("Mux manager started without initiative!");
+            
+            loop {
+                debug!("Mux manager looping without initiative!");
+                // Receive requests from initiator.
+                let response: MsgManagerRequest = receive(&mut stream).await.expect("TODO");
+                match response {
+                    MsgManagerRequest::AdvertiseStores { nonce, store_ids } => {
+                        let shared_stores = run_advertise_stores_client::<_, O>(&mut stream, nonce, store_ids, &mut active_stores).await;
+                        // TODO: Store and handle peers too?
+                        debug!("Sent server store ids: {:?}", shared_stores);
+                    }
+                }
+            }
+        }
+    }
+
 }
 
 
@@ -101,10 +127,11 @@ fn run_with_initiative<S: Stream<MsgManager>, O: OdysseyType>(mut stream: S, mut
 // Or: Spawn sync threads for each shared store.
 
 fn handle_shared_stores<O: OdysseyType>(
+    peer_id: DeviceId,
     shared_stores: Vec<(O::StoreId, UnboundedSender<UntypedStoreCommand>)>,
 ) {
-    // TODO: Store the shared stores?
-    let peers = vec![()]; // todo!()];
+    // Register the peer for this store.
+    let peers = vec![peer_id];
     let cmd = UntypedStoreCommand::RegisterPeers { peers };
 
     for (_store_id, store_sender) in shared_stores {
@@ -167,26 +194,6 @@ async fn run_advertise_stores_client<S: Stream<MsgManager>, O: OdysseyType>(stre
     send(stream, response).await.expect("TODO");
 
     mutual_store_ids
-}
-
-/// Manager run in mode that responds to requests from peer.
-fn run_without_initiative<S: Stream<MsgManager>, O: OdysseyType>(mut stream: S, mut active_stores: watch::Receiver<StoreStatuses<O::StoreId>>,) -> impl Future<Output = ()> + Send {
-    async move {
-        debug!("Mux manager started without initiative!");
-        
-        loop {
-            debug!("Mux manager looping without initiative!");
-            // Receive requests from initiator.
-            let response: MsgManagerRequest = receive(&mut stream).await.expect("TODO");
-            match response {
-                MsgManagerRequest::AdvertiseStores { nonce, store_ids } => {
-                    let shared_stores = run_advertise_stores_client::<_, O>(&mut stream, nonce, store_ids, &mut active_stores).await;
-                    // TODO: Store and handle peers too?
-                    debug!("Sent server store ids: {:?}", shared_stores);
-                }
-            }
-        }
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -14,7 +14,7 @@ use tokio::{
 use tokio_util::sync::{PollSendError, PollSender};
 use tokio_stream::wrappers::ReceiverStream;
 
-use crate::{core::{OdysseyType, StoreStatuses}, network::{
+use crate::{auth::DeviceId, core::{OdysseyType, StoreStatuses}, network::{
     multiplexer::{spawn_miniprotocol_async, Multiplexer, Party, StreamId},
     protocol::MiniProtocol,
 }};
@@ -57,30 +57,30 @@ impl MiniProtocols {
 // N - (N is odd for server, even for client):
 //     - StoreSync i
 /// Miniprotocols initially run when connected for V0.
-fn initial_miniprotocols() -> Vec<MiniProtocols> {
+fn initial_miniprotocols(peer_id: DeviceId) -> Vec<MiniProtocols> {
     // Order impacts stream id in multiplexer!
     vec![
         MiniProtocols::Heartbeat(Heartbeat {}),
-        MiniProtocols::Manager(Manager::new(Party::Client)),
-        MiniProtocols::Manager(Manager::new(Party::Server)),
+        MiniProtocols::Manager(Manager::new(Party::Client, peer_id)),
+        MiniProtocols::Manager(Manager::new(Party::Server, peer_id)),
     ]
 }
 
-pub(crate) async fn run_miniprotocols_server<O: OdysseyType>(stream: TcpStream, active_stores: watch::Receiver<StoreStatuses<O::StoreId>>) {
+pub(crate) async fn run_miniprotocols_server<O: OdysseyType>(stream: TcpStream, peer_id: DeviceId, active_stores: watch::Receiver<StoreStatuses<O::StoreId>>) {
     // Start multiplexer.
     let multiplexer = Multiplexer::new(Party::Server);
 
     multiplexer
-        .run_with_miniprotocols::<O>(stream, initial_miniprotocols(), active_stores)
+        .run_with_miniprotocols::<O>(stream, initial_miniprotocols(peer_id), active_stores)
         .await;
 }
 
-pub(crate) async fn run_miniprotocols_client<O: OdysseyType>(stream: TcpStream, active_stores: watch::Receiver<StoreStatuses<O::StoreId>>) {
+pub(crate) async fn run_miniprotocols_client<O: OdysseyType>(stream: TcpStream, peer_id: DeviceId, active_stores: watch::Receiver<StoreStatuses<O::StoreId>>) {
     // Start multiplexer.
     let multiplexer = Multiplexer::new(Party::Client);
 
     multiplexer
-        .run_with_miniprotocols::<O>(stream, initial_miniprotocols(), active_stores)
+        .run_with_miniprotocols::<O>(stream, initial_miniprotocols(peer_id), active_stores)
         .await;
 }
 

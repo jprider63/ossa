@@ -5,7 +5,7 @@ use tracing::{debug, error, warn};
 use std::collections::BTreeSet;
 use typeable::{TypeId, Typeable};
 
-use crate::{core::OdysseyType, store::ecg::{ECGBody, ECGHeader}, util};
+use crate::{auth::DeviceId, core::OdysseyType, store::ecg::{ECGBody, ECGHeader}, util};
 
 pub mod ecg;
 pub mod v0; // TODO: Move this to network::protocol
@@ -15,7 +15,7 @@ pub use v0::{MetadataBody, MetadataHeader, Nonce};
 
 pub struct State<Header: ecg::ECGHeader<T>, T: CRDT, Hash> {
     // Peers that also have this store.
-    peers: BTreeSet<()>, // PeerId>,
+    peers: BTreeSet<DeviceId>,
     state_machine: StateMachine<Header, T, Hash>,
 }
 
@@ -251,6 +251,6 @@ pub enum StateUpdate<Header: ECGHeader<T>, T> {
 pub enum UntypedStoreCommand {
     /// Register the discovered peers.
     RegisterPeers {
-        peers: Vec<()>,
+        peers: Vec<DeviceId>,
     }
 }
