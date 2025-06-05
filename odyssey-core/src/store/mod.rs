@@ -1,6 +1,7 @@
 use odyssey_crdt::CRDT;
 use serde::Serialize;
 use tokio::sync::mpsc::{UnboundedSender, UnboundedReceiver};
+use tracing::{debug, error, warn};
 use std::collections::BTreeSet;
 use typeable::{TypeId, Typeable};
 
@@ -100,7 +101,7 @@ fn manage_peers<OT: OdysseyType, T: CRDT<Time = OT::Time> + Clone + Send + 'stat
 where
     T::Op: Serialize,
 {
-    todo!()
+    warn!("TODO: Connect to peers' store, etc");
 }
 
 
@@ -124,7 +125,7 @@ where
         tokio::select! {
             cmd_m = recv_commands.recv() => {
                 let Some(cmd) = cmd_m else {
-                    todo!();
+                    error!("Failed to receive StoreCommand");
                     return;
                 };
                 match cmd {
@@ -197,7 +198,7 @@ where
             }
             cmd_m = recv_commands_untyped.recv() => {
                 let Some(cmd) = cmd_m else {
-                    todo!();
+                    error!("Failed to receive UntypedStoreCommand");
                     return;
                 };
                 match cmd {
@@ -216,6 +217,7 @@ where
             }
         }
     }
+    debug!("Store thread exiting.");
 }
 
 pub(crate) enum StoreCommand<Header: ECGHeader<T>, T> {

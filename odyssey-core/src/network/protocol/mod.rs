@@ -64,6 +64,8 @@ pub(crate) async fn run_handshake_server<S: Stream<MsgHandshake>>(stream: &mut S
     // Send our DeviceId.
     send(stream, *device_id).await.expect("TODO");
 
+    // TODO: Check that the peer isn't us.
+
     HandshakeResult {
         peer_id,
         version: Version::V0,
@@ -78,6 +80,8 @@ pub(crate) async fn run_handshake_client<S: Stream<MsgHandshake>>(stream: &mut S
 
     // Get their DeviceId.
     let peer_id = receive(stream).await.expect("TODO");
+
+    // TODO: Check that the peer isn't us.
 
     HandshakeResult {
         peer_id,

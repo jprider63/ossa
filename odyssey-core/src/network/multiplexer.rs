@@ -18,7 +18,7 @@ use tokio::{
 };
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::{PollSendError, PollSender};
-use tracing::{debug, error};
+use tracing::{debug, error, trace};
 
 use crate::core::{OdysseyType, StoreStatuses};
 use crate::{
@@ -121,11 +121,11 @@ impl Multiplexer {
                             // TODO: prepend this to the buffer so we don't make two system calls.
                             stream.write_u32(stream_id).await.expect("TODO");
 
-                            debug!("Sending on stream: {}", stream_id);
+                            trace!("Sending on stream: {}", stream_id);
 
                             let length = msg.len().try_into().expect("TODO");
                             stream.write_u32(length).await.expect("TODO");
-                            debug!("Sending length: {}", length);
+                            trace!("Sending length: {}", length);
 
                             // Write message.
                             stream.write_all_buf(&mut msg).await.expect("TODO");
@@ -140,7 +140,7 @@ impl Multiplexer {
                         Ok(length) => {
                             assert_eq!(length, buf.len());
                             state.read_state = state.read_state.handle_receive(&state.stream_map, buf).await;
-                            debug!("Test out: {:?}", state.read_state);
+                            trace!("Test out: {:?}", state.read_state);
                         }
                     }
                 }
@@ -194,8 +194,8 @@ impl MultiplexerReadState {
         stream_map: &BTreeMap<StreamId, MiniprotocolState>,
         mut buf: BytesMut,
     ) -> MultiplexerReadState {
-        debug!("Test in:  {:?}", self);
-        debug!("{:?}", buf);
+        trace!("Test in:  {:?}", self);
+        trace!("{:?}", buf);
         match self {
             MultiplexerReadState::ProcessingHeader {
                 mut position,
@@ -218,7 +218,7 @@ impl MultiplexerReadState {
                     // Parse stream id.
                     let stream_id = header[0..4].try_into().unwrap();
                     let stream_id = u32::from_be_bytes(stream_id);
-                    debug!("Received stream id: {stream_id:?}");
+                    trace!("Received stream id: {stream_id:?}");
 
                     let p = stream_map.get(&stream_id).expect("TODO");
                     let sender = p.sender.clone();
@@ -226,7 +226,7 @@ impl MultiplexerReadState {
                     // Parse message length.
                     let msg_length = header[4..8].try_into().unwrap();
                     let msg_length = u32::from_be_bytes(msg_length);
-                    debug!("Received msg_length: {msg_length:?}");
+                    trace!("Received msg_length: {msg_length:?}");
 
                     // Check upper bound on message length.
                     if msg_length > MAX_MESSAGE_LENGTH {

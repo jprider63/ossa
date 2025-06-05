@@ -288,9 +288,6 @@ impl<OT: OdysseyType> Odyssey<OT> {
 
     // Connect to a peer over ipv4.
     pub fn connect_to_peer_ipv4(&self, address: SocketAddrV4) {
-        // Check if we're already connected to a peer at this address.
-        warn!("TODO: Check if we're already connected to this peer.");
-
         let active_stores = self.active_stores.subscribe();
         let device_id = self.device_id();
         let shared_state = self.shared_state.clone();
