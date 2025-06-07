@@ -1,21 +1,20 @@
 use odyssey_crdt::CRDT;
 use serde::Serialize;
-use tokio::sync::mpsc::{UnboundedSender, UnboundedReceiver};
+use tokio::{sync::mpsc::{UnboundedReceiver, UnboundedSender}, task::JoinHandle};
 use tracing::{debug, error, warn};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use typeable::{TypeId, Typeable};
 
-use crate::{auth::DeviceId, core::OdysseyType, store::ecg::{ECGBody, ECGHeader}, util};
+use crate::{auth::DeviceId, core::{OdysseyType, SharedState}, protocol::manager::v0::PeerManagerCommand, store::ecg::{ECGBody, ECGHeader}, util};
 
 pub mod ecg;
 pub mod v0; // TODO: Move this to network::protocol
 
 pub use v0::{MetadataBody, MetadataHeader, Nonce};
 
-
 pub struct State<Header: ecg::ECGHeader<T>, T: CRDT, Hash> {
-    // Peers that also have this store.
-    peers: BTreeSet<DeviceId>,
+    // Peers that also have this store (that we are potentially connected to?).
+    peers: BTreeMap<DeviceId, PeerStatus>, // BTreeSet<DeviceId>,
     state_machine: StateMachine<Header, T, Hash>,
 }
 
@@ -44,6 +43,45 @@ pub struct DecryptedState<Header: ecg::ECGHeader<T>, T: CRDT> {
     latest_headers: BTreeSet<Header::HeaderId>,
 }
 
+/// Status of peers who we are potentially syncing this store with.
+#[derive(Debug)]
+pub(crate) enum PeerStatus {
+    /// Peer is known and likely connected to, but is not syncing this store.
+    Known,
+    /// Setting up the thread that syncs the store with the peer. It's possible that the peer will reject the sync request.
+    Initializing {
+        task: JoinHandle<()>,
+    },
+    /// The thread that syncs the store with the peer is syncing.
+    Syncing, // JP: Running instead?
+
+//     /// Peers that we are connected to, but are not syncing this store. It's possible that these connections have dropped.
+//     Known(), // TODO: Last known IP address, port, statistics (latency, bandwidth, ...). JP: Should some of this be stored globally?
+//     /// Peers that we are connected to, but are not syncing this store. It's possible that these connections have dropped.
+//     Connected(), 
+//     /// Peers that we are connected to and are syncing this store. It's possible that these connections have dropped.
+//     Active(), 
+}
+
+impl PeerStatus {
+    fn is_known(&self) -> bool {
+        if let PeerStatus::Known = self {
+            true
+        } else {
+            false
+        }
+    }
+}
+
+// impl PeerStatus {
+//     pub(crate) fn is_connected(&self) -> bool {
+//         match self {
+//             PeerStatus::Connected() => true,
+//             _ => false,
+//         }
+//     }
+// }
+
 impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash> State<Header, T, Hash> {
     /// Initialize a new store with the given state. This initializes the header, including
     /// generating a random nonce.
@@ -64,7 +102,7 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash> State<Header, T, Hash
             decrypted_state, // : Some(decrypted_state),
         };
         State {
-            peers: BTreeSet::new(),
+            peers: BTreeMap::new(),
             state_machine
         }
     }
@@ -76,7 +114,7 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash> State<Header, T, Hash
         };
 
         State {
-            peers: BTreeSet::new(),
+            peers: BTreeMap::new(),
             state_machine,
         }
     }
@@ -91,17 +129,82 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash> State<Header, T, Hash
             }
         }
     }
+
+    /// Insert a peer as known if its status isn't already tracked by the store.
+    fn insert_known_peer(&mut self, peer: DeviceId) {
+        self.peers
+            .entry(peer)
+            // .and_modify(|s| {
+            //     match s {
+            //         PeerStatus::Known => *s = PeerStatus::Known,
+            //         PeerStatus::Initializing => (),
+            //         PeerStatus::Syncing => (),
+            //     }
+            // })
+            .or_insert(PeerStatus::Known);
+    }
+
+    /// Update a known peer to initializing.
+    fn update_peer_to_initializing(&mut self, peer: &DeviceId, future_handle: JoinHandle<()>) {
+        let Some(status) = self.peers.get_mut(peer) else {
+            error!("Invariant violated. Attempted to initialize an unknown peer: {}", peer);
+            panic!();
+        };
+        if status.is_known() {
+            *status = PeerStatus::Initializing{
+                task: future_handle
+            };
+        } else {
+            error!("Invariant violated. Attempted to initialize an already initialized peer: {} - {:?}", peer, status);
+            panic!();
+        }
+    }
 }
 
 // JP: Or should Odyssey own this/peers?
 /// Manage peers by ranking them, randomize, potentially connecting to some of them, etc.
-fn manage_peers<OT: OdysseyType, T: CRDT<Time = OT::Time> + Clone + Send + 'static>(
+async fn manage_peers<OT: OdysseyType, T: CRDT<Time = OT::Time> + Clone + Send + 'static>(
     store: &mut State<OT::ECGHeader<T>, T, OT::StoreId>,
+    shared_state: &SharedState<OT::StoreId>,
 )
 where
     T::Op: Serialize,
 {
     warn!("TODO: Connect to peers' store, etc");
+
+    // For now, sync with all (connected?) peers.
+    // Don't connect to peers we're already syncing with.
+    let peers: Vec<_> = store.peers.iter().filter(|p| p.1.is_known()).collect();
+    let peers: Vec<_> = {
+        // Acquire lock on shared state.
+        let peer_states = shared_state.peer_state.read().await;
+        peers.into_iter().filter_map(|(peer_id, _)| {
+            let chan = peer_states.get(peer_id)?;
+            Some((*peer_id, chan.clone()))
+        }).collect()
+    };
+    for (peer_id, command_chan) in peers {
+
+        // Spawn StorePeer task to sync store with peer.
+        let future_handle = tokio::spawn(async move {
+            // On connection, mark task as running (or back to known if the peer refused?)
+            //
+            //
+            // Run ECG sync.
+            todo!()
+        });
+
+        // Mark task as initializing.
+        // JP: This doesn't need to go before the spawn since only this thread can update the peer statuses.
+        store.update_peer_to_initializing(&peer_id, future_handle);
+
+        // Send request to peer's manager for stream.
+        let store_id = store.store_id();
+        let cmd = PeerManagerCommand::RequestStoreSync {
+            store_id,
+        };
+        command_chan.send(cmd).expect("TODO");
+    }
 }
 
 
@@ -111,6 +214,7 @@ pub(crate) async fn run_handler<OT: OdysseyType, T: CRDT<Time = OT::Time> + Clon
     mut store: State<OT::ECGHeader<T>, T, OT::StoreId>,
     mut recv_commands: UnboundedReceiver<StoreCommand<OT::ECGHeader<T>, T>>,
     mut recv_commands_untyped: UnboundedReceiver<UntypedStoreCommand>,
+    shared_state: SharedState<OT::StoreId>,
 )
 where
     <OT as OdysseyType>::ECGHeader<T>: Send + Clone + 'static,
@@ -136,7 +240,7 @@ where
                         store.state_machine = match store.state_machine {
                             StateMachine::Downloading { store_id } => {
                                 // Rank and connect to a few peers.
-                                manage_peers::<OT,T>(&mut store);
+                                manage_peers::<OT,T>(&mut store, &shared_state);
 
                                 StateMachine::Downloading { store_id }
                             }
@@ -205,13 +309,13 @@ where
                     UntypedStoreCommand::RegisterPeers { peers } => {
                         // Add peer to known peers.
                         for peer in peers {
-                            store.peers.insert(peer);
+                            store.insert_known_peer(peer);
                         }
 
                         // Spawn sync threads for each shared store.
                         // TODO: Only do this if server?
                         // Check if we already are syncing these.
-                        manage_peers::<OT,T>(&mut store);
+                        manage_peers::<OT,T>(&mut store, &shared_state);
                     }
                 }
             }

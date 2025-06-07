@@ -258,3 +258,10 @@ impl TryInto<MsgManagerAdvertiseStoresResponse> for MsgManager {
         }
     }
 }
+
+pub(crate) enum PeerManagerCommand<StoreId> {
+    /// Request that the peer sync the given store. Creates a new multiplexer stream.
+    RequestStoreSync {
+        store_id: StoreId,
+    }
+}

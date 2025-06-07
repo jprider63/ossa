@@ -20,6 +20,7 @@ use typeable::Typeable;
 
 use crate::auth::{generate_identity, DeviceId, Identity};
 use crate::network::protocol::{run_handshake_client, run_handshake_server};
+use crate::protocol::manager::v0::PeerManagerCommand;
 use crate::protocol::MiniProtocolArgs;
 use crate::storage::Storage;
 use crate::store::{self, StateUpdate, StoreCommand, UntypedStoreCommand};
@@ -34,7 +35,7 @@ pub struct Odyssey<OT: OdysseyType> {
     /// Active stores.
     // stores: BTreeMap<OT::StoreId,ActiveStore>,
     active_stores: watch::Sender<StoreStatuses<OT::StoreId>>, // JP: Make this encode more state that other's may want to subscribe to?
-    shared_state: SharedState, // JP: Could have another thread own and manage this state
+    shared_state: SharedState<OT::StoreId>, // JP: Could have another thread own and manage this state
                                   // instead?
     phantom: PhantomData<OT>,
     identity_keys: Identity,
@@ -61,8 +62,9 @@ pub enum StoreStatus {
 }
 
 #[derive(Clone,Debug)]
-struct SharedState {
-    peer_state: Arc<RwLock<BTreeMap<DeviceId, UnboundedSender<()>>>>,
+/// Odyssey state that is shared across multiple tasks.
+pub(crate) struct SharedState<StoreId> {
+    pub(crate) peer_state: Arc<RwLock<BTreeMap<DeviceId, UnboundedSender<PeerManagerCommand<StoreId>>>>>,
 }
 
 
@@ -170,7 +172,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
                             let args = MiniProtocolArgs::new(handshake_result.peer_id(), active_stores);
                             handshake_result.version().run_miniprotocols_server::<OT>(stream, args).await;
                         } else {
-                            info!("Disconnecting. Already connected to peer: {:?}", handshake_result.peer_id());
+                            info!("Disconnecting. Already connected to peer: {}", handshake_result.peer_id());
                         }
                     });
 
@@ -321,7 +323,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
                 let args = MiniProtocolArgs::new(handshake_result.peer_id(), active_stores);
                 handshake_result.version().run_miniprotocols_client::<OT>(stream, args).await;
             } else {
-                info!("Disconnecting. Already connected to peer: {:?}", handshake_result.peer_id());
+                info!("Disconnecting. Already connected to peer: {}", handshake_result.peer_id());
             }
         });
 
@@ -352,8 +354,10 @@ impl<OT: OdysseyType> Odyssey<OT> {
         // Add to DHT
 
         // Spawn routine that owns this store.
+
+        let shared_state = self.shared_state.clone();
         let future_handle = self.tokio_runtime.spawn(async move {
-            store::run_handler::<OT, T>(store, recv_commands, recv_commands_untyped).await;
+            store::run_handler::<OT, T>(store, recv_commands, recv_commands_untyped, shared_state).await;
         });
 
         // Register this store.
@@ -375,7 +379,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
 }
 
 /// Initiates a peer by creating a channel to send commands and by inserting it into the shared state. On success, returns the receiver. If the peer already exists, fails with `None`.
-async fn initiate_peer(peer_id: DeviceId, shared_state: &SharedState) -> Option<UnboundedReceiver<()>> {
+async fn initiate_peer<StoreId>(peer_id: DeviceId, shared_state: &SharedState<StoreId>) -> Option<UnboundedReceiver<PeerManagerCommand<StoreId>>> {
     let (send, recv) = tokio::sync::mpsc::unbounded_channel();
     let inserted = {
         let mut w = shared_state.peer_state.write().await;
