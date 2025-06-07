@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
-use tokio::{net::TcpStream, sync::watch};
+use tokio::{net::TcpStream, sync::{mpsc::UnboundedReceiver, watch}};
 
-use crate::{auth::DeviceId, core::{OdysseyType, StoreStatuses}};
+use crate::{auth::DeviceId, core::{OdysseyType, StoreStatuses}, protocol::manager::v0::PeerManagerCommand};
 
 pub mod heartbeat;
 pub mod manager;
@@ -11,11 +11,12 @@ pub mod v0;
 pub(crate) struct MiniProtocolArgs<StoreId> {
     peer_id: DeviceId,
     active_stores: watch::Receiver<StoreStatuses<StoreId>>,
+    manager_channel: UnboundedReceiver<PeerManagerCommand<StoreId>>,
 }
 
 impl<StoreId> MiniProtocolArgs<StoreId> {
-    pub(crate) fn new(peer_id: DeviceId, active_stores: watch::Receiver<StoreStatuses<StoreId>>) -> Self {
-        Self { peer_id, active_stores }
+    pub(crate) fn new(peer_id: DeviceId, active_stores: watch::Receiver<StoreStatuses<StoreId>>, manager_channel: UnboundedReceiver<PeerManagerCommand<StoreId>>) -> Self {
+        Self { peer_id, active_stores, manager_channel }
     }
 }
 

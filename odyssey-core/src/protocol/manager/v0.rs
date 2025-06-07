@@ -1,8 +1,8 @@
 use bitvec::{BitArr, prelude::Msb0};
 use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc::UnboundedSender;
-use tracing::{debug, error};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tracing::{debug, error, warn};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
 use std::future::Future;
@@ -25,14 +25,17 @@ pub(crate) struct Manager<StoreId> {
     party_with_initiative: Party,
     peer_id: DeviceId, // DeviceId of peer we're connected to.
     active_stores: watch::Receiver<StoreStatuses<StoreId>>,
+    // `Some` implies we have initiative.
+    manager_channel: Option<UnboundedReceiver<PeerManagerCommand<StoreId>>>,
 }
 
 impl<StoreId> Manager<StoreId> {
-    pub(crate) fn new(initiative: Party, peer_id: DeviceId, active_stores: watch::Receiver<StoreStatuses<StoreId>>) -> Manager<StoreId> {
+    pub(crate) fn new(initiative: Party, peer_id: DeviceId, active_stores: watch::Receiver<StoreStatuses<StoreId>>, manager_channel: Option<UnboundedReceiver<PeerManagerCommand<StoreId>>>) -> Manager<StoreId> {
         Manager {
             party_with_initiative: initiative,
             peer_id,
             active_stores,
+            manager_channel,
         }
     }
 
@@ -82,6 +85,7 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug> Manager<StoreId> {
         let shared_stores = run_advertise_stores_server(&mut stream, &mut self.active_stores).await;
         handle_shared_stores(self.peer_id, shared_stores);
     
+        let mut cmd_chan = self.manager_channel.expect("Manager with initiative must have command channel.");
         loop {
             debug!("Mux manager looping with initiative!");
             tokio::select! {
@@ -91,6 +95,9 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug> Manager<StoreId> {
                     let shared_stores = run_advertise_stores_server(&mut stream, &mut self.active_stores).await;
                     debug!("Client sent store ids: {:?}", shared_stores);
                     handle_shared_stores(self.peer_id, shared_stores);
+                }
+                cmd_m = cmd_chan.recv() => {
+                    warn!("TODO: run_new_channel(SyncStore(store_id,stream_id)): {:?}", cmd_m)
                 }
             }
         }
@@ -259,6 +266,7 @@ impl TryInto<MsgManagerAdvertiseStoresResponse> for MsgManager {
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum PeerManagerCommand<StoreId> {
     /// Request that the peer sync the given store. Creates a new multiplexer stream.
     RequestStoreSync {

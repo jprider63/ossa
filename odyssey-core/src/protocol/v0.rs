@@ -58,30 +58,35 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug> MiniProtocols<Stor
 // N - (N is odd for server, even for client):
 //     - StoreSync i
 /// Miniprotocols initially run when connected for V0.
-fn initial_miniprotocols<StoreId>(args: MiniProtocolArgs<StoreId>) -> Vec<MiniProtocols<StoreId>> {
+fn initial_miniprotocols<StoreId>(party: Party, args: MiniProtocolArgs<StoreId>) -> Vec<MiniProtocols<StoreId>> {
+    let (client_chan, server_chan) = if let Party::Client = party {
+        (Some(args.manager_channel), None)
+    } else {
+        (None, Some(args.manager_channel))
+    };
+
     // Order impacts stream id in multiplexer!
     vec![
         MiniProtocols::Heartbeat(Heartbeat {}),
-        MiniProtocols::Manager(Manager::new(Party::Client, args.peer_id, args.active_stores.clone())),
-        MiniProtocols::Manager(Manager::new(Party::Server, args.peer_id, args.active_stores)),
+        MiniProtocols::Manager(Manager::new(Party::Client, args.peer_id, args.active_stores.clone(), client_chan)),
+        MiniProtocols::Manager(Manager::new(Party::Server, args.peer_id, args.active_stores, server_chan)),
     ]
 }
 
 pub(crate) async fn run_miniprotocols_server<O: OdysseyType>(stream: TcpStream, args: MiniProtocolArgs<O::StoreId>) {
-    // Start multiplexer.
-    let multiplexer = Multiplexer::new(Party::Server);
-
-    multiplexer
-        .run_with_miniprotocols::<O>(stream, initial_miniprotocols(args))
-        .await;
+    run_miniprotocols::<O>(stream, args, Party::Server).await
 }
 
 pub(crate) async fn run_miniprotocols_client<O: OdysseyType>(stream: TcpStream, args: MiniProtocolArgs<O::StoreId>) {
+    run_miniprotocols::<O>(stream, args, Party::Client).await
+}
+
+async fn run_miniprotocols<O: OdysseyType>(stream: TcpStream, args: MiniProtocolArgs<O::StoreId>, party: Party) {
     // Start multiplexer.
-    let multiplexer = Multiplexer::new(Party::Client);
+    let multiplexer = Multiplexer::new(party);
 
     multiplexer
-        .run_with_miniprotocols::<O>(stream, initial_miniprotocols(args))
+        .run_with_miniprotocols::<O>(stream, initial_miniprotocols(party, args))
         .await;
 }
 
