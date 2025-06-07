@@ -52,8 +52,8 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug> MiniProtocols<Stor
 //
 // Miniprotocols:
 // 0 - Heartbeat
-// 1 - StreamManagement Client (AdvertiseStores, CloseConnection, TerminateConnection, CreateStream, CloseStream? (probably not))
-// 2 - StreamManagement Server
+// 1 - StreamManagement Server (AdvertiseStores, CloseConnection, TerminateConnection, CreateStream, CloseStream? (probably not))
+// 2 - StreamManagement Client
 // ...
 // N - (N is odd for server, even for client):
 //     - StoreSync i
@@ -68,8 +68,8 @@ fn initial_miniprotocols<StoreId>(party: Party, args: MiniProtocolArgs<StoreId>)
     // Order impacts stream id in multiplexer!
     vec![
         MiniProtocols::Heartbeat(Heartbeat {}),
-        MiniProtocols::Manager(Manager::new(Party::Client, args.peer_id, args.active_stores.clone(), client_chan)),
-        MiniProtocols::Manager(Manager::new(Party::Server, args.peer_id, args.active_stores, server_chan)),
+        MiniProtocols::Manager(Manager::new(Party::Server, args.peer_id, args.active_stores.clone(), server_chan, 1)),
+        MiniProtocols::Manager(Manager::new(Party::Client, args.peer_id, args.active_stores, client_chan, 2)),
     ]
 }
 
