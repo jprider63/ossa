@@ -191,7 +191,7 @@ where
             //
             //
             // Run ECG sync.
-            todo!()
+            warn!("TODO: Sync with peer.")
         });
 
         // Mark task as initializing.
@@ -240,7 +240,7 @@ where
                         store.state_machine = match store.state_machine {
                             StateMachine::Downloading { store_id } => {
                                 // Rank and connect to a few peers.
-                                manage_peers::<OT,T>(&mut store, &shared_state);
+                                manage_peers::<OT,T>(&mut store, &shared_state).await;
 
                                 StateMachine::Downloading { store_id }
                             }
@@ -307,15 +307,19 @@ where
                 };
                 match cmd {
                     UntypedStoreCommand::RegisterPeers { peers } => {
+                        debug!("Received UntypedStoreCommand::RegisterPeers: {:?}", peers);
+
                         // Add peer to known peers.
                         for peer in peers {
                             store.insert_known_peer(peer);
                         }
 
+                        debug!("Peer statuses: {:?}", store.peers);
+
                         // Spawn sync threads for each shared store.
                         // TODO: Only do this if server?
                         // Check if we already are syncing these.
-                        manage_peers::<OT,T>(&mut store, &shared_state);
+                        manage_peers::<OT,T>(&mut store, &shared_state).await;
                     }
                 }
             }

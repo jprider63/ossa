@@ -19,7 +19,7 @@ use tracing::{debug, error, info, warn};
 use typeable::Typeable;
 
 use crate::auth::{generate_identity, DeviceId, Identity};
-use crate::network::protocol::{run_handshake_client, run_handshake_server};
+use crate::network::protocol::{run_handshake_client, run_handshake_server, HandshakeError};
 use crate::protocol::manager::v0::PeerManagerCommand;
 use crate::protocol::MiniProtocolArgs;
 use crate::storage::Storage;
@@ -165,7 +165,15 @@ impl<OT: OdysseyType> Odyssey<OT> {
                         let handshake_result = run_handshake_server(&mut stream, &device_id).await;
                         let stream = stream.finalize().into_inner();
 
-                        info!("Handshake complete with peer: {:?}", handshake_result.peer_id());
+                        let handshake_result = match handshake_result {
+                            Ok(r) => r,
+                            Err(HandshakeError::ConnectingToSelf) => {
+                                info!("Disconnecting. Attempting to connect to ourself.");
+                                return;
+                            }
+                        };
+
+                        info!("Handshake complete with peer: {}", handshake_result.peer_id());
                         // Store peer in state.
                         if let Some(recv) = initiate_peer(handshake_result.peer_id(), &shared_state).await {
                             // Start miniprotocols.
@@ -315,7 +323,15 @@ impl<OT: OdysseyType> Odyssey<OT> {
             let stream = stream.finalize().into_inner();
             debug!("Connected to server!");
 
-            info!("Handshake complete with peer: {:?}", handshake_result.peer_id());
+            let handshake_result = match handshake_result {
+                Ok(r) => r,
+                Err(HandshakeError::ConnectingToSelf) => {
+                    info!("Disconnecting. Attempting to connect to ourself.");
+                    return;
+                }
+            };
+
+            info!("Handshake complete with peer: {}", handshake_result.peer_id());
             // Store peer in state.
             if let Some(recv) = initiate_peer(handshake_result.peer_id(), &shared_state).await {
                 // Start miniprotocols.

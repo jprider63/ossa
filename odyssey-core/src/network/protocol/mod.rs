@@ -41,12 +41,16 @@ pub(crate) trait MiniProtocol: Send {
 
 type MsgHandshake = DeviceId;
 
-pub(crate) struct HandshakeResult {
+pub(crate) struct HandshakeInfo {
     version: Version,
     peer_id: DeviceId,
 }
 
-impl HandshakeResult {
+pub(crate) enum HandshakeError {
+    ConnectingToSelf,
+}
+
+impl HandshakeInfo {
     pub(crate) fn version(&self) -> Version {
         self.version
     }
@@ -57,7 +61,7 @@ impl HandshakeResult {
 }
 
 // TODO: Actually setup TLS connection and get their DeviceId.
-pub(crate) async fn run_handshake_server<S: Stream<MsgHandshake>>(stream: &mut S, device_id: &DeviceId) -> HandshakeResult {
+pub(crate) async fn run_handshake_server<S: Stream<MsgHandshake>>(stream: &mut S, device_id: &DeviceId) -> Result<HandshakeInfo, HandshakeError> {
     // TODO: Implement this and make it abstract.
 
     // Get their DeviceId.
@@ -66,15 +70,18 @@ pub(crate) async fn run_handshake_server<S: Stream<MsgHandshake>>(stream: &mut S
     // Send our DeviceId.
     send(stream, *device_id).await.expect("TODO");
 
-    // TODO: Check that the peer isn't us.
+    // Check that the peer isn't us.
+    if device_id == &peer_id {
+        return Err(HandshakeError::ConnectingToSelf);
+    }
 
-    HandshakeResult {
+    Ok(HandshakeInfo {
         peer_id,
         version: Version::V0,
-    }
+    })
 }
 
-pub(crate) async fn run_handshake_client<S: Stream<MsgHandshake>>(stream: &mut S, device_id: &DeviceId) -> HandshakeResult {
+pub(crate) async fn run_handshake_client<S: Stream<MsgHandshake>>(stream: &mut S, device_id: &DeviceId) -> Result<HandshakeInfo, HandshakeError> {
     // TODO: Implement this and make it abstract.
 
     // Send our DeviceId.
@@ -83,12 +90,15 @@ pub(crate) async fn run_handshake_client<S: Stream<MsgHandshake>>(stream: &mut S
     // Get their DeviceId.
     let peer_id = receive(stream).await.expect("TODO");
 
-    // TODO: Check that the peer isn't us.
+    // Check that the peer isn't us.
+    if device_id == &peer_id {
+        return Err(HandshakeError::ConnectingToSelf);
+    }
 
-    HandshakeResult {
+    Ok(HandshakeInfo {
         peer_id,
         version: Version::V0,
-    }
+    })
 }
 
 // TODO: Generalize the argument.
