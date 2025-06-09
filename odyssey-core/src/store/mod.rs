@@ -321,6 +321,9 @@ where
                     UntypedStoreCommand::SyncWithPeer { peer, response_chan } => {
                         debug!("Received UntypedStoreCommand::SyncWithPeer: {:?}", peer);
 
+                        // Insert peer as known if we don't know them (since they're requesting the store).
+                        store.insert_known_peer(peer);
+
                         let response = {
                             // Check if already syncing with this peer. (JP: What if they're both already "Initializing"? Potential race condition where they don't sync)
                             if let Some(status) = store.peers.get(&peer) {
@@ -343,6 +346,8 @@ where
                                     None
                                 }
                             } else {
+                                debug!("Don't know this peer.");
+                                // JP: This should be impossible now.
                                 None
                             }
                         };
