@@ -127,12 +127,14 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug> Manager<StoreId> {
             let response: MsgManagerRequest<StoreId> = receive(&mut stream).await.expect("TODO");
             match response {
                 MsgManagerRequest::AdvertiseStores { nonce, store_ids } => {
+                    debug!("Received MsgManagerRequest::AdvertiseStores: {nonce:?}, {store_ids:?}");
                     let shared_stores = run_advertise_stores_client(&mut stream, nonce, store_ids, &mut self.active_stores).await;
                     // TODO: Store and handle peers too?
                     debug!("Server sent store ids: {:?}", shared_stores);
                     // handle_shared_stores(self.peer_id, shared_stores);
                 }
                 MsgManagerRequest::CreateStoreStream { stream_id, store_id } => {
+                    debug!("Received MsgManagerRequest::CreateStoreStream: {stream_id}, {store_id:?}");
                     self.run_request_new_stream_client(&mut stream, stream_id, store_id).await;
                 }
             }
@@ -150,9 +152,9 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug> Manager<StoreId> {
         };
         let their_party = our_party.dual();
         if their_party.is_client() {
-            stream_id % 2 == 0
-        } else {
             stream_id % 2 == 1
+        } else {
+            stream_id % 2 == 0
         }
     }
 
@@ -172,6 +174,7 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug> Manager<StoreId> {
             // Check if stream is valid (it can be allocated by peer and is available).
             let is_valid_id = self.is_valid_stream_id(false, &stream_id);
             if !is_valid_id {
+                debug!("Peer sent invalid stream id.");
                 Err(MsgManagerError::InvalidStreamId)
             } else {
                 // Ask store task if they want to sync with this peer.
@@ -197,10 +200,12 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug> Manager<StoreId> {
                         let is_running = rx.await.expect("TODO");
                         Ok(is_running)
                     } else {
+                        debug!("Store rejected syncing.");
                         Ok(false)
                     }
                 } else {
                     // Store isn't running.
+                    debug!("Store isn't running.");
                     Ok(false)
                 }
             }
