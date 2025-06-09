@@ -3,6 +3,8 @@ use bytes::{Buf, Bytes, BytesMut};
 use futures;
 use futures::task::{Context, Poll};
 use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::oneshot;
 use std::cmp::min;
 use std::collections::{BTreeMap, BTreeSet};
 use std::marker::PhantomData;
@@ -18,7 +20,7 @@ use tokio::{
 };
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::{PollSendError, PollSender};
-use tracing::{debug, error, trace};
+use tracing::{debug, error, trace, warn};
 
 use crate::core::{OdysseyType, StoreStatuses};
 use crate::{
@@ -46,26 +48,34 @@ impl Party {
     }
 
     pub(crate) fn is_server(&self) -> bool {
-        match self {
-            Party::Client => false,
-            Party::Server => true,
-        }
+         match self {
+             Party::Client => false,
+             Party::Server => true,
+         }
     }
+     pub(crate) fn dual(&self) -> Party {
+         match self {
+             Party::Client => Party::Server,
+             Party::Server => Party::Client,
+         }
+     }
 }
 
 pub(crate) struct Multiplexer {
     party: Party,
+    command_recv: UnboundedReceiver<MultiplexerCommand>,
+
 }
 
 impl Multiplexer {
-    pub(crate) fn new(party: Party) -> Multiplexer {
-        Multiplexer { party }
+    pub(crate) fn new(party: Party, command_recv: UnboundedReceiver<MultiplexerCommand>) -> Multiplexer {
+        Multiplexer { party, command_recv }
     }
 
     /// Run the multiplexer with these initial mini protocols.
     /// The minitprotocols are assigned identifiers in order, starting at 0.
     pub(crate) async fn run_with_miniprotocols<O: OdysseyType>(
-        self,
+        mut self,
         mut stream: TcpStream,
         miniprotocols: Vec<MiniProtocols<O::StoreId>>,
     ) {
@@ -139,6 +149,31 @@ impl Multiplexer {
                             assert_eq!(length, buf.len());
                             state.read_state = state.read_state.handle_receive(&state.stream_map, buf).await;
                             trace!("Test out: {:?}", state.read_state);
+                        }
+                    }
+                }
+                cmd_m = self.command_recv.recv() => {
+                    let Some(cmd) = cmd_m else {
+                        warn!("Multiplexer command channel dropped");
+                        todo!();
+                    };
+
+                    match cmd {
+                        MultiplexerCommand::CreateStream { stream_id, spawn_task, response_chan } => {
+                            let outgoing_channel_send = outgoing_channel_send.clone();
+
+                            // Create window for the miniprotocol.
+                            let (sender, receiver) = mpsc::channel(PROTOCOL_INCOMING_CAPACITY);
+
+
+                            // Spawn stream for new miniprotocol.
+                            let handle = spawn_task(self.party.is_client(), stream_id, outgoing_channel_send, receiver);
+
+                            let mp = MiniprotocolState { handle, sender };
+                            let res = state.stream_map.try_insert(stream_id, mp);
+
+                            // Send response.
+                            response_chan.send(res.is_ok()).expect("TODO");
                         }
                     }
                 }
@@ -306,6 +341,19 @@ pub(crate) async fn run_miniprotocol_async<P: MiniProtocol, O: OdysseyType>(
         debug!("Run server");
         p.run_server(stream).await
     }
+}
+
+
+pub(crate) type SpawnMultiplexerTask = dyn Fn(bool, StreamId, Sender<(u32, Bytes)>, Receiver<BytesMut>) -> JoinHandle<()> + Send;
+pub(crate) enum MultiplexerCommand {
+    CreateStream {
+        stream_id: StreamId,
+        spawn_task: Box<SpawnMultiplexerTask>, // impl Future>,
+        // miniprotocol: Box<dyn MiniProtocol<Message = dyn Any>>,
+        // handle: JoinHandle<()>,
+        // sender: mpsc::Sender<BytesMut>,
+        response_chan: oneshot::Sender<bool>,
+    },
 }
 
 // struct FramedMiniprotocol<T> {

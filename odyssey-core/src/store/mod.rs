@@ -1,11 +1,11 @@
 use odyssey_crdt::CRDT;
 use serde::Serialize;
-use tokio::{sync::mpsc::{UnboundedReceiver, UnboundedSender}, task::JoinHandle};
+use tokio::{sync::{mpsc::{UnboundedReceiver, UnboundedSender}, oneshot}, task::JoinHandle};
 use tracing::{debug, error, warn};
 use std::collections::{BTreeMap, BTreeSet};
 use typeable::{TypeId, Typeable};
 
-use crate::{auth::DeviceId, core::{OdysseyType, SharedState}, protocol::manager::v0::PeerManagerCommand, store::ecg::{ECGBody, ECGHeader}, util};
+use crate::{auth::DeviceId, core::{OdysseyType, SharedState}, network::multiplexer::SpawnMultiplexerTask, protocol::manager::v0::PeerManagerCommand, store::ecg::{ECGBody, ECGHeader}, util};
 
 pub mod ecg;
 pub mod v0; // TODO: Move this to network::protocol
@@ -49,9 +49,10 @@ pub(crate) enum PeerStatus {
     /// Peer is known and likely connected to, but is not syncing this store.
     Known,
     /// Setting up the thread that syncs the store with the peer. It's possible that the peer will reject the sync request.
-    Initializing {
-        task: JoinHandle<()>,
-    },
+    Initializing,
+    // {
+    //     task: JoinHandle<()>,
+    // },
     /// The thread that syncs the store with the peer is syncing.
     Syncing, // JP: Running instead?
 
@@ -145,15 +146,13 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash> State<Header, T, Hash
     }
 
     /// Update a known peer to initializing.
-    fn update_peer_to_initializing(&mut self, peer: &DeviceId, future_handle: JoinHandle<()>) {
+    fn update_peer_to_initializing(&mut self, peer: &DeviceId) {
         let Some(status) = self.peers.get_mut(peer) else {
             error!("Invariant violated. Attempted to initialize an unknown peer: {}", peer);
             panic!();
         };
         if status.is_known() {
-            *status = PeerStatus::Initializing{
-                task: future_handle
-            };
+            *status = PeerStatus::Initializing;
         } else {
             error!("Invariant violated. Attempted to initialize an already initialized peer: {} - {:?}", peer, status);
             panic!();
@@ -170,8 +169,6 @@ async fn manage_peers<OT: OdysseyType, T: CRDT<Time = OT::Time> + Clone + Send +
 where
     T::Op: Serialize,
 {
-    warn!("TODO: Connect to peers' store, etc");
-
     // For now, sync with all (connected?) peers.
     // Don't connect to peers we're already syncing with.
     let peers: Vec<_> = store.peers.iter().filter(|p| p.1.is_known()).collect();
@@ -184,24 +181,24 @@ where
         }).collect()
     };
     for (peer_id, command_chan) in peers {
-
-        // Spawn StorePeer task to sync store with peer.
-        let future_handle = tokio::spawn(async move {
-            // On connection, mark task as running (or back to known if the peer refused?)
-            //
-            //
-            // Run ECG sync.
-            warn!("TODO: Sync with peer.")
-        });
-
         // Mark task as initializing.
-        // JP: This doesn't need to go before the spawn since only this thread can update the peer statuses.
-        store.update_peer_to_initializing(&peer_id, future_handle);
+        store.update_peer_to_initializing(&peer_id);
+
+        // Create closure that spawns task to sync store with peer.
+        let spawn_task = Box::new(|party, stream_id, sender, receiver| {
+            // Create miniprotocol
+            // Spawn task that syncs store with peer.
+            // JP: Should run with initiative?
+            tokio::spawn(async move {
+                warn!("TODO: Sync with peer (with initiative).")
+            })
+        });
 
         // Send request to peer's manager for stream.
         let store_id = store.store_id();
         let cmd = PeerManagerCommand::RequestStoreSync {
             store_id,
+            spawn_task,
         };
         command_chan.send(cmd).expect("TODO");
     }
@@ -321,6 +318,37 @@ where
                         // Check if we already are syncing these.
                         manage_peers::<OT,T>(&mut store, &shared_state).await;
                     }
+                    UntypedStoreCommand::SyncWithPeer { peer, response_chan } => {
+                        debug!("Received UntypedStoreCommand::SyncWithPeer: {:?}", peer);
+
+                        let response = {
+                            // Check if already syncing with this peer. (JP: What if they're both already "Initializing"? Potential race condition where they don't sync)
+                            if let Some(status) = store.peers.get(&peer) {
+                                if status.is_known() {
+                                    // Mark task as initializing.
+                                    store.update_peer_to_initializing(&peer);
+
+                                    // Create closure that spawns task to sync store with peer.
+                                    let spawn_task: Box<SpawnMultiplexerTask> = Box::new(|party, stream_id, sender, receiver| {
+                                        // Create miniprotocol
+                                        // Spawn task that syncs store with peer.
+                                        // JP: Should run without initiative so that other peer can setup their handler?
+                                        tokio::spawn(async move {
+                                            warn!("TODO: Sync with peer (without initiative).")
+                                        })
+                                    });
+                                    Some(spawn_task)
+                                } else {
+                                    debug!("Store is already running");
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        };
+
+                        response_chan.send(response).or(Err(())).expect("TODO");
+                    }
                 }
             }
         }
@@ -355,10 +383,15 @@ pub enum StateUpdate<Header: ECGHeader<T>, T> {
 // struct UntypedStoreCommand(StoreCommand<dyn UntypedECGHeader, dyn Any>);
 
 /// Untyped variant of `StoreCommand` since existentials don't work.
-#[derive(Clone, Debug)]
-pub enum UntypedStoreCommand {
+// #[derive(Debug)]
+pub(crate) enum UntypedStoreCommand {
     /// Register the discovered peers.
     RegisterPeers {
         peers: Vec<DeviceId>,
-    }
+    },
+    /// Request store to sync with peer. Store can refuse.
+    SyncWithPeer {
+        peer: DeviceId,
+        response_chan: oneshot::Sender<Option<Box<SpawnMultiplexerTask>>>,
+    },
 }

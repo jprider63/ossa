@@ -2,7 +2,7 @@ use odyssey_crdt::time::CausalState;
 // use futures::{SinkExt, StreamExt};
 // use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use odyssey_crdt::CRDT;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::{watch, RwLock};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Debug, Display};
@@ -428,7 +428,7 @@ where
 
 /// Trait to define newtype wrapers that instantiate type families required by Odyssey.
 pub trait OdysseyType: 'static {
-    type StoreId: util::Hash + Debug + Display + Copy + Ord + Send + Sync + 'static; // Hashable instead of AsRef???
+    type StoreId: util::Hash + Debug + Display + Copy + Ord + Send + Sync + 'static + Serialize + for<'a> Deserialize<'a>; // Hashable instead of AsRef???
     type ECGHeader<T: CRDT<Time = Self::Time, Op: Serialize>>: store::ecg::ECGHeader<T>;
     type Time;
     type CausalState<T: CRDT<Time = Self::Time, Op: Serialize>>: CausalState<Time = Self::Time>;

@@ -2,15 +2,16 @@ use bitvec::{BitArr, prelude::Msb0};
 use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
 use std::future::Future;
-use tokio::sync::watch;
+use tokio::sync::{oneshot, watch};
 use tokio::time::{sleep, Duration};
 
 use crate::auth::DeviceId;
 use crate::core::{OdysseyType, StoreStatus, StoreStatuses};
+use crate::network::multiplexer::{MultiplexerCommand, SpawnMultiplexerTask, StreamId};
 use crate::store::UntypedStoreCommand;
 use crate::{
     network::{
@@ -27,15 +28,19 @@ pub(crate) struct Manager<StoreId> {
     active_stores: watch::Receiver<StoreStatuses<StoreId>>,
     // `Some` implies we have initiative.
     manager_channel: Option<UnboundedReceiver<PeerManagerCommand<StoreId>>>,
+    latest_stream_id: StreamId,
+    multiplexer_channel: UnboundedSender<MultiplexerCommand>,
 }
 
 impl<StoreId> Manager<StoreId> {
-    pub(crate) fn new(initiative: Party, peer_id: DeviceId, active_stores: watch::Receiver<StoreStatuses<StoreId>>, manager_channel: Option<UnboundedReceiver<PeerManagerCommand<StoreId>>>) -> Manager<StoreId> {
+    pub(crate) fn new(initiative: Party, peer_id: DeviceId, active_stores: watch::Receiver<StoreStatuses<StoreId>>, manager_channel: Option<UnboundedReceiver<PeerManagerCommand<StoreId>>>, latest_stream_id: StreamId, multiplexer_channel: UnboundedSender<MultiplexerCommand>) -> Manager<StoreId> {
         Manager {
             party_with_initiative: initiative,
             peer_id,
             active_stores,
             manager_channel,
+            latest_stream_id,
+            multiplexer_channel,
         }
     }
 
@@ -47,45 +52,41 @@ impl<StoreId> Manager<StoreId> {
     }
 }
 
-impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug> MiniProtocol for Manager<StoreId> {
-    type Message = MsgManager;
+impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug + Serialize + for<'a> Deserialize<'a>> MiniProtocol for Manager<StoreId> {
+    type Message = MsgManager<StoreId>;
 
-    fn run_server<S: Stream<Self::Message>>(self, stream: S) -> impl Future<Output = ()> + Send {
-        async move {
-            if self.server_has_initiative() {
-                self.run_with_initiative(stream).await
-            } else {
-                self.run_without_initiative(stream).await
-            }
-            debug!("Manager server exiting");
+    async fn run_server<S: Stream<Self::Message>>(self, stream: S) {
+        if self.server_has_initiative() {
+            self.run_with_initiative(stream).await
+        } else {
+            self.run_without_initiative(stream).await
         }
+        debug!("Manager server exiting");
     }
 
-    fn run_client<S: Stream<Self::Message>>(self, stream: S) -> impl Future<Output = ()> + Send {
-    // fn run_client<S: Stream<MsgManager>>(self, mut stream: S, active_stores: watch::Receiver<BTreeSet<StoreId>>) -> impl Future<Output = ()> + Send {
-        async move {
-            if self.server_has_initiative() {
-                self.run_without_initiative(stream).await
-            } else {
-                // Sleep for 5 seconds to not duplicate effort from the server.
-                sleep(Duration::new(5, 0)).await;
-                self.run_with_initiative(stream).await
-            }
-            debug!("Manager client exiting");
+    async fn run_client<S: Stream<Self::Message>>(self, stream: S) {
+        if self.server_has_initiative() {
+            self.run_without_initiative(stream).await
+        } else {
+            // Sleep for 5 seconds to not duplicate effort from the server.
+            sleep(Duration::new(5, 0)).await;
+            self.run_with_initiative(stream).await
         }
+        debug!("Manager client exiting");
     }
 }
 
 impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug> Manager<StoreId> {
     /// Manager run in mode that sends requests to peer.
-    async fn run_with_initiative<S: Stream<MsgManager>>(mut self, mut stream: S) {
+    async fn run_with_initiative<S: Stream<MsgManager<StoreId>>>(mut self, mut stream: S) {
         debug!("Mux manager started with initiative!");
     
         // Advertise stores.
         let shared_stores = run_advertise_stores_server(&mut stream, &mut self.active_stores).await;
         handle_shared_stores(self.peer_id, shared_stores);
     
-        let mut cmd_chan = self.manager_channel.expect("Manager with initiative must have command channel.");
+        // Note: This replaces the manager_channel with `None`. This will fail if this manager ends up being called multiple times.
+        let mut cmd_chan = self.manager_channel.take().expect("Manager with initiative must have command channel.");
         loop {
             debug!("Mux manager looping with initiative!");
             tokio::select! {
@@ -96,21 +97,34 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug> Manager<StoreId> {
                     debug!("Client sent store ids: {:?}", shared_stores);
                     handle_shared_stores(self.peer_id, shared_stores);
                 }
+                // cmd_m = self.manager_channel.as_mut().unwrap().recv() => {
                 cmd_m = cmd_chan.recv() => {
-                    warn!("TODO: run_new_channel(SyncStore(store_id,stream_id)): {:?}", cmd_m)
+                    match cmd_m {
+                        None => {
+                            debug!("Manager command channel closed.");
+                            // TODO: Do something here?
+                        }
+                        Some(PeerManagerCommand::RequestStoreSync { store_id, spawn_task }) => {
+                            let stream_id = self.next_stream_id();
+                            let _response = self.run_request_new_stream_server(&mut stream, stream_id, store_id, spawn_task).await;
+                            debug!("Requested to sync store with peer.");
+                            // TODO: Send back status as syncing?
+                            warn!("TODO: Send back status as syncing?");
+                        }
+                    }
                 }
             }
         }
     }
 
     /// Manager run in mode that responds to requests from peer.
-    async fn run_without_initiative<S: Stream<MsgManager>>(mut self, mut stream: S) {
+    async fn run_without_initiative<S: Stream<MsgManager<StoreId>>>(mut self, mut stream: S) {
         debug!("Mux manager started without initiative!");
         
         loop {
             debug!("Mux manager looping without initiative!");
             // Receive requests from initiator.
-            let response: MsgManagerRequest = receive(&mut stream).await.expect("TODO");
+            let response: MsgManagerRequest<StoreId> = receive(&mut stream).await.expect("TODO");
             match response {
                 MsgManagerRequest::AdvertiseStores { nonce, store_ids } => {
                     let shared_stores = run_advertise_stores_client(&mut stream, nonce, store_ids, &mut self.active_stores).await;
@@ -118,9 +132,134 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug> Manager<StoreId> {
                     debug!("Server sent store ids: {:?}", shared_stores);
                     // handle_shared_stores(self.peer_id, shared_stores);
                 }
+                MsgManagerRequest::CreateStoreStream { stream_id, store_id } => {
+                    self.run_request_new_stream_client(&mut stream, stream_id, store_id).await;
+                }
             }
         }
     }
+
+    /// Returns whether the proposed stream id is valid for the peer.
+    fn is_valid_stream_id(&self, our_initiative: bool, stream_id: &StreamId) -> bool {
+        let our_party = if our_initiative {
+            // We have initiative.
+            self.party_with_initiative
+        } else {
+            // We don't have initiative.
+            self.party_with_initiative.dual()
+        };
+        let their_party = our_party.dual();
+        if their_party.is_client() {
+            stream_id % 2 == 0
+        } else {
+            stream_id % 2 == 1
+        }
+    }
+
+    fn next_stream_id(&mut self) -> StreamId {
+        self.latest_stream_id += 2;
+
+        self.latest_stream_id
+    }
+
+    async fn run_request_new_stream_client<S: Stream<MsgManager<StoreId>>>(
+        &self,
+        stream: &mut S,
+        stream_id: StreamId,
+        store_id: StoreId,
+    ) {
+        let accept = {
+            // Check if stream is valid (it can be allocated by peer and is available).
+            let is_valid_id = self.is_valid_stream_id(false, &stream_id);
+            if !is_valid_id {
+                Err(MsgManagerError::InvalidStreamId)
+            } else {
+                // Ask store task if they want to sync with this peer.
+                let store_chan_m = {
+                    self.active_stores.borrow().get(&store_id).and_then(|s| s.command_channel().cloned())
+                };
+                if let Some(store_chan) = store_chan_m {
+                    let (response_chan, rx) = oneshot::channel();
+                    store_chan.send(UntypedStoreCommand::SyncWithPeer { peer: self.peer_id, response_chan }).expect("TODO");
+
+                    let spawn_task = rx.await.expect("TODO");
+                    if let Some(spawn_task) = spawn_task {
+                        // Tell multiplexer to create miniprotocol.
+                        let (response_chan, rx) = oneshot::channel();
+                        let cmd = MultiplexerCommand::CreateStream {
+                            stream_id,
+                            spawn_task,
+                            response_chan,
+                        };
+                        self.multiplexer_channel.send(cmd).expect("TODO");
+
+                        // Wait for stream to be created and return success.
+                        let is_running = rx.await.expect("TODO");
+                        Ok(is_running)
+                    } else {
+                        Ok(false)
+                    }
+                } else {
+                    // Store isn't running.
+                    Ok(false)
+                }
+            }
+        };
+    
+        // Send back response to peer.
+        let response = MsgManagerCreateStoreResponse {
+            accept,
+        };
+        send(stream, response).await.expect("TODO");
+    }
+
+    async fn run_request_new_stream_server<S: Stream<MsgManager<StoreId>>>(
+        &self,
+        stream: &mut S,
+        stream_id: StreamId,
+        store_id: StoreId,
+        spawn_task: Box<SpawnMultiplexerTask>,
+    ) {
+        // Send request message.
+        let req = MsgManagerRequest::CreateStoreStream {
+            stream_id,
+            store_id,
+        };
+        send(stream, req).await.expect("TODO");
+    
+        // Wait for response.
+        let response: MsgManagerCreateStoreResponse = receive(stream).await.expect("TODO");
+    
+        match response.accept {
+            Err(MsgManagerError::InvalidStreamId) => {
+                warn!("Invalid stream id");
+                todo!("Restore status to Known");
+            },
+            Ok(false) => {
+                info!("Peer denied sync request for store"); // : {}", store_id);
+                todo!("Restore status to Known");
+            },
+            Ok(true) => {
+                // Tell multiplexer to create miniprotocol.
+                let (response_chan, rx) = oneshot::channel();
+                let cmd = MultiplexerCommand::CreateStream {
+                    stream_id,
+                    spawn_task,
+                    response_chan,
+                };
+                self.multiplexer_channel.send(cmd).expect("TODO");
+    
+                // Wait for stream to be created and return success.
+                let is_running = rx.await.expect("TODO");
+    
+                if !is_running {
+                    error!("Failed to create miniprotocol stream to sync store.");
+                    panic!("TODO: Send shutdown for this miniprotocol and restore status to Known.");
+                }
+            },
+        }
+    }
+
 }
 
 
@@ -139,10 +278,10 @@ fn handle_shared_stores<StoreId>(
 ) {
     // Register the peer for this store.
     let peers = vec![peer_id];
-    let cmd = UntypedStoreCommand::RegisterPeers { peers };
 
     for (_store_id, store_sender) in shared_stores {
-        let res = store_sender.send(cmd.clone()); // .expect("TODO");
+        let cmd = UntypedStoreCommand::RegisterPeers { peers: peers.clone() };
+        let res = store_sender.send(cmd); // .expect("TODO");
         if res.is_err() {
             error!("Failed to register peer: {:?}", res);
         }
@@ -156,7 +295,7 @@ fn hash_store_id_with_nonce<StoreId: AsRef<[u8]>>(nonce: [u8; 4], store_id: &Sto
     <Sha256Hash as Hash>::finalize(h)
 }
 
-async fn run_advertise_stores_server<S: Stream<MsgManager>, StoreId>(
+async fn run_advertise_stores_server<S: Stream<MsgManager<StoreId>>, StoreId>(
     stream: &mut S,
     store_ids: &mut watch::Receiver<StoreStatuses<StoreId>>
 ) -> Vec<(StoreId, UnboundedSender<UntypedStoreCommand>)>
@@ -185,7 +324,7 @@ where
     store_ids.into_iter().zip(response.have_stores).filter_map(|((store_id, chan), is_shared)| if is_shared { Some((store_id, chan)) } else { None }).collect()
 }
 
-async fn run_advertise_stores_client<S: Stream<MsgManager>, StoreId: Copy + Ord + AsRef<[u8]>>(stream: &mut S, nonce: [u8; 4], their_store_ids: Vec<Sha256Hash>, our_store_ids: &mut watch::Receiver<StoreStatuses<StoreId>>) -> BTreeSet<StoreId> {
+async fn run_advertise_stores_client<S: Stream<MsgManager<StoreId>>, StoreId: Copy + Ord + AsRef<[u8]>>(stream: &mut S, nonce: [u8; 4], their_store_ids: Vec<Sha256Hash>, our_store_ids: &mut watch::Receiver<StoreStatuses<StoreId>>) -> BTreeSet<StoreId> {
     let our_store_ids: BTreeMap<Sha256Hash, StoreId> = our_store_ids.borrow_and_update().iter().filter(|e| e.1.is_initialized()).map(|(store_id, _)| {
         let h = hash_store_id_with_nonce(nonce, store_id);
         (h, *store_id)
@@ -208,15 +347,18 @@ async fn run_advertise_stores_client<S: Stream<MsgManager>, StoreId: Copy + Ord 
     mutual_store_ids
 }
 
+
+
 #[derive(Debug, Serialize, Deserialize)]
-pub(crate) enum MsgManager {
-    Request(MsgManagerRequest),
+pub(crate) enum MsgManager<StoreId> {
+    Request(MsgManagerRequest<StoreId>),
     AdvertiseStoresResponse(MsgManagerAdvertiseStoresResponse),
+    CreateStoreResponse(MsgManagerCreateStoreResponse),
 }
 
 
 #[derive(Debug, Serialize, Deserialize)]
-pub(crate) enum MsgManagerRequest {
+pub(crate) enum MsgManagerRequest<StoreId> {
     // Advertise stores using a poor man's PSI.
     AdvertiseStores {
         nonce: [u8; 4],
@@ -224,6 +366,11 @@ pub(crate) enum MsgManagerRequest {
         // Hash of store ids, using the nonce as a salt.
         // Maximum length is MAX_ADVERTISE_STORES.
         // TODO: Verify length while parsing.
+    },
+    /// Request to create a store stream.
+    CreateStoreStream {
+        stream_id: StreamId,
+        store_id: StoreId,
     },
 }
 
@@ -234,42 +381,74 @@ pub(crate) struct MsgManagerAdvertiseStoresResponse {
     have_stores: StoreBitmap,
 }
 
-impl Into<MsgManager> for MsgManagerRequest {
-    fn into(self) -> MsgManager {
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct MsgManagerCreateStoreResponse {
+    /// Whether or not the peer accepts or rejects the new stream.
+    accept: Result<bool, MsgManagerError>, // JP: The MsgManagerError should probably be pulled out front?
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) enum MsgManagerError {
+    InvalidStreamId,
+}
+
+
+impl<StoreId> Into<MsgManager<StoreId>> for MsgManagerRequest<StoreId> {
+    fn into(self) -> MsgManager<StoreId> {
         MsgManager::Request(self)
     }
 }
 
-impl Into<MsgManager> for MsgManagerAdvertiseStoresResponse {
-    fn into(self) -> MsgManager {
+impl<StoreId> Into<MsgManager<StoreId>> for MsgManagerAdvertiseStoresResponse {
+    fn into(self) -> MsgManager<StoreId> {
         MsgManager::AdvertiseStoresResponse(self)
     }
 }
 
-impl TryInto<MsgManagerRequest> for MsgManager {
+impl<StoreId> Into<MsgManager<StoreId>> for MsgManagerCreateStoreResponse {
+    fn into(self) -> MsgManager<StoreId> {
+        MsgManager::CreateStoreResponse(self)
+    }
+}
+
+impl<StoreId> TryInto<MsgManagerRequest<StoreId>> for MsgManager<StoreId> {
     type Error = ();
-    fn try_into(self) -> Result<MsgManagerRequest, ()> {
+    fn try_into(self) -> Result<MsgManagerRequest<StoreId>, ()> {
         match self {
             MsgManager::Request(r) => Ok(r),
             MsgManager::AdvertiseStoresResponse(_) => Err(()),
+            MsgManager::CreateStoreResponse(_) => Err(()),
         }
     }
 }
 
-impl TryInto<MsgManagerAdvertiseStoresResponse> for MsgManager {
+impl<StoreId> TryInto<MsgManagerAdvertiseStoresResponse> for MsgManager<StoreId> {
     type Error = ();
     fn try_into(self) -> Result<MsgManagerAdvertiseStoresResponse, ()> {
         match self {
             MsgManager::Request(_) => Err(()),
+            MsgManager::CreateStoreResponse(_) => Err(()),
             MsgManager::AdvertiseStoresResponse(r) => Ok(r),
         }
     }
 }
 
-#[derive(Debug)]
+impl<StoreId> TryInto<MsgManagerCreateStoreResponse> for MsgManager<StoreId> {
+    type Error = ();
+    fn try_into(self) -> Result<MsgManagerCreateStoreResponse, ()> {
+        match self {
+            MsgManager::Request(_) => Err(()),
+            MsgManager::AdvertiseStoresResponse(_) => Err(()),
+            MsgManager::CreateStoreResponse(r) => Ok(r),
+        }
+    }
+}
+
+// #[derive(Debug)]
 pub(crate) enum PeerManagerCommand<StoreId> {
     /// Request that the peer sync the given store. Creates a new multiplexer stream.
     RequestStoreSync {
         store_id: StoreId,
+        spawn_task: Box<SpawnMultiplexerTask>,
     }
 }
