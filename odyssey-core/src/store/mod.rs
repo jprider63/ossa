@@ -236,6 +236,9 @@ where
                     } => {
                         store.state_machine = match store.state_machine {
                             StateMachine::Downloading { store_id } => {
+                                // JP: Should we ever apply an operation if we're still downloading the store??
+                                warn!("Is this unreachable?");
+
                                 // Rank and connect to a few peers.
                                 manage_peers::<OT,T>(&mut store, &shared_state).await;
 
@@ -303,6 +306,8 @@ where
                     return;
                 };
                 match cmd {
+                    // Called when:
+                    // - Peer manager threads have this thread as a mutual store.
                     UntypedStoreCommand::RegisterPeers { peers } => {
                         debug!("Received UntypedStoreCommand::RegisterPeers: {:?}", peers);
 
@@ -318,6 +323,9 @@ where
                         // Check if we already are syncing these.
                         manage_peers::<OT,T>(&mut store, &shared_state).await;
                     }
+                    // Sets up task to sync this store with a peer (without initiative).
+                    // Called when:
+                    // - The peer requests we sync this store with them
                     UntypedStoreCommand::SyncWithPeer { peer, response_chan } => {
                         debug!("Received UntypedStoreCommand::SyncWithPeer: {:?}", peer);
 

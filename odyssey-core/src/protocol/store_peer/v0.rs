@@ -16,6 +16,7 @@ impl MiniProtocol for StoreSync {
     // Has initiative
     fn run_server<S: Stream<Self::Message>>(self, stream: S) -> impl Future<Output = ()> + Send {
         async move {
+            // ??
             // Send our store's status.
             // Wait for their status.
             //
