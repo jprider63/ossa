@@ -14,7 +14,7 @@ pub use v0::{MetadataBody, MetadataHeader, Nonce};
 
 pub struct State<Header: ecg::ECGHeader<T>, T: CRDT, Hash> {
     // Peers that also have this store (that we are potentially connected to?).
-    peers: BTreeMap<DeviceId, PeerStatus>, // BTreeSet<DeviceId>,
+    peers: BTreeMap<DeviceId, PeerInfo>, // BTreeSet<DeviceId>,
     state_machine: StateMachine<Header, T, Hash>,
 }
 
@@ -43,11 +43,20 @@ pub struct DecryptedState<Header: ecg::ECGHeader<T>, T: CRDT> {
     latest_headers: BTreeSet<Header::HeaderId>,
 }
 
+/// Information about a peer.
+#[derive(Debug)]
+struct PeerInfo {
+    /// Status of incoming sync status from peer.
+    incoming_status: PeerStatus,
+    /// Status of outgoing sync status to peer.
+    outgoing_status: PeerStatus,
+}
+
 /// Status of peers who we are potentially syncing this store with.
 #[derive(Debug)]
 pub(crate) enum PeerStatus {
     /// Peer is known and likely connected to, but is not syncing this store.
-    Known,
+    Known, // JP: Inactive?
     /// Setting up the thread that syncs the store with the peer. It's possible that the peer will reject the sync request.
     Initializing,
     // {
@@ -142,21 +151,33 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash> State<Header, T, Hash
             //         PeerStatus::Syncing => (),
             //     }
             // })
-            .or_insert(PeerStatus::Known);
+            // .or_insert(PeerStatus::Known);
+            .or_insert(PeerInfo { incoming_status: PeerStatus::Known, outgoing_status: PeerStatus::Known});
     }
 
-    /// Update a known peer to initializing.
-    fn update_peer_to_initializing(&mut self, peer: &DeviceId) {
-        let Some(status) = self.peers.get_mut(peer) else {
+    /// Helper to update a known peer to initializing.
+    fn update_peer_to_initializing(&mut self, peer: &DeviceId, direction_lambda: fn(&mut PeerInfo) -> &mut PeerStatus) {
+        let Some(info) = self.peers.get_mut(peer) else {
             error!("Invariant violated. Attempted to initialize an unknown peer: {}", peer);
             panic!();
         };
+        let status = direction_lambda(info);
         if status.is_known() {
             *status = PeerStatus::Initializing;
         } else {
             error!("Invariant violated. Attempted to initialize an already initialized peer: {} - {:?}", peer, status);
             panic!();
         }
+    }
+
+    /// Update a known peer's outgoing status to initializing.
+    fn update_peer_to_initializing_outgoing(&mut self, peer: &DeviceId) {
+        self.update_peer_to_initializing(peer, |info| &mut info.outgoing_status);
+    }
+
+    /// Update a known peer's incoming status to initializing.
+    fn update_peer_to_initializing_incoming(&mut self, peer: &DeviceId) {
+        self.update_peer_to_initializing(peer, |info| &mut info.incoming_status);
     }
 }
 
@@ -171,7 +192,7 @@ where
 {
     // For now, sync with all (connected?) peers.
     // Don't connect to peers we're already syncing with.
-    let peers: Vec<_> = store.peers.iter().filter(|p| p.1.is_known()).collect();
+    let peers: Vec<_> = store.peers.iter().filter(|p| p.1.outgoing_status.is_known()).collect();
     let peers: Vec<_> = {
         // Acquire lock on shared state.
         let peer_states = shared_state.peer_state.read().await;
@@ -182,7 +203,7 @@ where
     };
     for (peer_id, command_chan) in peers {
         // Mark task as initializing.
-        store.update_peer_to_initializing(&peer_id);
+        store.update_peer_to_initializing_outgoing(&peer_id);
 
         // Create closure that spawns task to sync store with peer.
         let spawn_task = Box::new(|party, stream_id, sender, receiver| {
@@ -190,6 +211,20 @@ where
             // Spawn task that syncs store with peer.
             // JP: Should run with initiative?
             tokio::spawn(async move {
+                // Send cmd to store to set peer's status as syncing.
+
+                // JP: This requires StorePeer protocols in both directions (if both sides want updates from the other party).
+                // This has the downside that we may run ECG sync in both directions.. Does it make sense to store StorePeer state in a shared Arc<RWLock>?
+                // Separate thread for SCSync?
+                // TODO: Setup in both directions, remove initialized check.
+                //
+                // In the store task, sync state:
+                // Based on status,
+                //   if we're still downloading the metadata, request the peer to send it 
+                //   if we are downloading the initial state, send a download request for a piece(s) we need. How do we do timeouts here though? Perhaps in the StorePeer task?
+                //   if we're syncing:
+                //      run ECG sync to find the meet
+                //      Request all operations after the meet
                 warn!("TODO: Sync with peer (with initiative).")
             })
         });
@@ -323,7 +358,7 @@ where
                         // Check if we already are syncing these.
                         manage_peers::<OT,T>(&mut store, &shared_state).await;
                     }
-                    // Sets up task to sync this store with a peer (without initiative).
+                    // Sets up task to respond to a request to sync this store from a peer (without initiative).
                     // Called when:
                     // - The peer requests we sync this store with them
                     UntypedStoreCommand::SyncWithPeer { peer, response_chan } => {
@@ -335,9 +370,9 @@ where
                         let response = {
                             // Check if already syncing with this peer. (JP: What if they're both already "Initializing"? Potential race condition where they don't sync)
                             if let Some(status) = store.peers.get(&peer) {
-                                if status.is_known() {
+                                if status.incoming_status.is_known() {
                                     // Mark task as initializing.
-                                    store.update_peer_to_initializing(&peer);
+                                    store.update_peer_to_initializing_incoming(&peer);
 
                                     // Create closure that spawns task to sync store with peer.
                                     let spawn_task: Box<SpawnMultiplexerTask> = Box::new(|party, stream_id, sender, receiver| {
@@ -354,7 +389,7 @@ where
                                     None
                                 }
                             } else {
-                                debug!("Don't know this peer.");
+                                unreachable!("Don't know this peer.");
                                 // JP: This should be impossible now.
                                 None
                             }

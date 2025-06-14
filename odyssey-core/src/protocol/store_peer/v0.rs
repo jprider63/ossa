@@ -24,6 +24,8 @@ impl MiniProtocol for StoreSync {
             // | DownloadingHeader
             // | DownloadingInitialState {BlocksIds}
             // | Syncing {ecg_known: frontier, ecg_have: frontier}
+
+
             todo!();
         }
     }
