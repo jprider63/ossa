@@ -131,7 +131,7 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug> Manager<StoreId> {
                     let shared_stores = run_advertise_stores_client(&mut stream, nonce, store_ids, &mut self.active_stores).await;
                     // TODO: Store and handle peers too?
                     debug!("Server sent store ids: {:?}", shared_stores);
-                    // handle_shared_stores(self.peer_id, shared_stores);
+                    handle_shared_stores(self.peer_id, shared_stores);
                 }
                 MsgManagerRequest::CreateStoreStream { stream_id, store_id } => {
                     debug!("Received MsgManagerRequest::CreateStoreStream: {stream_id}, {store_id:?}");
@@ -330,18 +330,19 @@ where
     store_ids.into_iter().zip(response.have_stores).filter_map(|((store_id, chan), is_shared)| if is_shared { Some((store_id, chan)) } else { None }).collect()
 }
 
-async fn run_advertise_stores_client<S: Stream<MsgManager<StoreId>>, StoreId: Copy + Ord + AsRef<[u8]>>(stream: &mut S, nonce: [u8; 4], their_store_ids: Vec<Sha256Hash>, our_store_ids: &mut watch::Receiver<StoreStatuses<StoreId>>) -> BTreeSet<StoreId> {
-    let our_store_ids: BTreeMap<Sha256Hash, StoreId> = our_store_ids.borrow_and_update().iter().filter(|e| e.1.is_initialized()).map(|(store_id, _)| {
+async fn run_advertise_stores_client<S: Stream<MsgManager<StoreId>>, StoreId: Copy + Ord + AsRef<[u8]>>(stream: &mut S, nonce: [u8; 4], their_store_ids: Vec<Sha256Hash>, our_store_ids: &mut watch::Receiver<StoreStatuses<StoreId>>) -> Vec<(StoreId, UnboundedSender<UntypedStoreCommand>)> {
+    let mut our_store_ids: BTreeMap<Sha256Hash, (StoreId, UnboundedSender<_>)> = our_store_ids.borrow_and_update().iter().filter_map(|e| e.1.command_channel().map(|c| (e.0, c))).map(|(store_id, c)| {
         let h = hash_store_id_with_nonce(nonce, store_id);
-        (h, *store_id)
+        (h, (*store_id, c.clone()))
     }).collect();
 
     let mut have_stores = StoreBitmap::ZERO;
-    let mut mutual_store_ids = BTreeSet::new();
-    their_store_ids.iter().enumerate().for_each(|(i, their_store_id)| {
-        if let Some(v) = our_store_ids.get(their_store_id) {
+    let mut mutual_store_ids = Vec::new();
+    their_store_ids.into_iter().enumerate().for_each(|(i, their_store_id)| {
+        // If they send the same store multiple times, subsequent responses will be false.
+        if let Some(v) = our_store_ids.remove(&their_store_id) {
             have_stores.set(i, true);
-            mutual_store_ids.insert(*v);
+            mutual_store_ids.push((v.0, v.1));
         }
     });
 
