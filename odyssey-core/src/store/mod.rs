@@ -1,8 +1,10 @@
 use odyssey_crdt::CRDT;
+use rand::{seq::SliceRandom as _, thread_rng};
 use serde::Serialize;
 use tokio::{sync::{mpsc::{UnboundedReceiver, UnboundedSender}, oneshot}, task::JoinHandle};
 use tracing::{debug, error, warn};
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Debug;
 use typeable::{TypeId, Typeable};
 
 use crate::{auth::DeviceId, core::{OdysseyType, SharedState}, network::{multiplexer::{run_miniprotocol_async, SpawnMultiplexerTask}, protocol::MiniProtocol}, protocol::{manager::v0::PeerManagerCommand, store_peer::v0::{StoreSync, StoreSyncCommand}}, store::ecg::{ECGBody, ECGHeader}, util};
@@ -58,14 +60,35 @@ pub struct DecryptedState<Header: ecg::ECGHeader<T>, T: CRDT> {
 #[derive(Debug)]
 struct PeerInfo {
     /// Status of incoming sync status from peer.
-    incoming_status: PeerStatus,
+    incoming_status: PeerStatus<()>,
     /// Status of outgoing sync status to peer.
-    outgoing_status: PeerStatus,
+    outgoing_status: PeerStatus<OutgoingPeerStatus>,
+}
+
+impl PeerInfo {
+    /// Checks if the peer is ready for a sync request.
+    /// This means the peer is syncing and does not have an outstanding request.
+    fn is_ready_for_sync(&self) -> bool {
+        if let PeerStatus::Syncing(s) = &self.outgoing_status {
+            !s.is_outstanding
+        } else {
+            false
+        }
+    }
+}
+
+#[derive(Debug)]
+/// Outgoing information about a syncing peer.
+struct OutgoingPeerStatus {
+    /// Sender channel for requests to the outgoing peer store.
+    sender_peer: UnboundedSender<StoreSyncCommand>,
+    /// Whether we have an outgoing peer request that is outstanding.
+    is_outstanding: bool,
 }
 
 /// Status of peers who we are potentially syncing this store with.
 #[derive(Debug)]
-pub(crate) enum PeerStatus {
+pub(crate) enum PeerStatus<T> {
     /// Peer is known and likely connected to, but is not syncing this store.
     Known, // JP: Inactive?
     /// Setting up the thread that syncs the store with the peer. It's possible that the peer will reject the sync request.
@@ -74,7 +97,7 @@ pub(crate) enum PeerStatus {
     //     task: JoinHandle<()>,
     // },
     /// The thread that syncs the store with the peer is syncing.
-    Syncing, // JP: Running instead?
+    Syncing(T), // JP: Running instead?
 
 //     /// Peers that we are connected to, but are not syncing this store. It's possible that these connections have dropped.
 //     Known(), // TODO: Last known IP address, port, statistics (latency, bandwidth, ...). JP: Should some of this be stored globally?
@@ -84,7 +107,7 @@ pub(crate) enum PeerStatus {
 //     Active(), 
 }
 
-impl PeerStatus {
+impl<T> PeerStatus<T> {
     fn is_known(&self) -> bool {
         if let PeerStatus::Known = self {
             true
@@ -92,16 +115,15 @@ impl PeerStatus {
             false
         }
     }
-}
 
-// impl PeerStatus {
-//     pub(crate) fn is_connected(&self) -> bool {
-//         match self {
-//             PeerStatus::Connected() => true,
-//             _ => false,
-//         }
-//     }
-// }
+    fn is_initializing(&self) -> bool {
+        if let PeerStatus::Initializing = self {
+            true
+        } else {
+            false
+        }
+    }
+}
 
 impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash> State<Header, T, Hash> {
     /// Initialize a new store with the given state. This initializes the header, including
@@ -177,7 +199,10 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash> State<Header, T, Hash
     }
 
     /// Helper to update a known peer to initializing.
-    fn update_peer_to_initializing(&mut self, peer: &DeviceId, direction_lambda: fn(&mut PeerInfo) -> &mut PeerStatus) {
+    fn update_peer_to_initializing<A>(&mut self, peer: &DeviceId, direction_lambda: fn(&mut PeerInfo) -> &mut PeerStatus<A>)
+    where
+        A: Debug
+    {
         let Some(info) = self.peers.get_mut(peer) else {
             error!("Invariant violated. Attempted to initialize an unknown peer: {}", peer);
             panic!();
@@ -200,6 +225,56 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash> State<Header, T, Hash
     fn update_peer_to_initializing_incoming(&mut self, peer: &DeviceId) {
         self.update_peer_to_initializing(peer, |info| &mut info.incoming_status);
     }
+
+    /// Helper to update a known peer to syncing.
+    fn update_peer_to_syncing<A>(&mut self, peer: &DeviceId, direction_lambda: fn(&mut PeerInfo) -> &mut PeerStatus<A>, sender_m: A)
+    where
+        A: Debug
+    {
+        let Some(info) = self.peers.get_mut(peer) else {
+            error!("Invariant violated. Attempted to initialize an unknown peer: {}", peer);
+            panic!();
+        };
+        let status = direction_lambda(info);
+        match status {
+            PeerStatus::Initializing => {
+                *status = PeerStatus::Syncing(sender_m);
+            }
+            PeerStatus::Known => {
+                error!("Invariant violated. Attempted to initialize an unknown peer: {} - {:?}", peer, status);
+                panic!();
+            }
+            PeerStatus::Syncing(_) => {
+                error!("Invariant violated. Attempted to sync an already syncing peer: {} - {:?}", peer, status);
+                panic!();
+            }
+        }
+    }
+
+    fn update_peer_to_syncing_incoming(&mut self, peer: &DeviceId) {
+        self.update_peer_to_syncing(peer, |info| &mut info.incoming_status, ());
+    }
+
+    fn update_peer_to_syncing_outgoing(&mut self, peer: &DeviceId, sender: OutgoingPeerStatus) {
+        self.update_peer_to_syncing(peer, |info| &mut info.outgoing_status, sender);
+    }
+
+    /// Send sync requests to peers.
+    fn send_sync_requests(&mut self) {
+        // Get peers (of this store) without outstanding requests.
+        let mut peers: Vec<_> = self.peers.iter_mut().filter(|(_,i)| i.is_ready_for_sync()).collect();
+        // TODO: Rank and (weighted) randomize the peers.
+        let mut rng = thread_rng();
+        peers.shuffle(&mut rng);
+
+        // Send requests to peers based on what we need.
+        match &self.state_machine {
+            StateMachine::DownloadingMetadata { store_id } => todo!(),
+            StateMachine::DownloadingMerkle { metadata, piece_hashes } => todo!(),
+            StateMachine::DownloadingInitialState { metadata, piece_hashes, initial_state } => todo!(),
+            StateMachine::Syncing { metadata, piece_hashes, initial_state, ecg_state, decrypted_state } => todo!(),
+        }
+    }
 }
 
 // JP: Or should Odyssey own this/peers?
@@ -207,7 +282,7 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash> State<Header, T, Hash
 async fn manage_peers<OT: OdysseyType, T: CRDT<Time = OT::Time> + Clone + Send + 'static>(
     store: &mut State<OT::ECGHeader<T>, T, OT::StoreId>,
     shared_state: &SharedState<OT::StoreId>,
-    // send_commands: UnboundedSender<StoreCommand<OT::ECGHeader<T>, T>>,
+    send_commands: &UnboundedSender<UntypedStoreCommand>,
 )
 where
     T::Op: Serialize,
@@ -230,21 +305,21 @@ where
         store.update_peer_to_initializing_outgoing(&peer_id);
 
         // Create closure that spawns task to sync store with peer.
-        let spawn_task = Box::new(|_party, stream_id, sender, receiver| {
+        let send_commands = send_commands.clone();
+        let spawn_task = Box::new(move |_party, stream_id, sender, receiver| {
             // Create miniprotocol
             // Spawn task that syncs store with peer.
             // JP: Should run with initiative?
             tokio::spawn(async move {
-                // // Send cmd to store to set peer's status as syncing.
                 // Tell store we're running and send it our channel.
                 let (send_peer, recv_peer) =
                     tokio::sync::mpsc::unbounded_channel::<StoreSyncCommand>();
 
-                // let register_cmd = StoreCommand::<OT::ECGHeader<T>, T>::RegisterOutgoingPeerSyncing {
-                //     send_peer,
-                // };
-                // send_commands.send(register_cmd).expect("TODO");
-                todo!("Tell store we're running and send it our channel");
+                let register_cmd = UntypedStoreCommand::RegisterOutgoingPeerSyncing {
+                    peer: peer_id,
+                    send_peer,
+                };
+                send_commands.send(register_cmd).expect("TODO");
 
                 // Start miniprotocol as server.
                 let mp = StoreSync::<OT::StoreId>::new_server(recv_peer);
@@ -283,6 +358,7 @@ where
 pub(crate) async fn run_handler<OT: OdysseyType, T: CRDT<Time = OT::Time> + Clone + Send + 'static>(
     mut store: State<OT::ECGHeader<T>, T, OT::StoreId>,
     mut recv_commands: UnboundedReceiver<StoreCommand<OT::ECGHeader<T>, T>>,
+    send_commands_untyped: UnboundedSender<UntypedStoreCommand>,
     mut recv_commands_untyped: UnboundedReceiver<UntypedStoreCommand>,
     shared_state: SharedState<OT::StoreId>,
 )
@@ -408,13 +484,6 @@ where
                         // Register this subscriber.
                         listeners.push(send_state);
                     }
-                    StoreCommand::RegisterOutgoingPeerSyncing{ send_peer } => {
-                        let peer_id = todo!();
-                        // Update peer's state to syncing and register 
-                        todo!("TODO");
-
-                    }
-                
                 }
             }
             cmd_m = recv_commands_untyped.recv() => {
@@ -438,7 +507,7 @@ where
                         // Spawn sync threads for each shared store.
                         // TODO: Only do this if server?
                         // Check if we already are syncing these.
-                        manage_peers::<OT,T>(&mut store, &shared_state).await;
+                        manage_peers::<OT,T>(&mut store, &shared_state, &send_commands_untyped).await;
                     }
                     // Sets up task to respond to a request to sync this store from a peer (without initiative).
                     // Called when:
@@ -457,12 +526,24 @@ where
                                     store.update_peer_to_initializing_incoming(&peer);
 
                                     // Create closure that spawns task to sync store with peer.
-                                    let spawn_task: Box<SpawnMultiplexerTask> = Box::new(|party, stream_id, sender, receiver| {
+                                    let send_commands_untyped = send_commands_untyped.clone();
+                                    let spawn_task: Box<SpawnMultiplexerTask> = Box::new(move |party, stream_id, sender, receiver| {
                                         // Create miniprotocol
                                         // Spawn task that syncs store with peer.
                                         // JP: Should run without initiative so that other peer can setup their handler?
                                         tokio::spawn(async move {
-                                            warn!("TODO: Sync with peer (without initiative).")
+                                            warn!("TODO: Sync with peer (without initiative).");
+
+                                            // Tell store we're running.
+                                            let register_cmd = UntypedStoreCommand::RegisterIncomingPeerSyncing {
+                                                peer,
+                                            };
+                                            send_commands_untyped.send(register_cmd).expect("TODO");
+
+                                            // Start miniprotocol as client.
+                                            let mp = StoreSync::<OT::StoreId>::new_client();
+                                            run_miniprotocol_async::<_, OT>(mp, true, stream_id, sender, receiver).await;
+                                            debug!("Store sync with peer (without initiative) exited.")
                                         })
                                     });
                                     Some(spawn_task)
@@ -478,6 +559,24 @@ where
                         };
 
                         response_chan.send(response).or(Err(())).expect("TODO");
+                    }
+                    UntypedStoreCommand::RegisterOutgoingPeerSyncing{ peer, send_peer } => {
+                        // JP: Maybe send_peer actually isn't needed??? We could construct oneshots???
+                        // Update peer's state to syncing and register channel.
+                        let outgoing_status = OutgoingPeerStatus {
+                            sender_peer: send_peer,
+                            is_outstanding: false,
+                        };
+                        store.update_peer_to_syncing_outgoing(&peer, outgoing_status);
+
+                        // Sync with peer(s). Do this for all commands??
+                        store.send_sync_requests();
+                    }
+                    UntypedStoreCommand::RegisterIncomingPeerSyncing{ peer } => {
+                        // JP: Maybe this actually isn't needed??? We could construct oneshots for every request..
+
+                        // Update peer's state to syncing and register channel.
+                        store.update_peer_to_syncing_incoming(&peer);
                     }
                 }
             }
@@ -495,9 +594,6 @@ pub(crate) enum StoreCommand<Header: ECGHeader<T>, T> {
     SubscribeState {
         send_state: UnboundedSender<StateUpdate<Header, T>>,
     },
-    RegisterOutgoingPeerSyncing {
-        send_peer: UnboundedSender<StoreSyncCommand>,
-    }
 }
 
 pub enum StateUpdate<Header: ECGHeader<T>, T> {
@@ -528,5 +624,12 @@ pub(crate) enum UntypedStoreCommand {
     SyncWithPeer {
         peer: DeviceId,
         response_chan: oneshot::Sender<Option<Box<SpawnMultiplexerTask>>>,
+    },
+    RegisterOutgoingPeerSyncing {
+        peer: DeviceId,
+        send_peer: UnboundedSender<StoreSyncCommand>,
+    },
+    RegisterIncomingPeerSyncing {
+        peer: DeviceId,
     },
 }

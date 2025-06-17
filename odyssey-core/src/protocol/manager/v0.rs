@@ -164,7 +164,7 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug> Manager<StoreId> {
         self.latest_stream_id
     }
 
-    /// Run protocol to start a new stream as the client (responder).
+    /// Run protocol to start a new (StorePeer) stream as the client (responder).
     async fn run_request_new_stream_client<S: Stream<MsgManager<StoreId>>>(
         &self,
         stream: &mut S,

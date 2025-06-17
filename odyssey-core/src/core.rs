@@ -372,8 +372,9 @@ impl<OT: OdysseyType> Odyssey<OT> {
         // Spawn routine that owns this store.
 
         let shared_state = self.shared_state.clone();
+        let send_commands_untyped_ = send_commands_untyped.clone();
         let future_handle = self.tokio_runtime.spawn(async move {
-            store::run_handler::<OT, T>(store, recv_commands, recv_commands_untyped, shared_state).await;
+            store::run_handler::<OT, T>(store, recv_commands, send_commands_untyped_, recv_commands_untyped, shared_state).await;
         });
 
         // Register this store.
