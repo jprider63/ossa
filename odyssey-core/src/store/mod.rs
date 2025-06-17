@@ -5,7 +5,7 @@ use tracing::{debug, error, warn};
 use std::collections::{BTreeMap, BTreeSet};
 use typeable::{TypeId, Typeable};
 
-use crate::{auth::DeviceId, core::{OdysseyType, SharedState}, network::multiplexer::SpawnMultiplexerTask, protocol::manager::v0::PeerManagerCommand, store::ecg::{ECGBody, ECGHeader}, util};
+use crate::{auth::DeviceId, core::{OdysseyType, SharedState}, network::{multiplexer::{run_miniprotocol_async, SpawnMultiplexerTask}, protocol::MiniProtocol}, protocol::{manager::v0::PeerManagerCommand, store_peer::v0::{StoreSync, StoreSyncCommand}}, store::ecg::{ECGBody, ECGHeader}, util};
 
 pub mod ecg;
 pub mod v0; // TODO: Move this to network::protocol
@@ -20,14 +20,25 @@ pub struct State<Header: ecg::ECGHeader<T>, T: CRDT, Hash> {
 
 // States are:
 // - Initializing - Setting up the thread that owns the store (not defined here).
-// - Downloading - Don't have the header so we're downloading it.
+// - DownloadingMetadata - Don't have the header so we're downloading it.
 // - Syncing - Have the header and syncing updates between peers.
 pub enum StateMachine<Header: ecg::ECGHeader<T>, T: CRDT, Hash> {
-    Downloading {
+    DownloadingMetadata {
         store_id: Hash,
     },
+    DownloadingMerkle {
+        metadata: MetadataHeader<Hash>,
+        piece_hashes: Vec<Option<Hash>>,
+    },
+    DownloadingInitialState {
+        metadata: MetadataHeader<Hash>,
+        piece_hashes: Vec<Hash>,
+        initial_state: Vec<Option<u8>>,
+    },
     Syncing {
-        store_header: MetadataHeader<Hash>,
+        metadata: MetadataHeader<Hash>,
+        piece_hashes: Vec<Hash>,
+        initial_state: Vec<u8>, // Or just T?
         ecg_state: ecg::State<Header, T>,
         decrypted_state: DecryptedState<Header, T>, // Temporary
         // decrypted_state: Option<DecryptedState<Header, T>>, // JP: Is this actually used?
@@ -106,8 +117,12 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash> State<Header, T, Hash
             latest_headers: BTreeSet::new(),
         };
 
+        let (piece_hashes, initial_state) = init_body.build();
+
         let state_machine = StateMachine::Syncing {
-            store_header,
+            metadata: store_header,
+            piece_hashes,
+            initial_state,
             ecg_state: ecg::State::new(),
             decrypted_state, // : Some(decrypted_state),
         };
@@ -119,7 +134,7 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash> State<Header, T, Hash
 
     /// Create a new store with the given store id that is downloading the store's header.
     pub(crate) fn new_downloading(store_id: Hash) -> Self {
-        let state_machine = StateMachine::Downloading {
+        let state_machine = StateMachine::DownloadingMetadata {
             store_id
         };
 
@@ -131,11 +146,17 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash> State<Header, T, Hash
 
     pub fn store_id(&self) -> Hash {
         match &self.state_machine {
-            StateMachine::Downloading{store_id} => {
+            StateMachine::DownloadingMetadata{store_id} => {
                 *store_id
             }
-            StateMachine::Syncing { store_header, .. } => {
-                store_header.store_id()
+            StateMachine::DownloadingMerkle { metadata, .. } => {
+                metadata.store_id()
+            }
+            StateMachine::DownloadingInitialState { metadata, .. } => {
+                metadata.store_id()
+            }
+            StateMachine::Syncing { metadata, .. } => {
+                metadata.store_id()
             }
         }
     }
@@ -186,9 +207,12 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash> State<Header, T, Hash
 async fn manage_peers<OT: OdysseyType, T: CRDT<Time = OT::Time> + Clone + Send + 'static>(
     store: &mut State<OT::ECGHeader<T>, T, OT::StoreId>,
     shared_state: &SharedState<OT::StoreId>,
+    // send_commands: UnboundedSender<StoreCommand<OT::ECGHeader<T>, T>>,
 )
 where
     T::Op: Serialize,
+    //OT::ECGHeader<T>::HeaderId : Send,
+    //T: Send,
 {
     // For now, sync with all (connected?) peers.
     // Don't connect to peers we're already syncing with.
@@ -206,12 +230,27 @@ where
         store.update_peer_to_initializing_outgoing(&peer_id);
 
         // Create closure that spawns task to sync store with peer.
-        let spawn_task = Box::new(|party, stream_id, sender, receiver| {
+        let spawn_task = Box::new(|_party, stream_id, sender, receiver| {
             // Create miniprotocol
             // Spawn task that syncs store with peer.
             // JP: Should run with initiative?
             tokio::spawn(async move {
-                // Send cmd to store to set peer's status as syncing.
+                // // Send cmd to store to set peer's status as syncing.
+                // Tell store we're running and send it our channel.
+                let (send_peer, recv_peer) =
+                    tokio::sync::mpsc::unbounded_channel::<StoreSyncCommand>();
+
+                // let register_cmd = StoreCommand::<OT::ECGHeader<T>, T>::RegisterOutgoingPeerSyncing {
+                //     send_peer,
+                // };
+                // send_commands.send(register_cmd).expect("TODO");
+                todo!("Tell store we're running and send it our channel");
+
+                // Start miniprotocol as server.
+                let mp = StoreSync::<OT::StoreId>::new_server(recv_peer);
+                run_miniprotocol_async::<_, OT>(mp, false, stream_id, sender, receiver).await;
+
+                debug!("Store sync with peer (with initiative) exited.")
 
                 // JP: This requires StorePeer protocols in both directions (if both sides want updates from the other party).
                 // This has the downside that we may run ECG sync in both directions.. Does it make sense to store StorePeer state in a shared Arc<RWLock>?
@@ -225,7 +264,6 @@ where
                 //   if we're syncing:
                 //      run ECG sync to find the meet
                 //      Request all operations after the meet
-                warn!("TODO: Sync with peer (with initiative).")
             })
         });
 
@@ -264,22 +302,44 @@ where
                     error!("Failed to receive StoreCommand");
                     return;
                 };
+
+                // // Rank and connect to a few peers.
+                // manage_peers::<OT,T>(&mut store, &shared_state).await;
+
                 match cmd {
                     StoreCommand::Apply {
                         operation_header,
                         operation_body,
                     } => {
                         store.state_machine = match store.state_machine {
-                            StateMachine::Downloading { store_id } => {
-                                // JP: Should we ever apply an operation if we're still downloading the store??
-                                warn!("Is this unreachable?");
+                            // StateMachine::DownloadingMetadata { store_id } => {
+                            //     // JP: Should we ever apply an operation if we're still downloading the store??
+                            //     warn!("Is this unreachable?");
 
-                                // Rank and connect to a few peers.
-                                manage_peers::<OT,T>(&mut store, &shared_state).await;
+                            //     // Rank and connect to a few peers.
+                            //     manage_peers::<OT,T>(&mut store, &shared_state).await;
 
-                                StateMachine::Downloading { store_id }
-                            }
-                            StateMachine::Syncing { store_header, ecg_state, decrypted_state } => {
+                            //     StateMachine::DownloadingMetadata { store_id }
+                            // }
+                            // StateMachine::DownloadingMerkle { metadata, piece_hashes } => {
+                            //     // JP: Should we ever apply an operation if we're still downloading the store??
+                            //     warn!("Is this unreachable?");
+
+                            //     // Rank and connect to a few peers.
+                            //     manage_peers::<OT,T>(&mut store, &shared_state).await;
+
+                            //     StateMachine::DownloadingMerkle { metadata, piece_hashes }
+                            // }
+                            // StateMachine::DownloadingInitialState { metadata, piece_hashes, initial_state } => {
+                            //     // JP: Should we ever apply an operation if we're still downloading the store??
+                            //     warn!("Is this unreachable?");
+
+                            //     // Rank and connect to a few peers.
+                            //     manage_peers::<OT,T>(&mut store, &shared_state).await;
+
+                            //     StateMachine::DownloadingInitialState { metadata, piece_hashes, initial_state }
+                            // }
+                            StateMachine::Syncing { metadata, piece_hashes, initial_state , ecg_state, decrypted_state } => {
                                 let mut ecg_state = ecg_state;
                                 let mut decrypted_state = decrypted_state;
 
@@ -310,17 +370,33 @@ where
                                     l.send(snapshot).expect("TODO");
                                 }
 
-                                StateMachine::Syncing { store_header, ecg_state, decrypted_state }
+                                StateMachine::Syncing { metadata, piece_hashes, initial_state, ecg_state, decrypted_state }
+                            }
+                            _ => {
+                                warn!("JP: Does this ever happen?");
+                                store.state_machine
                             }
                         };
                     }
                     StoreCommand::SubscribeState { send_state } => {
                         // Send current state.
                         let snapshot = match &store.state_machine {
-                            StateMachine::Downloading { .. } => {
-                                StateUpdate::Downloading
+                            StateMachine::DownloadingMetadata { .. } => {
+                                StateUpdate::Downloading { percent: 0 }
                             }
-                            StateMachine::Syncing { store_header: _, ref ecg_state, ref decrypted_state } => {
+                            StateMachine::DownloadingMerkle { .. } => {
+                                StateUpdate::Downloading { percent: 0 }
+                            }
+                            StateMachine::DownloadingInitialState { metadata, initial_state, .. } => {
+                                let percent = if metadata.initial_state_size == 0 {
+                                    0
+                                } else {
+                                    let downloaded = initial_state.iter().filter(|p| p.is_some()).count() as u64;
+                                    downloaded * (metadata.piece_size as u64) / metadata.initial_state_size
+                                };
+                                StateUpdate::Downloading { percent }
+                            }
+                            StateMachine::Syncing { ref ecg_state, ref decrypted_state, .. } => {
                                 StateUpdate::Snapshot {
                                     snapshot: decrypted_state.latest_state.clone(),
                                     ecg_state: ecg_state.clone(),
@@ -331,6 +407,12 @@ where
 
                         // Register this subscriber.
                         listeners.push(send_state);
+                    }
+                    StoreCommand::RegisterOutgoingPeerSyncing{ send_peer } => {
+                        let peer_id = todo!();
+                        // Update peer's state to syncing and register 
+                        todo!("TODO");
+
                     }
                 
                 }
@@ -413,10 +495,15 @@ pub(crate) enum StoreCommand<Header: ECGHeader<T>, T> {
     SubscribeState {
         send_state: UnboundedSender<StateUpdate<Header, T>>,
     },
+    RegisterOutgoingPeerSyncing {
+        send_peer: UnboundedSender<StoreSyncCommand>,
+    }
 }
 
 pub enum StateUpdate<Header: ECGHeader<T>, T> {
-    Downloading,
+    Downloading {
+        percent: u64,
+    },
     Snapshot {
         snapshot: T,
         ecg_state: ecg::State<Header, T>,

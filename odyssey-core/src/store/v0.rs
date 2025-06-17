@@ -49,28 +49,33 @@ pub struct MetadataHeader<Hash> {
     // Owner?
     // Encryption options
     // Access control options?
-    /// Size in bytes of the metadata body.
-    pub body_size: usize,
+    /// Size in bytes of the initial state.
+    pub initial_state_size: u64,
 
-    /// Hash of the metadata body.
-    pub body_hash: Hash,
+    /// Size in bytes of each piece of the initial state.
+    pub piece_size: u32,
+
+    /// Hash (merkle root) of the hashes of the initial state's pieces.
+    pub merkle_root: Hash,
 }
 
 // TODO: Signature of MetadataHeader by `owner`.
 
 impl<H: Hash> MetadataHeader<H> {
-    pub fn generate<T: Typeable>(initial_state: &MetadataBody) -> MetadataHeader<H> {
+    pub fn generate<T: Typeable>(initial_state: &MetadataBody<H>) -> MetadataHeader<H> {
         let nonce = generate_nonce();
         let protocol_version = protocol::LATEST_VERSION;
         let store_type = T::type_ident();
-        let body_size = initial_state.initial_state.len();
-        let body_hash = initial_state.hash();
+        let initial_state_size = initial_state.initial_state.len() as u64;
+        let piece_size = initial_state.piece_size;
+        let body_hash = initial_state.merkle_root();
         MetadataHeader {
             nonce,
             protocol_version,
             store_type,
-            body_size,
-            body_hash,
+            initial_state_size,
+            piece_size,
+            merkle_root: body_hash,
         }
     }
 
@@ -81,36 +86,56 @@ impl<H: Hash> MetadataHeader<H> {
         H::update(&mut h, self.nonce);
         H::update(&mut h, [self.protocol_version.as_byte()]);
         H::update(&mut h, self.store_type);
-        H::update(&mut h, self.body_size.to_be_bytes());
-        H::update(&mut h, &self.body_hash);
+        H::update(&mut h, self.initial_state_size.to_be_bytes());
+        H::update(&mut h, self.piece_size.to_be_bytes());
+        H::update(&mut h, &self.merkle_root);
         H::finalize(h)
     }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct MetadataBody {
+// TODO: Get rid of this? Or rename it? InitialStateBuilder?
+pub struct MetadataBody<Hash> {
     /// Serialized (and encrypted) initial state of the store.
     //  TODO: Eventually merkelize the initial state in chunks.
     initial_state: Vec<u8>,
+    piece_size: u32,
+    piece_hashes: Vec<Hash>,
 }
 
-impl MetadataBody {
-    pub(crate) fn new<T: Serialize>(initial_state: &T) -> MetadataBody {
+impl<H: Hash> MetadataBody<H> {
+    pub(crate) fn new<T: Serialize>(initial_state: &T) -> MetadataBody<H> {
         let initial_state = serde_cbor::to_vec(initial_state).expect("TODO");
+        let piece_size = 2^18;
+        let piece_hashes = initial_state.chunks(piece_size as usize).map(|piece| {
+            let mut h = H::new();
+            H::update(&mut h, &piece);
+            H::finalize(h)
+        }).collect();
         MetadataBody {
             initial_state,
+            piece_size,
+            piece_hashes,
         }
     }
 
-    pub fn hash<H: Hash>(&self) -> H {
+    pub fn merkle_root(&self) -> H {
         let mut h = H::new();
-        H::update(&mut h, &self.initial_state);
+        for hash in self.piece_hashes.iter() {
+            H::update(&mut h, hash);
+        }
         H::finalize(h)
     }
 
     /// Validate a `MetadataBody` given its header.
-    pub fn validate<TypeId, H: Hash>(&self, header: &MetadataHeader<H>) -> bool {
-        self.initial_state.len() == header.body_size && self.hash::<H>() == header.body_hash
+    pub fn validate<TypeId>(&self, header: &MetadataHeader<H>) -> bool {
+        panic!("TODO: Delete me?");
+
+        // self.initial_state.len() == header.initial_state_size && self.hash::<H>() == header.merkle_root
+    }
+
+    pub fn build(self) -> (Vec<H>, Vec<u8>) {
+        (self.piece_hashes, self.initial_state)
     }
 }
 

@@ -344,7 +344,7 @@ pub(crate) async fn run_miniprotocol_async<P: MiniProtocol, O: OdysseyType>(
 }
 
 
-pub(crate) type SpawnMultiplexerTask = dyn Fn(bool, StreamId, Sender<(u32, Bytes)>, Receiver<BytesMut>) -> JoinHandle<()> + Send;
+pub(crate) type SpawnMultiplexerTask = dyn FnOnce(bool, StreamId, Sender<(u32, Bytes)>, Receiver<BytesMut>) -> JoinHandle<()> + Send;
 pub(crate) enum MultiplexerCommand {
     CreateStream {
         stream_id: StreamId,

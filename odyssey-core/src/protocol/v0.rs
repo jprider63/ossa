@@ -158,11 +158,11 @@ pub struct StoreMetadataHeaderRequest<StoreId> {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct StoreMetadataHeaderResponse<StoreId> {
     pub header: store::v0::MetadataHeader<StoreId>,
-    pub body: Option<StoreMetadataBodyResponse>,
+    pub body: Option<StoreMetadataBodyResponse<StoreId>>,
 }
 
 pub type StoreMetadataBodyRequest = (); // TODO: Eventually request certain chunks.
-pub type StoreMetadataBodyResponse = store::v0::MetadataBody; // TODO: Eventually request certain chunks.
+pub type StoreMetadataBodyResponse<StoreId> = store::v0::MetadataBody<StoreId>; // TODO: Eventually request certain chunks.
 
 pub type ProtocolResult<T> = Result<T, ProtocolError>;
 pub type ProtocolError = String; // TODO: Eventually more informative error type.
