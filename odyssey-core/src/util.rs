@@ -448,39 +448,32 @@ pub(crate) fn compress_consecutive_into_ranges<I, T>(i: I) -> CompressConsecutiv
 impl<I, T> Iterator for CompressConsecutive<I, T>
 where
     I: Iterator<Item = T>,
-    T: Add<u64, Output = T> + PartialEq + Copy + Debug,
+    T: Add<u64, Output = T> + PartialEq + Copy,
 {
     type Item = Range<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        dbg!("HERE");
         while let Some(x) = self.inner.next() {
-            dbg!(&self.current);
-            dbg!(x);
-
-            let (new, done) = match &self.current {
+            match &self.current {
                 Some(r) => {
                     // Consecutive.
                     if r.end == x {
-                        (Some(Range {start: r.start, end: x + 1u64}), false)
+                        self.current = Some(Range {start: r.start, end: x + 1u64});
                     } else {
-                        (Some(Range {start: x, end: x + 1u64}), true)
+                        let new = Some(Range {start: x, end: x + 1u64});
+                        let result = std::mem::replace(&mut self.current, new);
+                        return result;
                     }
                 }
                 None => {
-                    (Some(Range {start: x, end: x + 1u64}), false)
+                    self.current = Some(Range {start: x, end: x + 1u64});
                 }
             };
-
-            let old = std::mem::replace(&mut self.current, new);
-            dbg!(&self.current);
-            if done {
-                return old;
-            }
         }
 
         // We're done, so return what we have.
-        self.current.clone()
+        let result = std::mem::replace(&mut self.current, None);
+        result
     }
 }
 
@@ -503,11 +496,8 @@ mod test {
 
     #[test]
     fn test_split() {
-        dbg!("HERE1");
         let numbers = vec![1, 4];
-        dbg!("HERE2");
         let result: Vec<_> = compress_consecutive_into_ranges(numbers.into_iter()).collect();
-        dbg!("HERE3");
         assert_eq!(result, vec![
             Range { start: 1, end: 2 },
             Range { start: 4, end: 5 },
