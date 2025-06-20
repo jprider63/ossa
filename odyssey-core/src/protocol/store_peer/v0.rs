@@ -102,8 +102,7 @@ impl<StoreId: Debug + Serialize + for<'a> Deserialize<'a> + Send> MiniProtocol f
                             MsgStoreSyncMetadataResponse::Metadata(metadata) => {
 
                                 // Send store the metadata and tell store we're ready.
-                                let peer = todo!("Add to StoreSync?");
-                                let msg = UntypedStoreCommand::ReceivedMetadata { peer, metadata };
+                                let msg = UntypedStoreCommand::ReceivedMetadata { peer: self.peer, metadata };
                                 self.send_chan.send(msg).expect("TODO");
                             }
                             MsgStoreSyncMetadataResponse::Wait => {

@@ -325,7 +325,10 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash + Debug> State<Header,
                 });
             }
             StateMachine::DownloadingInitialState { metadata, piece_hashes, initial_state } => todo!(),
-            StateMachine::Syncing { metadata, piece_hashes, initial_state, ecg_state, decrypted_state } => todo!(),
+            StateMachine::Syncing { metadata, piece_hashes, initial_state, ecg_state, decrypted_state } => {
+                // TODO: Request updates from peer
+                warn!("TODO: Request updates from peer");
+            }
         }
     }
 
@@ -656,7 +659,7 @@ where
                                         // Spawn task that syncs store with peer.
                                         // JP: Should run without initiative so that other peer can setup their handler?
                                         tokio::spawn(async move {
-                                            warn!("TODO: Sync with peer (without initiative).");
+                                            debug!("Sync with peer (without initiative).");
 
                                             // Tell store we're running.
                                             let register_cmd = UntypedStoreCommand::RegisterIncomingPeerSyncing {
