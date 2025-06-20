@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fmt::{self, Debug, Display};
 use std::marker::PhantomData;
+use std::ops::{Add, Range};
 use std::pin::Pin;
 use tokio::sync::mpsc::{Receiver, Sender};
 use typeable::Typeable;
@@ -428,5 +429,100 @@ impl<T> futures::Sink<T> for UnboundChannel<T> {
         //         ProtocolError::StreamSendError(std::io::Error::other("poll_close error"))
         //     })
         // })
+    }
+}
+
+pub(crate) struct CompressConsecutive<I, T> {
+    current: Option<Range<T>>,
+    inner: I,
+}
+
+/// Assumes inputs are sorted.
+pub(crate) fn compress_consecutive_into_ranges<I, T>(i: I) -> CompressConsecutive<I, T> {
+    CompressConsecutive {
+        current: None,
+        inner: i,
+    }
+}
+
+impl<I, T> Iterator for CompressConsecutive<I, T>
+where
+    I: Iterator<Item = T>,
+    T: Add<u64, Output = T> + PartialEq + Copy + Debug,
+{
+    type Item = Range<T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        dbg!("HERE");
+        while let Some(x) = self.inner.next() {
+            dbg!(&self.current);
+            dbg!(x);
+
+            let (new, done) = match &self.current {
+                Some(r) => {
+                    // Consecutive.
+                    if r.end == x {
+                        (Some(Range {start: r.start, end: x + 1u64}), false)
+                    } else {
+                        (Some(Range {start: x, end: x + 1u64}), true)
+                    }
+                }
+                None => {
+                    (Some(Range {start: x, end: x + 1u64}), false)
+                }
+            };
+
+            let old = std::mem::replace(&mut self.current, new);
+            dbg!(&self.current);
+            if done {
+                return old;
+            }
+        }
+
+        // We're done, so return what we have.
+        self.current.clone()
+    }
+}
+
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_single_number() {
+        let numbers = vec![5];
+        let result: Vec<_> = compress_consecutive_into_ranges(numbers.into_iter()).collect();
+        assert_eq!(result, vec![Range { start: 5, end: 6 }]);
+    }
+
+    #[test]
+    fn test_consecutive_numbers() {
+        let numbers = vec![1, 2, 3, 4, 5];
+        let result: Vec<_> = compress_consecutive_into_ranges(numbers.into_iter()).collect();
+        assert_eq!(result, vec![Range { start: 1, end: 6 }]);
+    }
+
+    #[test]
+    fn test_split() {
+        dbg!("HERE1");
+        let numbers = vec![1, 4];
+        dbg!("HERE2");
+        let result: Vec<_> = compress_consecutive_into_ranges(numbers.into_iter()).collect();
+        dbg!("HERE3");
+        assert_eq!(result, vec![
+            Range { start: 1, end: 2 },
+            Range { start: 4, end: 5 },
+        ]);
+    }
+
+    #[test]
+    fn test_mixed_numbers() {
+        let numbers = vec![1, 2, 3, 7, 8, 10, 11, 12, 15];
+        let result: Vec<_> = compress_consecutive_into_ranges(numbers.into_iter()).collect();
+        assert_eq!(result, vec![
+            Range { start: 1, end: 4 },
+            Range { start: 7, end: 9 },
+            Range { start: 10, end: 13 },
+            Range { start: 15, end: 16 },
+        ]);
     }
 }

@@ -1,4 +1,4 @@
-use std::{fmt::Debug, future::Future, marker::PhantomData};
+use std::{fmt::Debug, future::Future, marker::PhantomData, ops::Range};
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -80,6 +80,8 @@ impl<StoreId> StoreSync<StoreId> {
 
 pub(crate) enum StoreSyncCommand {
     MetadataHeaderRequest,
+    MerkleRequest(Vec<Range<u64>>), // Upper bound of 8000 requested hashes.
+    InitialPieceRequest(Vec<Range<u64>>), // JP: Vec of ranges?
 }
 
 impl<StoreId: Debug + Serialize + for<'a> Deserialize<'a> + Send> MiniProtocol for StoreSync<StoreId> {
@@ -114,8 +116,9 @@ impl<StoreId: Debug + Serialize + for<'a> Deserialize<'a> + Send> MiniProtocol f
                                 todo!();
                             }
                         }
-
                     }
+                    StoreSyncCommand::MerkleRequest(ranges) => todo!(),
+                    StoreSyncCommand::InitialPieceRequest(ranges) => todo!(),
                 }
             }
 

@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use odyssey_crdt::CRDT;
 use rand::{seq::SliceRandom as _, thread_rng};
 use serde::Serialize;
@@ -7,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
 use typeable::{TypeId, Typeable};
 
-use crate::{auth::DeviceId, core::{OdysseyType, SharedState}, network::{multiplexer::{run_miniprotocol_async, SpawnMultiplexerTask}, protocol::MiniProtocol}, protocol::{manager::v0::PeerManagerCommand, store_peer::v0::{StoreSync, StoreSyncCommand}}, store::ecg::{ECGBody, ECGHeader}, util};
+use crate::{auth::DeviceId, core::{OdysseyType, SharedState}, network::{multiplexer::{run_miniprotocol_async, SpawnMultiplexerTask}, protocol::MiniProtocol}, protocol::{manager::v0::PeerManagerCommand, store_peer::v0::{StoreSync, StoreSyncCommand}}, store::ecg::{ECGBody, ECGHeader}, util::{self, compress_consecutive_into_ranges}};
 
 pub mod ecg;
 pub mod v0; // TODO: Move this to network::protocol
@@ -261,6 +262,16 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash> State<Header, T, Hash
 
     /// Send sync requests to peers.
     fn send_sync_requests(&mut self) {
+        fn send_command(i: &mut PeerInfo, message: StoreSyncCommand) {
+            let PeerStatus::Syncing(ref mut s) = i.outgoing_status else {
+                unreachable!("Already checked that the peer is ready.");
+            };
+
+            // Mark as outstanding.
+            s.is_outstanding = true;
+            s.sender_peer.send(message).expect("TODO");               
+        }
+
         // Get peers (of this store) without outstanding requests.
         let mut peers: Vec<_> = self.peers.iter_mut().filter(|(_,i)| i.is_ready_for_sync()).collect();
         // TODO: Rank and (weighted) randomize the peers.
@@ -269,8 +280,29 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash> State<Header, T, Hash
 
         // Send requests to peers based on what we need.
         match &self.state_machine {
-            StateMachine::DownloadingMetadata { store_id } => todo!(),
-            StateMachine::DownloadingMerkle { metadata, piece_hashes } => todo!(),
+            StateMachine::DownloadingMetadata { .. } => {
+                // Tell the first peer store task to request the metadata.
+                peers.iter_mut().take(1).for_each(|(_, i)| {
+                    let message = StoreSyncCommand::MetadataHeaderRequest;
+                    send_command(i, message);
+                });
+            }
+            StateMachine::DownloadingMerkle { metadata, piece_hashes } => {
+                let count_upper_bound = 1000;
+                // TODO: Keep track of (and filter out) which ones are currently requested.
+                let needed_hashes = piece_hashes.iter().enumerate().filter_map(|h| h.1.map(|_| h.0 as u64)).chunks(count_upper_bound);
+                let mut needed_hashes: Vec<_> = needed_hashes.into_iter().collect();
+
+                // Randomize which peer to request the hashes from.
+                needed_hashes.shuffle(&mut rng);
+
+                peers.iter_mut().zip(needed_hashes).for_each(|(p, hashes)| {
+                    let message = StoreSyncCommand::MerkleRequest(compress_consecutive_into_ranges(hashes).collect());
+                    send_command(p.1, message);
+                });
+
+
+            }
             StateMachine::DownloadingInitialState { metadata, piece_hashes, initial_state } => todo!(),
             StateMachine::Syncing { metadata, piece_hashes, initial_state, ecg_state, decrypted_state } => todo!(),
         }

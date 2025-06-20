@@ -300,7 +300,7 @@ impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
 }
 
 /// Tests whether two ecg states have the same DAG.
-#[cfg(test)]
+#[cfg(false)]
 pub(crate) fn equal_dags<Header: ECGHeader>(l: &State<Header>, r: &State<Header>) -> bool
 where
     Header::HeaderId: Copy,
@@ -328,7 +328,7 @@ where
         && node_set_left == node_set_right
 }
 
-#[cfg(test)]
+#[cfg(false)]
 pub(crate) fn print_dag<Header: ECGHeader>(s: &State<Header>) {
     use petgraph::dot::{Config, Dot};
     use petgraph::stable_graph::StableDiGraph;

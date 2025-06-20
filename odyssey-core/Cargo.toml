@@ -16,6 +16,7 @@ daggy = {version="*", features=["stable_dag"]}
 dynamic = "*"
 futures = "*"
 hex = "*"
+itertools = "*"
 lazy_static = "*"
 odyssey-crdt = {path="../odyssey-crdt"}
 rand = "*"
