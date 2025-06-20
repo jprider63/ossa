@@ -40,12 +40,12 @@ pub struct Odyssey<OT: OdysseyType> {
     phantom: PhantomData<OT>,
     identity_keys: Identity,
 }
-pub type StoreStatuses<StoreId> = BTreeMap<StoreId, StoreStatus>; // Rename this MiniProtocolArgs?
+pub type StoreStatuses<StoreId> = BTreeMap<StoreId, StoreStatus<StoreId>>; // Rename this MiniProtocolArgs?
 
 // pub enum StoreStatus<O: OdysseyType, T: CRDT<Time = O::Time>>
 // where
 //     T::Op: Serialize,
-pub enum StoreStatus {
+pub enum StoreStatus<StoreId> {
     // Store is initializing and async handler is being created.
     Initializing,
     // Store's async handler is running.
@@ -57,7 +57,7 @@ pub enum StoreStatus {
         // https://www.reddit.com/r/rust/comments/1exjiab/the_amazing_pattern_i_discovered_hashmap_with/
         // send_command_chan: UnboundedSender<StoreCommand<store::ecg::v0::Header<dyn Hash, dyn CRDT>, dyn CRDT>>,
         // send_command_chan: UnboundedSender<UntypedStoreCommand>,
-        send_command_chan: UnboundedSender<UntypedStoreCommand>,
+        send_command_chan: UnboundedSender<UntypedStoreCommand<StoreId>>,
     },
 }
 
@@ -68,7 +68,7 @@ pub(crate) struct SharedState<StoreId> {
 }
 
 
-impl StoreStatus {
+impl<StoreId> StoreStatus<StoreId> {
     pub(crate) fn is_initializing(&self) -> bool {
         match self {
             StoreStatus::Initializing => true,
@@ -80,7 +80,7 @@ impl StoreStatus {
         !self.is_initializing()
     }
 
-    pub(crate) fn command_channel(&self) -> Option<&UnboundedSender<UntypedStoreCommand>> {
+    pub(crate) fn command_channel(&self) -> Option<&UnboundedSender<UntypedStoreCommand<StoreId>>> {
         match self {
             StoreStatus::Initializing => None,
             StoreStatus::Running {send_command_chan, ..} => Some(send_command_chan),
@@ -364,7 +364,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
         let (send_commands, recv_commands) =
             tokio::sync::mpsc::unbounded_channel::<store::StoreCommand<OT::ECGHeader<T>, T>>();
         let (send_commands_untyped, recv_commands_untyped) =
-            tokio::sync::mpsc::unbounded_channel::<store::UntypedStoreCommand>();
+            tokio::sync::mpsc::unbounded_channel::<store::UntypedStoreCommand<OT::StoreId>>();
 
 
         // Add to DHT

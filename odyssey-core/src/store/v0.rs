@@ -34,7 +34,7 @@ use crate::util::{generate_nonce, Hash};
 // }
 
 /// A store's Metadata header.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub struct MetadataHeader<Hash> {
     /// A random nonce to distinguish the store.
     pub nonce: Nonce,

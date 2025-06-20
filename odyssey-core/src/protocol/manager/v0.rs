@@ -280,7 +280,7 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug> Manager<StoreId> {
 
 fn handle_shared_stores<StoreId>(
     peer_id: DeviceId,
-    shared_stores: Vec<(StoreId, UnboundedSender<UntypedStoreCommand>)>,
+    shared_stores: Vec<(StoreId, UnboundedSender<UntypedStoreCommand<StoreId>>)>,
 ) {
     // Register the peer for this store.
     let peers = vec![peer_id];
@@ -304,7 +304,7 @@ fn hash_store_id_with_nonce<StoreId: AsRef<[u8]>>(nonce: [u8; 4], store_id: &Sto
 async fn run_advertise_stores_server<S: Stream<MsgManager<StoreId>>, StoreId>(
     stream: &mut S,
     store_ids: &mut watch::Receiver<StoreStatuses<StoreId>>
-) -> Vec<(StoreId, UnboundedSender<UntypedStoreCommand>)>
+) -> Vec<(StoreId, UnboundedSender<UntypedStoreCommand<StoreId>>)>
 where
     StoreId: Copy + AsRef<[u8]>,
 {
@@ -330,7 +330,7 @@ where
     store_ids.into_iter().zip(response.have_stores).filter_map(|((store_id, chan), is_shared)| if is_shared { Some((store_id, chan)) } else { None }).collect()
 }
 
-async fn run_advertise_stores_client<S: Stream<MsgManager<StoreId>>, StoreId: Copy + Ord + AsRef<[u8]>>(stream: &mut S, nonce: [u8; 4], their_store_ids: Vec<Sha256Hash>, our_store_ids: &mut watch::Receiver<StoreStatuses<StoreId>>) -> Vec<(StoreId, UnboundedSender<UntypedStoreCommand>)> {
+async fn run_advertise_stores_client<S: Stream<MsgManager<StoreId>>, StoreId: Copy + Ord + AsRef<[u8]>>(stream: &mut S, nonce: [u8; 4], their_store_ids: Vec<Sha256Hash>, our_store_ids: &mut watch::Receiver<StoreStatuses<StoreId>>) -> Vec<(StoreId, UnboundedSender<UntypedStoreCommand<StoreId>>)> {
     let mut our_store_ids: BTreeMap<Sha256Hash, (StoreId, UnboundedSender<_>)> = our_store_ids.borrow_and_update().iter().filter_map(|e| e.1.command_channel().map(|c| (e.0, c))).map(|(store_id, c)| {
         let h = hash_store_id_with_nonce(nonce, store_id);
         (h, (*store_id, c.clone()))

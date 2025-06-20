@@ -1,16 +1,16 @@
 use std::{fmt::Debug, future::Future, marker::PhantomData, ops::Range};
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::{mpsc::{UnboundedReceiver, UnboundedSender}, oneshot};
 use tracing::debug;
 
-use crate::{network::protocol::{receive, send, MiniProtocol}, store, util::Stream};
+use crate::{network::protocol::{receive, send, MiniProtocol}, store::{self, UntypedStoreCommand}, util::Stream};
 
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) enum MsgStoreSync<StoreId> {
     Request(MsgStoreSyncRequest),
-    MetadataHeaderResponse(MsgStoreSyncMetadataHeaderResponse<StoreId>),
+    MetadataHeaderResponse(MsgStoreSyncMetadataResponse<StoreId>),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -19,14 +19,12 @@ pub(crate) enum MsgStoreSyncRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub(crate) enum MsgStoreSyncMetadataHeaderResponse<StoreId> {
-    MetadataHeader(store::v0::MetadataHeader<StoreId>),
+pub(crate) enum MsgStoreSyncMetadataResponse<StoreId> {
+    Metadata(store::v0::MetadataHeader<StoreId>),
     // Don't currently know, wait until we share it with you.
     Wait,
-    // They may or may not have the metadata, but they canceled since the request timed out or think we already have it.
-    Cancel,
-    // They don't have the metadata.
-    Unknown,
+    // They may or may not have the metadata, but they rejected the request.
+    Reject,
 }
 
 impl<StoreId> Into<MsgStoreSync<StoreId>> for MsgStoreSyncRequest {
@@ -45,15 +43,15 @@ impl<StoreId> TryInto<MsgStoreSyncRequest> for MsgStoreSync<StoreId> {
     }
 }
 
-impl<StoreId> Into<MsgStoreSync<StoreId>> for MsgStoreSyncMetadataHeaderResponse<StoreId> {
+impl<StoreId> Into<MsgStoreSync<StoreId>> for MsgStoreSyncMetadataResponse<StoreId> {
     fn into(self) -> MsgStoreSync<StoreId> {
         MsgStoreSync::MetadataHeaderResponse(self)
     }
 }
 
-impl<StoreId> TryInto<MsgStoreSyncMetadataHeaderResponse<StoreId>> for MsgStoreSync<StoreId> {
+impl<StoreId> TryInto<MsgStoreSyncMetadataResponse<StoreId>> for MsgStoreSync<StoreId> {
     type Error = ();
-    fn try_into(self) -> Result<MsgStoreSyncMetadataHeaderResponse<StoreId>, ()> {
+    fn try_into(self) -> Result<MsgStoreSyncMetadataResponse<StoreId>, ()> {
         match self {
             MsgStoreSync::Request(_) => Err(()),
             MsgStoreSync::MetadataHeaderResponse(r) => Ok(r),
@@ -62,18 +60,19 @@ impl<StoreId> TryInto<MsgStoreSyncMetadataHeaderResponse<StoreId>> for MsgStoreS
 }
 
 pub(crate) struct StoreSync<StoreId> {
-    command_chan: Option<UnboundedReceiver<StoreSyncCommand>>,
+    // Receive commands from store if we have initiatives or send commands to store if we're the responder.
+    command_chan: Result<UnboundedReceiver<StoreSyncCommand>, UnboundedSender<UntypedStoreCommand<StoreId>>>,
     _phantom: PhantomData<StoreId>,
 }
 
 impl<StoreId> StoreSync<StoreId> {
     pub(crate) fn new_server(command_chan: UnboundedReceiver<StoreSyncCommand>) -> Self {
-        let command_chan = Some(command_chan);
+        let command_chan = Ok(command_chan);
         Self { command_chan, _phantom: PhantomData }
     }
 
-    pub(crate) fn new_client() -> Self {
-        let command_chan = None;
+    pub(crate) fn new_client(command_chan: UnboundedSender<UntypedStoreCommand<StoreId>>) -> Self {
+        let command_chan = Err(command_chan);
         Self { command_chan, _phantom: PhantomData }
     }
 }
@@ -99,19 +98,17 @@ impl<StoreId: Debug + Serialize + for<'a> Deserialize<'a> + Send> MiniProtocol f
 
                         let result = receive(&mut stream).await.expect("TODO");
                         match result {
-                            MsgStoreSyncMetadataHeaderResponse::Unknown => {
-                                // Tell store they don't have the metadata and we're ready.
-                                todo!();
-                            }
-                            MsgStoreSyncMetadataHeaderResponse::MetadataHeader(metadata) => {
+                            MsgStoreSyncMetadataResponse::Metadata(metadata) => {
+                                // Validate metadata.
+
                                 // Send store the metadata and tell store we're ready.
                                 todo!();
                             }
-                            MsgStoreSyncMetadataHeaderResponse::Wait => {
+                            MsgStoreSyncMetadataResponse::Wait => {
                                 // Wait for response (Must be Cancel or MetadataHeader).
                                 todo!();
                             }
-                            MsgStoreSyncMetadataHeaderResponse::Cancel => {
+                            MsgStoreSyncMetadataResponse::Reject => {
                                 // Send store they canceled and tell store we're ready.
                                 todo!();
                             }
@@ -135,14 +132,51 @@ impl<StoreId: Debug + Serialize + for<'a> Deserialize<'a> + Send> MiniProtocol f
             // | DownloadingInitialState {BlocksIds}
             // | Syncing {ecg_known: frontier, ecg_have: frontier}
 
-
-            todo!();
         }
     }
 
-    fn run_client<S: Stream<Self::Message>>(self, stream: S) -> impl Future<Output = ()> + Send {
+    fn run_client<S: Stream<Self::Message>>(self, mut stream: S) -> impl Future<Output = ()> + Send {
         async move {
-            todo!();
+            let command_chan = self.command_chan.expect_err("Unreachable. Client must be given a sender channel.");
+
+            // TODO: Check when done.
+            loop {
+                // Receive request.
+                let request = receive(&mut stream).await.expect("TODO");
+                match request {
+                    MsgStoreSyncRequest::MetadataHeaderRequest => {
+                        // Send request to store.
+                        let (response_chan, recv_chan) = oneshot::channel();
+                        let cmd = UntypedStoreCommand::HandlePeerRequest {
+                            request,
+                            response_chan,
+                        };
+                        command_chan.send(cmd).expect("TODO");
+
+                        // Wait for response.
+                        match recv_chan.await.expect("TODO") {
+                            Ok(metadata) => {
+                                // Send response to peer.
+                                send(&mut stream, MsgStoreSyncMetadataResponse::Metadata(metadata)).await.expect("TODO");
+                            }
+                            Err(chan) => {
+                                // If waiting, tell peer.
+                                send(&mut stream, MsgStoreSyncMetadataResponse::Wait).await.expect("TODO");
+
+                                // Wait for response and send to peer.
+                                let response = if let Some(metadata) = chan.await.expect("TODO") {
+                                    MsgStoreSyncMetadataResponse::Metadata(metadata)
+                                } else {
+                                    MsgStoreSyncMetadataResponse::Reject
+                                };
+
+                                send(&mut stream, response).await.expect("TODO");
+                            }
+                        }
+                    }
+                }
+
+            }
         }
     }
 }
