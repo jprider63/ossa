@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc::{UnboundedReceiver, UnboundedSender}, oneshot};
 use tracing::debug;
 
-use crate::{network::protocol::{receive, send, MiniProtocol}, store::{self, UntypedStoreCommand}, util::Stream};
+use crate::{auth::DeviceId, network::protocol::{receive, send, MiniProtocol}, store::{self, UntypedStoreCommand}, util::Stream};
 
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -60,20 +60,21 @@ impl<StoreId> TryInto<MsgStoreSyncMetadataResponse<StoreId>> for MsgStoreSync<St
 }
 
 pub(crate) struct StoreSync<StoreId> {
+    peer: DeviceId,
     // Receive commands from store if we have initiatives or send commands to store if we're the responder.
-    command_chan: Result<UnboundedReceiver<StoreSyncCommand>, UnboundedSender<UntypedStoreCommand<StoreId>>>,
-    _phantom: PhantomData<StoreId>,
+    recv_chan: Option<UnboundedReceiver<StoreSyncCommand>>,
+    // Send commands to store if we're the responder and send results back to store if we're the initiator.
+    send_chan: UnboundedSender<UntypedStoreCommand<StoreId>>, // JP: Make this a stream?
 }
 
 impl<StoreId> StoreSync<StoreId> {
-    pub(crate) fn new_server(command_chan: UnboundedReceiver<StoreSyncCommand>) -> Self {
-        let command_chan = Ok(command_chan);
-        Self { command_chan, _phantom: PhantomData }
+    pub(crate) fn new_server(peer: DeviceId, recv_chan: UnboundedReceiver<StoreSyncCommand>, send_chan: UnboundedSender<UntypedStoreCommand<StoreId>>) -> Self {
+        let recv_chan = Some(recv_chan);
+        Self { peer, recv_chan, send_chan }
     }
 
-    pub(crate) fn new_client(command_chan: UnboundedSender<UntypedStoreCommand<StoreId>>) -> Self {
-        let command_chan = Err(command_chan);
-        Self { command_chan, _phantom: PhantomData }
+    pub(crate) fn new_client(peer: DeviceId, send_chan: UnboundedSender<UntypedStoreCommand<StoreId>>) -> Self {
+        Self { peer, recv_chan: None, send_chan }
     }
 }
 
@@ -90,8 +91,8 @@ impl<StoreId: Debug + Serialize + for<'a> Deserialize<'a> + Send> MiniProtocol f
     fn run_server<S: Stream<Self::Message>>(self, mut stream: S) -> impl Future<Output = ()> + Send {
         async move {
             // Wait for command from store.
-            let mut command_chan = self.command_chan.expect("Unreachable. Server must be given a receive channel.");
-            while let Some(cmd) = command_chan.recv().await {
+            let mut recv_chan = self.recv_chan.expect("Unreachable. Server must be given a receive channel.");
+            while let Some(cmd) = recv_chan.recv().await {
                 match cmd {
                     StoreSyncCommand::MetadataHeaderRequest => {
                         send(&mut stream, MsgStoreSyncRequest::MetadataHeaderRequest).await.expect("TODO");
@@ -99,10 +100,11 @@ impl<StoreId: Debug + Serialize + for<'a> Deserialize<'a> + Send> MiniProtocol f
                         let result = receive(&mut stream).await.expect("TODO");
                         match result {
                             MsgStoreSyncMetadataResponse::Metadata(metadata) => {
-                                // Validate metadata.
 
                                 // Send store the metadata and tell store we're ready.
-                                todo!();
+                                let peer = todo!("Add to StoreSync?");
+                                let msg = UntypedStoreCommand::ReceivedMetadata { peer, metadata };
+                                self.send_chan.send(msg).expect("TODO");
                             }
                             MsgStoreSyncMetadataResponse::Wait => {
                                 // Wait for response (Must be Cancel or MetadataHeader).
@@ -137,8 +139,6 @@ impl<StoreId: Debug + Serialize + for<'a> Deserialize<'a> + Send> MiniProtocol f
 
     fn run_client<S: Stream<Self::Message>>(self, mut stream: S) -> impl Future<Output = ()> + Send {
         async move {
-            let command_chan = self.command_chan.expect_err("Unreachable. Client must be given a sender channel.");
-
             // TODO: Check when done.
             loop {
                 // Receive request.
@@ -148,10 +148,11 @@ impl<StoreId: Debug + Serialize + for<'a> Deserialize<'a> + Send> MiniProtocol f
                         // Send request to store.
                         let (response_chan, recv_chan) = oneshot::channel();
                         let cmd = UntypedStoreCommand::HandlePeerRequest {
+                            peer: self.peer,
                             request,
                             response_chan,
                         };
-                        command_chan.send(cmd).expect("TODO");
+                        self.send_chan.send(cmd).expect("TODO");
 
                         // Wait for response.
                         match recv_chan.await.expect("TODO") {
@@ -175,7 +176,6 @@ impl<StoreId: Debug + Serialize + for<'a> Deserialize<'a> + Send> MiniProtocol f
                         }
                     }
                 }
-
             }
         }
     }

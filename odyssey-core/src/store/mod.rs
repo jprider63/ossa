@@ -19,7 +19,7 @@ pub struct State<Header: ecg::ECGHeader<T>, T: CRDT, Hash> {
     // Peers that also have this store (that we are potentially connected to?).
     peers: BTreeMap<DeviceId, PeerInfo>, // BTreeSet<DeviceId>,
     state_machine: StateMachine<Header, T, Hash>,
-    metadata_subscribers: Vec<oneshot::Sender<Option<v0::MetadataHeader<Hash>>>>,
+    metadata_subscribers: BTreeMap<DeviceId, oneshot::Sender<Option<v0::MetadataHeader<Hash>>>>,
 }
 
 // States are:
@@ -153,7 +153,7 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash + Debug> State<Header,
         State {
             peers: BTreeMap::new(),
             state_machine,
-            metadata_subscribers: vec![],
+            metadata_subscribers: BTreeMap::new(),
         }
     }
 
@@ -166,7 +166,7 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash + Debug> State<Header,
         State {
             peers: BTreeMap::new(),
             state_machine,
-            metadata_subscribers: vec![],
+            metadata_subscribers: BTreeMap::new(),
         }
     }
 
@@ -263,6 +263,26 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash + Debug> State<Header,
         self.update_peer_to_syncing(peer, |info| &mut info.outgoing_status, sender);
     }
 
+    fn update_outgoing_peer_to_ready(&mut self, peer: &DeviceId) {
+        let Some(info) = self.peers.get_mut(peer) else {
+            error!("Invariant violated. Attempted to update an unknown peer: {}", peer);
+            panic!();
+        };
+        match info.outgoing_status {
+            PeerStatus::Initializing => {
+                error!("Invariant violated. Attempted to update a peer that is initializing: {} - {:?}", peer, info.outgoing_status);
+                panic!();
+            }
+            PeerStatus::Known => {
+                error!("Invariant violated. Attempted to update a peer that is not syncing: {} - {:?}", peer, info.outgoing_status);
+                panic!();
+            }
+            PeerStatus::Syncing(ref mut status) => {
+                status.is_outstanding = false;
+            }
+        }
+    }
+
     /// Send sync requests to peers.
     fn send_sync_requests(&mut self) {
         fn send_command(i: &mut PeerInfo, message: StoreSyncCommand) {
@@ -310,7 +330,7 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash + Debug> State<Header,
     }
 
     // Handle a sync request for this store from a peer.
-    fn handle_peer_request(&mut self, request: MsgStoreSyncRequest, response_chan: Sender<HandlePeerResponse<Hash>>) {
+    fn handle_peer_request(&mut self, peer: DeviceId, request: MsgStoreSyncRequest, response_chan: Sender<HandlePeerResponse<Hash>>) {
         match request {
             MsgStoreSyncRequest::MetadataHeaderRequest => {
                 if let Some(metadata) = self.metadata() {
@@ -322,9 +342,44 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash + Debug> State<Header,
                     response_chan.send(Err(recv_chan)).expect("TODO");
 
                     // Register the wait channel.
-                    self.metadata_subscribers.push(send_chan);
+                    self.metadata_subscribers.insert(peer, send_chan); // JP: Safe to drop old one?
                 }
             }
+        }
+    }
+
+    fn handle_received_metadata(&mut self, peer: DeviceId, metadata: MetadataHeader<Hash>) {
+        debug!("Recieved metadata from peer ({peer}): {metadata:?}");
+
+        // Mark peer as ready.
+        self.update_outgoing_peer_to_ready(&peer);
+
+        // Validate metadata.
+        let is_valid = metadata.validate_store_id(self.store_id());
+        warn!("TODO: Validate signature.");
+
+        if !is_valid {
+            // TODO: Penalize/blacklist/disconnect peer?
+            warn!("TODO: Peer provided invalid metadata.");
+            return;
+        }
+
+        // Update state.
+        self.state_machine = StateMachine::DownloadingMerkle {
+            piece_hashes: Vec::with_capacity(metadata.piece_count() as usize),
+            metadata,
+        };
+
+        // Send metadata to any peers that are waiting.
+        let subs = std::mem::take(&mut self.metadata_subscribers);
+        for (sub_peer, sub) in subs {
+            let peer_knows = sub_peer == peer;
+            let msg = if peer_knows {
+                None
+            } else {
+                Some(metadata)
+            };
+            sub.send(msg).expect("TODO");
         }
     }
 
@@ -391,7 +446,7 @@ where
                 send_commands.send(register_cmd).expect("TODO");
 
                 // Start miniprotocol as server.
-                let mp = StoreSync::<OT::StoreId>::new_server(recv_peer);
+                let mp = StoreSync::<OT::StoreId>::new_server(peer_id, recv_peer, send_commands);
                 run_miniprotocol_async::<_, OT>(mp, false, stream_id, sender, receiver).await;
 
                 debug!("Store sync with peer (with initiative) exited.")
@@ -610,7 +665,7 @@ where
                                             send_commands_untyped.send(register_cmd).expect("TODO");
 
                                             // Start miniprotocol as client.
-                                            let mp = StoreSync::<OT::StoreId>::new_client(send_commands_untyped);
+                                            let mp = StoreSync::<OT::StoreId>::new_client(peer, send_commands_untyped);
                                             run_miniprotocol_async::<_, OT>(mp, true, stream_id, sender, receiver).await;
                                             debug!("Store sync with peer (without initiative) exited.")
                                         })
@@ -647,8 +702,11 @@ where
                         // Update peer's state to syncing and register channel.
                         store.update_peer_to_syncing_incoming(&peer);
                     }
-                    UntypedStoreCommand::HandlePeerRequest { request, response_chan } => {
-                        store.handle_peer_request(request, response_chan);
+                    UntypedStoreCommand::HandlePeerRequest { peer, request, response_chan } => {
+                        store.handle_peer_request(peer, request, response_chan);
+                    }
+                    UntypedStoreCommand::ReceivedMetadata { peer, metadata } => {
+                        store.handle_received_metadata(peer, metadata);
                     }
                 }
             }
@@ -707,11 +765,16 @@ pub(crate) enum UntypedStoreCommand<StoreId> {
         send_peer: UnboundedSender<StoreSyncCommand>,
     },
     HandlePeerRequest {
+        peer: DeviceId,
         request: MsgStoreSyncRequest,
         /// Return either the result or a channel to wait on for the response.
         response_chan: oneshot::Sender<HandlePeerResponse<StoreId>>,
     },
     RegisterIncomingPeerSyncing {
         peer: DeviceId,
+    },
+    ReceivedMetadata {
+        peer: DeviceId,
+        metadata: MetadataHeader<StoreId>,
     },
 }

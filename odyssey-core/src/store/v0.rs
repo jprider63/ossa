@@ -88,8 +88,17 @@ impl<H: Hash> MetadataHeader<H> {
         H::update(&mut h, self.store_type);
         H::update(&mut h, self.initial_state_size.to_be_bytes());
         H::update(&mut h, self.piece_size.to_be_bytes());
-        H::update(&mut h, &self.merkle_root);
+        H::update(&mut h, self.merkle_root);
         H::finalize(h)
+    }
+
+    /// Validate the metadata with respect to the store id.
+    pub fn validate_store_id(&self, store_id: H) -> bool {
+        store_id == self.store_id()
+    }
+
+    pub fn piece_count(&self) -> u64 {
+        self.initial_state_size.div_ceil(self.piece_size as u64)
     }
 }
 
