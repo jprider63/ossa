@@ -115,10 +115,10 @@ pub struct MetadataBody<Hash> {
 impl<H: Hash> MetadataBody<H> {
     pub(crate) fn new<T: Serialize>(initial_state: &T) -> MetadataBody<H> {
         let initial_state = serde_cbor::to_vec(initial_state).expect("TODO");
-        let piece_size = 2^18;
+        let piece_size = 1 << 18;
         let piece_hashes = initial_state.chunks(piece_size as usize).map(|piece| {
             let mut h = H::new();
-            H::update(&mut h, &piece);
+            H::update(&mut h, piece);
             H::finalize(h)
         }).collect();
         MetadataBody {
