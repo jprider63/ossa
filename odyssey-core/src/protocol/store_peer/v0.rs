@@ -245,7 +245,14 @@ impl<StoreId: Debug + Serialize + for<'a> Deserialize<'a> + Send> MiniProtocol f
                         self.run_client_helper::<_, store::v0::MetadataHeader<StoreId>, MsgStoreSyncMetadataResponse<StoreId>>(&mut stream, request, build_command, build_response).await;
                     }
                     MsgStoreSyncRequest::MerklePieces { .. } => {
-                        todo!("run_client_helper");
+                        const fn build_command<H>(req: HandlePeerRequest<Vec<Option<H>>>) -> UntypedStoreCommand<H> {
+                            UntypedStoreCommand::HandleMerklePeerRequest(req)
+                        }
+                        const fn build_response<H>(h: StoreSyncResponse<Vec<Option<H>>>) -> MsgStoreSyncMerkleResponse<H> {
+                            MsgStoreSyncMerkleResponse(h)
+                        }
+
+                        self.run_client_helper::<_, Vec<Option<StoreId>>, MsgStoreSyncMerkleResponse<StoreId>>(&mut stream, request, build_command, build_response).await;
                     }
                 }
             }
