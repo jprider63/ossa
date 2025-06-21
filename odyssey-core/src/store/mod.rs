@@ -4,7 +4,7 @@ use rand::{seq::SliceRandom as _, thread_rng};
 use serde::Serialize;
 use tokio::{sync::{mpsc::{UnboundedReceiver, UnboundedSender}, oneshot::{self, Sender}}, task::JoinHandle};
 use tracing::{debug, error, warn};
-use std::collections::{BTreeMap, BTreeSet};
+use std::{collections::{BTreeMap, BTreeSet}, ops::Range};
 use std::fmt::Debug;
 use typeable::{TypeId, Typeable};
 
@@ -311,7 +311,7 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash + Debug> State<Header,
                 });
             }
             StateMachine::DownloadingMerkle { piece_hashes, .. } => {
-                let count_upper_bound = 1000;
+                let count_upper_bound = 100;
                 // TODO: Keep track of (and filter out) which ones are currently requested.
                 let needed_hashes = piece_hashes.iter().enumerate().filter_map(|h| h.1.map(|_| h.0 as u64)).chunks(count_upper_bound);
                 let mut needed_hashes: Vec<_> = needed_hashes.into_iter().collect();
@@ -335,7 +335,7 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash + Debug> State<Header,
     // Handle a sync request for this store from a peer.
     fn handle_peer_request(&mut self, peer: DeviceId, request: MsgStoreSyncRequest, response_chan: Sender<HandlePeerResponse<Hash>>) {
         match request {
-            MsgStoreSyncRequest::MetadataHeaderRequest => {
+            MsgStoreSyncRequest::MetadataHeader => {
                 if let Some(metadata) = self.metadata() {
                     // We have the metadata so share it with the peer.
                     response_chan.send(Ok(metadata)).expect("TODO");
@@ -384,6 +384,9 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash + Debug> State<Header,
             };
             sub.send(msg).expect("TODO");
         }
+
+        // Sync with peer(s). Do this for all commands??
+        self.send_sync_requests();
     }
 
     fn metadata(&self) -> Option<MetadataHeader<Hash>> {
@@ -753,7 +756,7 @@ type HandlePeerResponse<StoreId> = Result<
 
 /// Untyped variant of `StoreCommand` since existentials don't work.
 // #[derive(Debug)]
-pub(crate) enum UntypedStoreCommand<StoreId> {
+pub(crate) enum UntypedStoreCommand<Hash> {
     /// Register the discovered peers.
     RegisterPeers {
         peers: Vec<DeviceId>,
@@ -771,13 +774,18 @@ pub(crate) enum UntypedStoreCommand<StoreId> {
         peer: DeviceId,
         request: MsgStoreSyncRequest,
         /// Return either the result or a channel to wait on for the response.
-        response_chan: oneshot::Sender<HandlePeerResponse<StoreId>>,
+        response_chan: oneshot::Sender<HandlePeerResponse<Hash>>,
     },
     RegisterIncomingPeerSyncing {
         peer: DeviceId,
     },
     ReceivedMetadata {
         peer: DeviceId,
-        metadata: MetadataHeader<StoreId>,
+        metadata: MetadataHeader<Hash>,
     },
+    ReceivedMerklePieces {
+        peer: DeviceId,
+        ranges: Vec<Range<u64>>,
+        pieces: Vec<Option<Hash>>,
+    }
 }

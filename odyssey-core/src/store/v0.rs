@@ -94,6 +94,7 @@ impl<H: Hash> MetadataHeader<H> {
 
     /// Validate the metadata with respect to the store id.
     pub fn validate_store_id(&self, store_id: H) -> bool {
+        warn!("TODO: Check other properties like upper bounds on constants, etc");
         store_id == self.store_id()
     }
 
