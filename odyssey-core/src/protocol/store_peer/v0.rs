@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc::{UnboundedReceiver, UnboundedSender}, oneshot};
 use tracing::debug;
 
-use crate::{auth::DeviceId, network::protocol::{receive, send, MiniProtocol}, store::{self, UntypedStoreCommand}, util::Stream};
+use crate::{auth::DeviceId, network::protocol::{receive, send, MiniProtocol}, store::{self, HandlePeerRequest, UntypedStoreCommand}, util::Stream};
 
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -23,8 +23,11 @@ pub(crate) enum MsgStoreSyncRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub(crate) enum MsgStoreSyncMetadataResponse<StoreId> {
-    Metadata(store::v0::MetadataHeader<StoreId>),
+pub(crate) struct MsgStoreSyncMetadataResponse<StoreId> (StoreSyncResponse<store::v0::MetadataHeader<StoreId>>);
+
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) enum StoreSyncResponse<A> {
+    Response(A),
     // Don't currently know, wait until we share it with you.
     Wait,
     // They may or may not have the metadata, but they rejected the request.
@@ -32,13 +35,7 @@ pub(crate) enum MsgStoreSyncMetadataResponse<StoreId> {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub(crate) enum MsgStoreSyncMerkleResponse<Hash> {
-    MerklePieces(Vec<Option<Hash>>),
-    // Don't currently know, wait until we share it with you.
-    Wait,
-    // They may or may not have the pieces, but they rejected the request.
-    Reject,
-}
+pub(crate) struct MsgStoreSyncMerkleResponse<Hash> (StoreSyncResponse<Vec<Option<Hash>>>);
 
 impl<StoreId> Into<MsgStoreSync<StoreId>> for MsgStoreSyncRequest {
     fn into(self) -> MsgStoreSync<StoreId> {
@@ -108,6 +105,50 @@ impl<StoreId> StoreSync<StoreId> {
     pub(crate) fn new_client(peer: DeviceId, send_chan: UnboundedSender<UntypedStoreCommand<StoreId>>) -> Self {
         Self { peer, recv_chan: None, send_chan }
     }
+
+
+    async fn run_client_helper<S: Stream<MsgStoreSync<StoreId>>, R, SR>(&self, stream: &mut S, request: MsgStoreSyncRequest, build_command: fn(HandlePeerRequest<R>) -> UntypedStoreCommand<StoreId>, build_response: fn(StoreSyncResponse<R>) -> SR)
+    where
+        StoreId: Debug,
+        SR: Into<MsgStoreSync<StoreId>> + Debug,
+        R: Debug,
+    {
+        // Send request to store.
+        let (response_chan, recv_chan) = oneshot::channel();
+        let cmd = build_command(HandlePeerRequest {
+            peer: self.peer,
+            request,
+            response_chan,
+        });
+        self.send_chan.send(cmd).expect("TODO");
+
+        // Wait for response.
+        match recv_chan.await.expect("TODO") {
+            Ok(response) => {
+                // Send response to peer.
+                let response = build_response(StoreSyncResponse::Response(response));
+                debug!("Sending response to peer ({}): {response:?}", self.peer);
+                send(stream, response).await.expect("TODO");
+            }
+            Err(chan) => {
+                // If waiting, tell peer.
+                debug!("Telling peer to wait for response ({})", self.peer);
+                send(stream, MsgStoreSyncMetadataResponse(StoreSyncResponse::Wait)).await.expect("TODO");
+
+                // Wait for response and send to peer.
+                let response = if let Some(res) = chan.await.expect("TODO") {
+                    debug!("Sending response to peer ({}): {res:?}", self.peer);
+                    StoreSyncResponse::Response(res)
+                } else {
+                    debug!("Not sending response to peer ({})", self.peer);
+                    StoreSyncResponse::Reject
+                };
+
+                send(stream, build_response(response)).await.expect("TODO");
+            }
+        }
+    }
+
 }
 
 pub(crate) enum StoreSyncCommand {
@@ -129,18 +170,18 @@ impl<StoreId: Debug + Serialize + for<'a> Deserialize<'a> + Send> MiniProtocol f
                     StoreSyncCommand::MetadataHeaderRequest => {
                         send(&mut stream, MsgStoreSyncRequest::MetadataHeader).await.expect("TODO");
 
-                        let result = receive(&mut stream).await.expect("TODO");
+                        let MsgStoreSyncMetadataResponse(result) = receive(&mut stream).await.expect("TODO");
                         match result {
-                            MsgStoreSyncMetadataResponse::Metadata(metadata) => {
+                            StoreSyncResponse::Response(metadata) => {
                                 // Send store the metadata and tell store we're ready.
                                 let msg = UntypedStoreCommand::ReceivedMetadata { peer: self.peer, metadata };
                                 self.send_chan.send(msg).expect("TODO");
                             }
-                            MsgStoreSyncMetadataResponse::Wait => {
+                            StoreSyncResponse::Wait => {
                                 // Wait for response (Must be Cancel or MetadataHeader).
                                 todo!();
                             }
-                            MsgStoreSyncMetadataResponse::Reject => {
+                            StoreSyncResponse::Reject => {
                                 // Send store they canceled and tell store we're ready.
                                 todo!();
                             }
@@ -149,18 +190,18 @@ impl<StoreId: Debug + Serialize + for<'a> Deserialize<'a> + Send> MiniProtocol f
                     StoreSyncCommand::MerkleRequest(ranges) => {
                         send(&mut stream, MsgStoreSyncRequest::MerklePieces{ ranges: ranges.clone() }).await.expect("TODO");
 
-                        let result = receive(&mut stream).await.expect("TODO");
+                        let MsgStoreSyncMerkleResponse(result) = receive(&mut stream).await.expect("TODO");
                         match result {
-                            MsgStoreSyncMerkleResponse::MerklePieces(pieces) => {
+                            StoreSyncResponse::Response(pieces) => {
                                 // Send store the piece hashes and tell store we're ready.
                                 let msg = UntypedStoreCommand::ReceivedMerklePieces {peer: self.peer, ranges, pieces};
                                 self.send_chan.send(msg).expect("TODO");
                             }
-                            MsgStoreSyncMerkleResponse::Wait => {
+                            StoreSyncResponse::Wait => {
                                 // Wait for response (Must be Cancel or MerklePieces).
                                 todo!();
                             }
-                            MsgStoreSyncMerkleResponse::Reject => {
+                            StoreSyncResponse::Reject => {
                                 // Send store they canceled and tell store we're ready.
                                 todo!();
                             }
@@ -194,42 +235,17 @@ impl<StoreId: Debug + Serialize + for<'a> Deserialize<'a> + Send> MiniProtocol f
                 let request = receive(&mut stream).await.expect("TODO");
                 match request {
                     MsgStoreSyncRequest::MetadataHeader => {
-                        // Send request to store.
-                        let (response_chan, recv_chan) = oneshot::channel();
-                        let cmd = UntypedStoreCommand::HandlePeerRequest {
-                            peer: self.peer,
-                            request,
-                            response_chan,
-                        };
-                        self.send_chan.send(cmd).expect("TODO");
-
-                        // Wait for response.
-                        match recv_chan.await.expect("TODO") {
-                            Ok(metadata) => {
-                                // Send response to peer.
-                                debug!("Sending metadata to peer ({}): {metadata:?}", self.peer);
-                                send(&mut stream, MsgStoreSyncMetadataResponse::Metadata(metadata)).await.expect("TODO");
-                            }
-                            Err(chan) => {
-                                // If waiting, tell peer.
-                                debug!("Telling peer to wait for metadata ({})", self.peer);
-                                send(&mut stream, MsgStoreSyncMetadataResponse::Wait).await.expect("TODO");
-
-                                // Wait for response and send to peer.
-                                let response = if let Some(metadata) = chan.await.expect("TODO") {
-                                    debug!("Sending metadata to peer ({}): {metadata:?}", self.peer);
-                                    MsgStoreSyncMetadataResponse::Metadata(metadata)
-                                } else {
-                                    debug!("Not sending metadata to peer ({})", self.peer);
-                                    MsgStoreSyncMetadataResponse::Reject
-                                };
-
-                                send(&mut stream, response).await.expect("TODO");
-                            }
+                        const fn build_command<H>(req: HandlePeerRequest<store::v0::MetadataHeader<H>>) -> UntypedStoreCommand<H> {
+                            UntypedStoreCommand::HandleMetadataPeerRequest(req)
                         }
+                        const fn build_response<H>(h: StoreSyncResponse<store::v0::MetadataHeader<H>>) -> MsgStoreSyncMetadataResponse<H> {
+                            MsgStoreSyncMetadataResponse(h)
+                        }
+
+                        self.run_client_helper::<_, store::v0::MetadataHeader<StoreId>, MsgStoreSyncMetadataResponse<StoreId>>(&mut stream, request, build_command, build_response).await;
                     }
                     MsgStoreSyncRequest::MerklePieces { .. } => {
-                        todo!()
+                        todo!("run_client_helper");
                     }
                 }
             }
