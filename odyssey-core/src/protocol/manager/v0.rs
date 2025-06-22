@@ -108,8 +108,6 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug> Manager<StoreId> {
                             let stream_id = self.next_stream_id();
                             let _response = self.run_request_new_stream_server(&mut stream, stream_id, store_id, spawn_task).await;
                             debug!("Requested to sync store with peer.");
-                            // TODO: Send back status as syncing?
-                            warn!("TODO: Send back status as syncing?");
                         }
                     }
                 }

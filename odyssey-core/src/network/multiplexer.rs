@@ -332,13 +332,11 @@ pub(crate) async fn run_miniprotocol_async<P: MiniProtocol, O: OdysseyType>(
 ) {
     // Serialize/deserialize byte channel
     let stream = MuxStream::new(stream_id, sender, receiver);
-    debug!("Here 1: {}", std::any::type_name_of_val(&p));
+    debug!("Launching miniprotocol: {} ({}, {stream_id:?})", if is_client {"Client"} else {"Server"}, std::any::type_name_of_val(&p));
 
     if is_client {
-        debug!("Run client");
         p.run_client(stream).await
     } else {
-        debug!("Run server");
         p.run_server(stream).await
     }
 }
