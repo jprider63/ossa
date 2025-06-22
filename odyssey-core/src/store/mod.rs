@@ -20,6 +20,7 @@ pub struct State<Header: ecg::ECGHeader<T>, T: CRDT, Hash> {
     peers: BTreeMap<DeviceId, PeerInfo>, // BTreeSet<DeviceId>,
     state_machine: StateMachine<Header, T, Hash>,
     metadata_subscribers: BTreeMap<DeviceId, oneshot::Sender<Option<v0::MetadataHeader<Hash>>>>,
+    merkle_subscribers: BTreeMap<DeviceId, (Vec<Range<u64>>, oneshot::Sender<Option<Vec<Hash>>>)>,
 }
 
 // States are:
@@ -154,6 +155,7 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash + Debug> State<Header,
             peers: BTreeMap::new(),
             state_machine,
             metadata_subscribers: BTreeMap::new(),
+            merkle_subscribers: BTreeMap::new(),
         }
     }
 
@@ -167,6 +169,7 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash + Debug> State<Header,
             peers: BTreeMap::new(),
             state_machine,
             metadata_subscribers: BTreeMap::new(),
+            merkle_subscribers: BTreeMap::new(),
         }
     }
 
@@ -333,21 +336,36 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash + Debug> State<Header,
     }
 
     // Handle a sync request for this store from a peer.
-    fn handle_peer_request(&mut self, peer: DeviceId, request: MsgStoreSyncRequest, response_chan: Sender<HandlePeerResponse<Hash>>) {
-        match request {
-            MsgStoreSyncRequest::MetadataHeader => {
-                if let Some(metadata) = self.metadata() {
-                    // We have the metadata so share it with the peer.
-                    response_chan.send(Ok(metadata)).expect("TODO");
-                } else {
-                    // We don't have the metadata so tell them to wait.
-                    let (send_chan, recv_chan) = oneshot::channel();
-                    response_chan.send(Err(recv_chan)).expect("TODO");
+    fn handle_metadata_peer_request(&mut self, peer: DeviceId, response_chan: Sender<HandlePeerResponse<MetadataHeader<Hash>>>) {
+        if let Some(metadata) = self.metadata() {
+            // We have the metadata so share it with the peer.
+            response_chan.send(Ok(*metadata)).expect("TODO");
+        } else {
+            // We don't have the metadata so tell them to wait.
+            let (send_chan, recv_chan) = oneshot::channel();
+            response_chan.send(Err(recv_chan)).expect("TODO");
 
-                    // Register the wait channel.
-                    self.metadata_subscribers.insert(peer, send_chan); // JP: Safe to drop old one?
-                }
-            }
+            // Register the wait channel.
+            self.metadata_subscribers.insert(peer, send_chan); // JP: Safe to drop old one?
+        }
+    }
+
+    fn handle_merkle_peer_request(&mut self, peer: DeviceId, piece_ids: Vec<Range<u64>>, response_chan: Sender<HandlePeerResponse<Vec<Hash>>>) {
+
+        let hashes = self.piece_hashes().map(|piece_hashes| {
+            handle_merkle_peer_request_helper(piece_hashes, &piece_ids)
+        });
+
+        if let Some(piece_hashes) = hashes {
+            // We have the hashes so share it with the peer.
+            response_chan.send(Ok(piece_hashes)).expect("TODO");
+        } else {
+            // We don't have the hashes so tell them to wait.
+            let (send_chan, recv_chan) = oneshot::channel();
+            response_chan.send(Err(recv_chan)).expect("TODO");
+
+            // Register the wait channel.
+            self.merkle_subscribers.insert(peer, (piece_ids, send_chan)); // JP: Safe to drop old one?
         }
     }
 
@@ -369,7 +387,7 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash + Debug> State<Header,
 
         // Update state.
         self.state_machine = StateMachine::DownloadingMerkle {
-            piece_hashes: Vec::with_capacity(metadata.piece_count() as usize),
+            piece_hashes: vec![None; metadata.piece_count() as usize],
             metadata,
         };
 
@@ -389,8 +407,8 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash + Debug> State<Header,
         self.send_sync_requests();
     }
 
-    fn metadata(&self) -> Option<MetadataHeader<Hash>> {
-        match self.state_machine {
+    fn metadata(&self) -> Option<&MetadataHeader<Hash>> {
+        match &self.state_machine {
             StateMachine::DownloadingMetadata { .. } => {
                 None
             }
@@ -404,6 +422,87 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash + Debug> State<Header,
                 Some(metadata)
             }
         }
+    }
+
+    fn piece_hashes(&self) -> Option<&Vec<Hash>> {
+        match &self.state_machine {
+            StateMachine::DownloadingMetadata { .. } => {
+                None
+            }
+            StateMachine::DownloadingMerkle { .. } => {
+                // We shouldn't share pieces until we've verified them.
+                None
+            }
+            StateMachine::DownloadingInitialState { piece_hashes, .. } => {
+                Some(piece_hashes)
+            }
+            StateMachine::Syncing { piece_hashes, .. } => {
+                Some(piece_hashes)
+            }
+        }
+    }
+
+    fn handle_received_merkle_pieces(&mut self, peer: DeviceId, piece_ids: Vec<Range<u64>>, their_piece_hashes: Vec<Hash>) {
+        warn!("TODO: Keep track if you received different hashes from different peers.");
+
+        // Mark peer as ready.
+        self.update_outgoing_peer_to_ready(&peer);
+
+        let piece_ids: Vec<_> = piece_ids.into_iter().flatten().collect();
+        if piece_ids.len() == their_piece_hashes.len() {
+            warn!("TODO: Peer provided an invalid response");
+            return;
+        }
+
+        // Update state.
+        let piece_hashes = if let StateMachine::DownloadingMerkle { ref mut piece_hashes, .. } = &mut self.state_machine {
+            piece_hashes
+        } else {
+            // We're not downloading anymore so we're done.
+            return;
+        };
+        piece_ids.into_iter().zip(their_piece_hashes).for_each(|(i, hash)| {
+            piece_hashes[i as usize] = Some(hash);
+        });
+
+        // Check if we're done.
+        let piece_hashes_m: Option<Vec<_>> = piece_hashes.iter().cloned().collect();
+        let Some(piece_hashes) = piece_hashes_m else {
+            return;
+        };
+
+        // Validate piece hashes.
+        let is_valid = self.store_id() == util::merkle_root(&piece_hashes);
+        if !is_valid {
+            // TODO: Penalize/blacklist/disconnect peer?
+            warn!("TODO: Peer provided invalid piece hashes.");
+            return;
+        }
+
+        // Update state.
+        self.state_machine = match self.state_machine {
+            StateMachine::DownloadingMerkle { metadata, ..} => {
+                let initial_state = vec![None; metadata.piece_count() as usize];
+                StateMachine::DownloadingInitialState { metadata, piece_hashes, initial_state }
+            }
+            _ => unreachable!("We already checked that we're downloading merkle"),
+        };
+
+        // Send piece hashes to any peers that are waiting.
+        let subs = std::mem::take(&mut self.merkle_subscribers);
+        let piece_hashes = self.piece_hashes().expect("Unreachable: We just set the piece hashes");
+        for (sub_peer, (piece_ids, sub)) in subs {
+            let peer_knows = sub_peer == peer;
+            let msg = if peer_knows {
+                None
+            } else {
+                Some(handle_merkle_peer_request_helper(piece_hashes, &piece_ids))
+            };
+            sub.send(msg).expect("TODO");
+        }
+
+        // Sync with peer(s). Do this for all commands??
+        self.send_sync_requests();
     }
 }
 
@@ -708,11 +807,17 @@ where
                         // Update peer's state to syncing and register channel.
                         store.update_peer_to_syncing_incoming(&peer);
                     }
-                    UntypedStoreCommand::HandlePeerRequest { peer, request, response_chan } => {
-                        store.handle_peer_request(peer, request, response_chan);
+                    UntypedStoreCommand::HandleMetadataPeerRequest(HandlePeerRequest { peer, request, response_chan }) => {
+                        store.handle_metadata_peer_request(peer, response_chan);
+                    }
+                    UntypedStoreCommand::HandleMerklePeerRequest(HandlePeerRequest { peer, request, response_chan }) => {
+                        store.handle_merkle_peer_request(peer, request, response_chan);
                     }
                     UntypedStoreCommand::ReceivedMetadata { peer, metadata } => {
                         store.handle_received_metadata(peer, metadata);
+                    }
+                    UntypedStoreCommand::ReceivedMerklePieces { peer, ranges, pieces } => {
+                        store.handle_received_merkle_pieces(peer, ranges, pieces);
                     }
                 }
             }
@@ -749,9 +854,9 @@ pub enum StateUpdate<Header: ECGHeader<T>, T> {
 // struct UntypedStoreCommand(StoreCommand<dyn UntypedECGHeader, dyn UntypedCRDT>);
 // struct UntypedStoreCommand(StoreCommand<dyn UntypedECGHeader, dyn Any>);
 
-type HandlePeerResponse<StoreId> = Result<
-        v0::MetadataHeader<StoreId>,
-        oneshot::Receiver<Option<v0::MetadataHeader<StoreId>>>,
+type HandlePeerResponse<Response> = Result<
+        Response,
+        oneshot::Receiver<Option<Response>>,
     >;
 
 /// Untyped variant of `StoreCommand` since existentials don't work.
@@ -770,12 +875,8 @@ pub(crate) enum UntypedStoreCommand<Hash> {
         peer: DeviceId,
         send_peer: UnboundedSender<StoreSyncCommand>,
     },
-    HandlePeerRequest {
-        peer: DeviceId,
-        request: MsgStoreSyncRequest,
-        /// Return either the result or a channel to wait on for the response.
-        response_chan: oneshot::Sender<HandlePeerResponse<Hash>>,
-    },
+    HandleMetadataPeerRequest(HandlePeerRequest<(), v0::MetadataHeader<Hash>>),
+    HandleMerklePeerRequest(HandlePeerRequest<Vec<Range<u64>>, Vec<Hash>>),
     RegisterIncomingPeerSyncing {
         peer: DeviceId,
     },
@@ -786,6 +887,19 @@ pub(crate) enum UntypedStoreCommand<Hash> {
     ReceivedMerklePieces {
         peer: DeviceId,
         ranges: Vec<Range<u64>>,
-        pieces: Vec<Option<Hash>>,
+        pieces: Vec<Hash>,
     }
+}
+
+pub(crate) struct HandlePeerRequest<Request, Response> {
+    pub(crate) peer: DeviceId,
+    pub(crate) request: Request, // MsgStoreSyncRequest,
+    /// Return either the result or a channel to wait on for the response.
+    pub(crate) response_chan: oneshot::Sender<HandlePeerResponse<Response>>,
+}
+
+fn handle_merkle_peer_request_helper<H: Copy>(piece_hashes: &Vec<H>, piece_ids: &Vec<Range<u64>>) -> Vec<H> {
+    warn!("TODO: check ranges are in bounds or return error");
+    let hashes: Vec<_> = piece_ids.iter().cloned().flatten().map(|i| *piece_hashes.get(i as usize).expect("TODO: Properly handle invalid requests")).collect();
+    hashes
 }

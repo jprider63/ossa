@@ -35,7 +35,7 @@ pub(crate) enum StoreSyncResponse<A> {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub(crate) struct MsgStoreSyncMerkleResponse<Hash> (StoreSyncResponse<Vec<Option<Hash>>>);
+pub(crate) struct MsgStoreSyncMerkleResponse<Hash> (StoreSyncResponse<Vec<Hash>>);
 
 impl<StoreId> Into<MsgStoreSync<StoreId>> for MsgStoreSyncRequest {
     fn into(self) -> MsgStoreSync<StoreId> {
@@ -107,11 +107,13 @@ impl<StoreId> StoreSync<StoreId> {
     }
 
 
-    async fn run_client_helper<S: Stream<MsgStoreSync<StoreId>>, R, SR>(&self, stream: &mut S, request: MsgStoreSyncRequest, build_command: fn(HandlePeerRequest<R>) -> UntypedStoreCommand<StoreId>, build_response: fn(StoreSyncResponse<R>) -> SR)
+
+    #[inline(always)]
+    async fn run_client_helper<S: Stream<MsgStoreSync<StoreId>>, Req, Resp, SResp>(&self, stream: &mut S, request: Req, build_command: fn(HandlePeerRequest<Req, Resp>) -> UntypedStoreCommand<StoreId>, build_response: fn(StoreSyncResponse<Resp>) -> SResp)
     where
         StoreId: Debug,
-        SR: Into<MsgStoreSync<StoreId>> + Debug,
-        R: Debug,
+        SResp: Into<MsgStoreSync<StoreId>> + Debug,
+        Resp: Debug,
     {
         // Send request to store.
         let (response_chan, recv_chan) = oneshot::channel();
@@ -153,8 +155,8 @@ impl<StoreId> StoreSync<StoreId> {
 
 pub(crate) enum StoreSyncCommand {
     MetadataHeaderRequest,
-    MerkleRequest(Vec<Range<u64>>), // Upper bound of 8000 requested hashes.
-    InitialPieceRequest(Vec<Range<u64>>), // JP: Vec of ranges?
+    MerkleRequest(Vec<Range<u64>>), // Upper bound of 8000 (?) requested hashes.
+    InitialStatePieceRequest(Vec<Range<u64>>), // JP: Vec of ranges?
 }
 
 impl<StoreId: Debug + Serialize + for<'a> Deserialize<'a> + Send> MiniProtocol for StoreSync<StoreId> {
@@ -207,7 +209,7 @@ impl<StoreId: Debug + Serialize + for<'a> Deserialize<'a> + Send> MiniProtocol f
                             }
                         }
                     }
-                    StoreSyncCommand::InitialPieceRequest(ranges) => todo!(),
+                    StoreSyncCommand::InitialStatePieceRequest(ranges) => todo!(),
                 }
             }
 
@@ -235,24 +237,24 @@ impl<StoreId: Debug + Serialize + for<'a> Deserialize<'a> + Send> MiniProtocol f
                 let request = receive(&mut stream).await.expect("TODO");
                 match request {
                     MsgStoreSyncRequest::MetadataHeader => {
-                        const fn build_command<H>(req: HandlePeerRequest<store::v0::MetadataHeader<H>>) -> UntypedStoreCommand<H> {
+                        const fn build_command<H>(req: HandlePeerRequest<(), store::v0::MetadataHeader<H>>) -> UntypedStoreCommand<H> {
                             UntypedStoreCommand::HandleMetadataPeerRequest(req)
                         }
                         const fn build_response<H>(h: StoreSyncResponse<store::v0::MetadataHeader<H>>) -> MsgStoreSyncMetadataResponse<H> {
                             MsgStoreSyncMetadataResponse(h)
                         }
 
-                        self.run_client_helper::<_, store::v0::MetadataHeader<StoreId>, MsgStoreSyncMetadataResponse<StoreId>>(&mut stream, request, build_command, build_response).await;
+                        self.run_client_helper::<_, (), store::v0::MetadataHeader<StoreId>, MsgStoreSyncMetadataResponse<StoreId>>(&mut stream, (), build_command, build_response).await;
                     }
-                    MsgStoreSyncRequest::MerklePieces { .. } => {
-                        const fn build_command<H>(req: HandlePeerRequest<Vec<Option<H>>>) -> UntypedStoreCommand<H> {
+                    MsgStoreSyncRequest::MerklePieces { ranges } => {
+                        const fn build_command<H>(req: HandlePeerRequest<Vec<Range<u64>>, Vec<H>>) -> UntypedStoreCommand<H> {
                             UntypedStoreCommand::HandleMerklePeerRequest(req)
                         }
-                        const fn build_response<H>(h: StoreSyncResponse<Vec<Option<H>>>) -> MsgStoreSyncMerkleResponse<H> {
+                        const fn build_response<H>(h: StoreSyncResponse<Vec<H>>) -> MsgStoreSyncMerkleResponse<H> {
                             MsgStoreSyncMerkleResponse(h)
                         }
 
-                        self.run_client_helper::<_, Vec<Option<StoreId>>, MsgStoreSyncMerkleResponse<StoreId>>(&mut stream, request, build_command, build_response).await;
+                        self.run_client_helper::<_, Vec<Range<u64>>, Vec<StoreId>, MsgStoreSyncMerkleResponse<StoreId>>(&mut stream, ranges, build_command, build_response).await;
                     }
                 }
             }

@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 use typeable::{Typeable, TypeId};
 
-use crate::protocol;
+use crate::{protocol, util};
 use crate::util::{generate_nonce, Hash};
 
 // pub struct Store<Id, T> {
@@ -130,11 +131,7 @@ impl<H: Hash> MetadataBody<H> {
     }
 
     pub fn merkle_root(&self) -> H {
-        let mut h = H::new();
-        for hash in self.piece_hashes.iter() {
-            H::update(&mut h, hash);
-        }
-        H::finalize(h)
+        util::merkle_root(&self.piece_hashes)
     }
 
     /// Validate a `MetadataBody` given its header.
