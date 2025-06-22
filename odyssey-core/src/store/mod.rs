@@ -316,7 +316,7 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash + Debug> State<Header,
             StateMachine::DownloadingMerkle { piece_hashes, .. } => {
                 let count_upper_bound = 100;
                 // TODO: Keep track of (and filter out) which ones are currently requested.
-                let needed_hashes = piece_hashes.iter().enumerate().filter_map(|h| h.1.map(|_| h.0 as u64)).chunks(count_upper_bound);
+                let needed_hashes = piece_hashes.iter().enumerate().filter_map(|h| if h.1.is_none() { Some(h.0 as u64) } else { None }).chunks(count_upper_bound);
                 let mut needed_hashes: Vec<_> = needed_hashes.into_iter().collect();
 
                 // Randomize which peer to request the hashes from.
@@ -327,7 +327,9 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash + Debug> State<Header,
                     send_command(p.1, message);
                 });
             }
-            StateMachine::DownloadingInitialState { metadata, piece_hashes, initial_state } => todo!(),
+            StateMachine::DownloadingInitialState { metadata, piece_hashes, initial_state } => {
+                warn!("TODO: Request initial state from peer");
+            }
             StateMachine::Syncing { metadata, piece_hashes, initial_state, ecg_state, decrypted_state } => {
                 // TODO: Request updates from peer
                 warn!("TODO: Request updates from peer");
@@ -449,7 +451,7 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash + Debug> State<Header,
         self.update_outgoing_peer_to_ready(&peer);
 
         let piece_ids: Vec<_> = piece_ids.into_iter().flatten().collect();
-        if piece_ids.len() == their_piece_hashes.len() {
+        if piece_ids.len() != their_piece_hashes.len() {
             warn!("TODO: Peer provided an invalid response");
             return;
         }
@@ -472,7 +474,7 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash + Debug> State<Header,
         };
 
         // Validate piece hashes.
-        let is_valid = self.store_id() == util::merkle_root(&piece_hashes);
+        let is_valid = self.metadata().unwrap().merkle_root == util::merkle_root(&piece_hashes);
         if !is_valid {
             // TODO: Penalize/blacklist/disconnect peer?
             warn!("TODO: Peer provided invalid piece hashes.");
