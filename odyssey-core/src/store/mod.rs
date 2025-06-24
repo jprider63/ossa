@@ -23,6 +23,7 @@ pub struct State<Header: ecg::ECGHeader<T>, T: CRDT, Hash> {
     metadata_subscribers: BTreeMap<DeviceId, oneshot::Sender<Option<v0::MetadataHeader<Hash>>>>,
     merkle_subscribers: BTreeMap<DeviceId, (Vec<Range<u64>>, oneshot::Sender<Option<Vec<Hash>>>)>,
     piece_subscribers: BTreeMap<DeviceId, (Vec<Range<u64>>, oneshot::Sender<Option<Vec<Option<Vec<u8>>>>>)>,
+    // listeners: Vec<UnboundedSender<StateUpdate<Header, T>>>,
 }
 
 // States are:
@@ -130,7 +131,7 @@ impl<T> PeerStatus<T> {
     }
 }
 
-impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash + Debug> State<Header, T, Hash> {
+impl<Header: ecg::ECGHeader<T> + Clone, T: CRDT + Clone, Hash: util::Hash + Debug> State<Header, T, Hash> {
     /// Initialize a new store with the given state. This initializes the header, including
     /// generating a random nonce.
     pub fn new_syncing(initial_state: T) -> State<Header, T, Hash>
@@ -536,7 +537,7 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash + Debug> State<Header,
         self.send_sync_requests();
     }
 
-    fn handle_received_initial_state_pieces(&mut self, peer: DeviceId, piece_ids: Vec<Range<u64>>, their_pieces: Vec<Option<Vec<u8>>>)
+    fn handle_received_initial_state_pieces(&mut self, peer: DeviceId, piece_ids: Vec<Range<u64>>, their_pieces: Vec<Option<Vec<u8>>>, listeners: &[UnboundedSender<StateUpdate<Header, T>>])
     where
         T: for<'d> Deserialize<'d>,
     {
@@ -592,6 +593,12 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash + Debug> State<Header,
             }
         });
 
+        // Update listeners.
+        let StateMachine::Syncing { ecg_state, decrypted_state, .. } = &self.state_machine else {
+            unreachable!("We just set our state to syncing")
+        };
+        update_listeners(&listeners, &decrypted_state.latest_state, &ecg_state);
+
         // Send pieces to any peers that are waiting.
         let subs = std::mem::take(&mut self.piece_subscribers);
         for (_sub_peer, (piece_ids, sub)) in subs {
@@ -605,6 +612,16 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash + Debug> State<Header,
     }
 }
 
+fn update_listeners<Header: ecg::ECGHeader<T> + Clone, T: CRDT + Clone>(listeners: &[UnboundedSender<StateUpdate<Header, T>>], latest_state: &T, ecg_state: &ecg::State<Header, T>) {
+    for l in listeners {
+        let snapshot: StateUpdate<Header, T> = StateUpdate::Snapshot {
+            snapshot: latest_state.clone(),
+            ecg_state: ecg_state.clone(),
+        };
+        l.send(snapshot).expect("TODO");
+    }
+}
+
 // JP: Or should Odyssey own this/peers?
 /// Manage peers by ranking them, randomize, potentially connecting to some of them, etc.
 async fn manage_peers<OT: OdysseyType, T: CRDT<Time = OT::Time> + Clone + Send + 'static>(
@@ -614,6 +631,7 @@ async fn manage_peers<OT: OdysseyType, T: CRDT<Time = OT::Time> + Clone + Send +
 )
 where
     T::Op: Serialize,
+    OT::ECGHeader<T>: Clone,
     //OT::ECGHeader<T>::HeaderId : Send,
     //T: Send,
 {
@@ -767,13 +785,9 @@ where
                                 }
 
                                 // Send state to subscribers.
-                                for l in &listeners {
-                                    let snapshot = StateUpdate::Snapshot {
-                                        snapshot: decrypted_state.latest_state.clone(),
-                                        ecg_state: ecg_state.clone(),
-                                    };
-                                    l.send(snapshot).expect("TODO");
-                                }
+                                update_listeners(&listeners, &decrypted_state.latest_state, &ecg_state);
+
+                                warn!("TODO: Update subscribers");
 
                                 StateMachine::Syncing { metadata, piece_hashes, initial_state, ecg_state, decrypted_state }
                             }
@@ -923,7 +937,7 @@ where
                         store.handle_received_merkle_hashes(peer, ranges, pieces);
                     }
                     UntypedStoreCommand::ReceivedInitialStatePieces { peer, ranges, pieces } => {
-                        store.handle_received_initial_state_pieces(peer, ranges, pieces);
+                        store.handle_received_initial_state_pieces(peer, ranges, pieces, &listeners);
                     }
                 }
             }
