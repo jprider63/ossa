@@ -34,6 +34,11 @@ use crate::util::{generate_nonce, Hash};
 //     initial_state: T,
 // }
 
+/// All pieces are 2^14 bytes (16KiB).
+pub(crate) const PIECE_SIZE: u64 = 1 << 14;
+/// Limit on the number of merkle nodes a peer can request.
+pub(crate) const MERKLE_REQUEST_LIMIT: u64 = 16;
+
 /// A store's Metadata header.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub struct MetadataHeader<Hash> {
@@ -53,9 +58,6 @@ pub struct MetadataHeader<Hash> {
     /// Size in bytes of the initial state.
     pub initial_state_size: u64,
 
-    /// Size in bytes of each piece of the initial state.
-    pub piece_size: u32, // TODO: Make this constant a 16 KB (2^14), 
-
     /// Hash (merkle root) of the hashes of the initial state's pieces.
     pub merkle_root: Hash, // TODO: Make this an actual binary (or 512-ary) tree?
 }
@@ -68,14 +70,12 @@ impl<H: Hash> MetadataHeader<H> {
         let protocol_version = protocol::LATEST_VERSION;
         let store_type = T::type_ident();
         let initial_state_size = initial_state.initial_state.len() as u64;
-        let piece_size = initial_state.piece_size;
         let body_hash = initial_state.merkle_root();
         MetadataHeader {
             nonce,
             protocol_version,
             store_type,
             initial_state_size,
-            piece_size,
             merkle_root: body_hash,
         }
     }
@@ -88,7 +88,6 @@ impl<H: Hash> MetadataHeader<H> {
         H::update(&mut h, [self.protocol_version.as_byte()]);
         H::update(&mut h, self.store_type);
         H::update(&mut h, self.initial_state_size.to_be_bytes());
-        H::update(&mut h, self.piece_size.to_be_bytes());
         H::update(&mut h, self.merkle_root);
         H::finalize(h)
     }
@@ -100,7 +99,7 @@ impl<H: Hash> MetadataHeader<H> {
     }
 
     pub fn piece_count(&self) -> u64 {
-        self.initial_state_size.div_ceil(self.piece_size as u64)
+        self.initial_state_size.div_ceil(PIECE_SIZE)
     }
 }
 

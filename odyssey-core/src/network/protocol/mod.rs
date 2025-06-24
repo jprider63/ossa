@@ -122,7 +122,6 @@ where
             protocol_version: Version::V0,
             store_type: todo!(), // [1;32],
             initial_state_size: 0,
-            piece_size: 2^18,
             merkle_root: todo!(), // [2;32],
         },
         body: None,

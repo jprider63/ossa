@@ -8,7 +8,7 @@ use std::{collections::{BTreeMap, BTreeSet}, ops::Range};
 use std::fmt::Debug;
 use typeable::{TypeId, Typeable};
 
-use crate::{auth::DeviceId, core::{OdysseyType, SharedState}, network::{multiplexer::{run_miniprotocol_async, SpawnMultiplexerTask}, protocol::MiniProtocol}, protocol::{manager::v0::PeerManagerCommand, store_peer::v0::{MsgStoreSyncRequest, StoreSync, StoreSyncCommand}}, store::ecg::{ECGBody, ECGHeader}, util::{self, compress_consecutive_into_ranges}};
+use crate::{auth::DeviceId, core::{OdysseyType, SharedState}, network::{multiplexer::{run_miniprotocol_async, SpawnMultiplexerTask}, protocol::MiniProtocol}, protocol::{manager::v0::PeerManagerCommand, store_peer::v0::{MsgStoreSyncRequest, StoreSync, StoreSyncCommand}}, store::{ecg::{ECGBody, ECGHeader}, v0::{MERKLE_REQUEST_LIMIT, PIECE_SIZE}}, util::{self, compress_consecutive_into_ranges}};
 
 pub mod ecg;
 pub mod v0; // TODO: Move this to network::protocol
@@ -314,9 +314,8 @@ impl<Header: ecg::ECGHeader<T>, T: CRDT, Hash: util::Hash + Debug> State<Header,
                 });
             }
             StateMachine::DownloadingMerkle { piece_hashes, .. } => {
-                let count_upper_bound = 100;
                 // TODO: Keep track of (and filter out) which ones are currently requested.
-                let needed_hashes = piece_hashes.iter().enumerate().filter_map(|h| if h.1.is_none() { Some(h.0 as u64) } else { None }).chunks(count_upper_bound);
+                let needed_hashes = piece_hashes.iter().enumerate().filter_map(|h| if h.1.is_none() { Some(h.0 as u64) } else { None }).chunks(MERKLE_REQUEST_LIMIT as usize);
                 let mut needed_hashes: Vec<_> = needed_hashes.into_iter().collect();
 
                 // Randomize which peer to request the hashes from.
@@ -699,7 +698,7 @@ where
                                     0
                                 } else {
                                     let downloaded = initial_state.iter().filter(|p| p.is_some()).count() as u64;
-                                    downloaded * (metadata.piece_size as u64) / metadata.initial_state_size
+                                    100 * downloaded * PIECE_SIZE / metadata.initial_state_size
                                 };
                                 StateUpdate::Downloading { percent }
                             }
@@ -841,6 +840,7 @@ pub(crate) enum StoreCommand<Header: ECGHeader<T>, T> {
 
 pub enum StateUpdate<Header: ECGHeader<T>, T> {
     Downloading {
+        // Percent of the state that we've downloaded (0 - 100).
         percent: u64,
     },
     Snapshot {
