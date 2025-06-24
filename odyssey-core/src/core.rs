@@ -209,7 +209,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
         _storage: S,
     ) -> StoreHandle<OT, T>
     where
-        T: CRDT<Time = OT::Time> + Clone + Send + 'static + Typeable + Serialize,
+        T: CRDT<Time = OT::Time> + Clone + Send + 'static + Typeable + Serialize + for<'d> Deserialize<'d>,
         T::Op: Serialize,
         <OT as OdysseyType>::ECGHeader<T>: Send + Clone + 'static,
         <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: Send + ECGBody<T>,
@@ -249,7 +249,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
         <OT as OdysseyType>::ECGHeader<T>: Send + Clone + 'static,
         <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: Send + ECGBody<T>,
         <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::HeaderId: Send,
-        T: CRDT<Time = OT::Time> + Clone + Send + 'static,
+        T: CRDT<Time = OT::Time> + Clone + Send + 'static + for<'d> Deserialize<'d>,
         T::Op: Serialize,
     {
         // Check if store is already active.
@@ -347,7 +347,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
     }
 
     // TODO: Separate state (that keeps state, syncs with other peers, etc) and optional user API (that sends state updates)?
-    fn launch_store<T: CRDT<Time = OT::Time> + Clone + Send + 'static>(
+    fn launch_store<T>(
         &self,
         store_id: OT::StoreId,
         store: store::State<OT::ECGHeader<T>, T, OT::StoreId>,
@@ -357,6 +357,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
         <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: ECGBody<T> + Send,
         <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::HeaderId: Send,
         T::Op: Serialize,
+        T: CRDT<Time = OT::Time> + Clone + Send + 'static + for<'d> Deserialize<'d>,
     {
         // Initialize storage for this store.
 

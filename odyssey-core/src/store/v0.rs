@@ -38,6 +38,8 @@ use crate::util::{generate_nonce, Hash};
 pub(crate) const PIECE_SIZE: u64 = 1 << 14;
 /// Limit on the number of merkle nodes a peer can request.
 pub(crate) const MERKLE_REQUEST_LIMIT: u64 = 16;
+/// Limit on the number of pieces a peer can request.
+pub(crate) const PIECE_REQUEST_LIMIT: u64 = 16;
 
 /// A store's Metadata header.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]

@@ -12,12 +12,16 @@ pub(crate) enum MsgStoreSync<StoreId> {
     Request(MsgStoreSyncRequest),
     MetadataHeaderResponse(MsgStoreSyncMetadataResponse<StoreId>),
     MerkleResponse(MsgStoreSyncMerkleResponse<StoreId>),
+    PiecesResponse(MsgStoreSyncPieceResponse),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) enum MsgStoreSyncRequest {
     MetadataHeader,
-    MerklePieces {
+    MerkleHashes {
+        ranges: Vec<Range<u64>>,
+    },
+    InitialStatePieces {
         ranges: Vec<Range<u64>>,
     },
 }
@@ -37,6 +41,9 @@ pub(crate) enum StoreSyncResponse<A> {
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct MsgStoreSyncMerkleResponse<Hash> (StoreSyncResponse<Vec<Hash>>);
 
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct MsgStoreSyncPieceResponse (StoreSyncResponse<Vec<Option<Vec<u8>>>>);
+
 impl<StoreId> Into<MsgStoreSync<StoreId>> for MsgStoreSyncRequest {
     fn into(self) -> MsgStoreSync<StoreId> {
         MsgStoreSync::Request(self)
@@ -50,6 +57,7 @@ impl<StoreId> TryInto<MsgStoreSyncRequest> for MsgStoreSync<StoreId> {
             MsgStoreSync::Request(r) => Ok(r),
             MsgStoreSync::MetadataHeaderResponse(_) => Err(()),
             MsgStoreSync::MerkleResponse(_) => Err(()),
+            MsgStoreSync::PiecesResponse(_) => Err(()),
         }
     }
 }
@@ -67,6 +75,7 @@ impl<StoreId> TryInto<MsgStoreSyncMetadataResponse<StoreId>> for MsgStoreSync<St
             MsgStoreSync::Request(_) => Err(()),
             MsgStoreSync::MetadataHeaderResponse(r) => Ok(r),
             MsgStoreSync::MerkleResponse(_) => Err(()),
+            MsgStoreSync::PiecesResponse(_) => Err(()),
         }
     }
 }
@@ -84,6 +93,25 @@ impl<StoreId> TryInto<MsgStoreSyncMerkleResponse<StoreId>> for MsgStoreSync<Stor
             MsgStoreSync::Request(_) => Err(()),
             MsgStoreSync::MetadataHeaderResponse(_) => Err(()),
             MsgStoreSync::MerkleResponse(r) => Ok(r),
+            MsgStoreSync::PiecesResponse(_) => Err(()),
+        }
+    }
+}
+
+impl<StoreId> Into<MsgStoreSync<StoreId>> for MsgStoreSyncPieceResponse {
+    fn into(self) -> MsgStoreSync<StoreId> {
+        MsgStoreSync::PiecesResponse(self)
+    }
+}
+
+impl<StoreId> TryInto<MsgStoreSyncPieceResponse> for MsgStoreSync<StoreId> {
+    type Error = ();
+    fn try_into(self) -> Result<MsgStoreSyncPieceResponse, ()> {
+        match self {
+            MsgStoreSync::Request(_) => Err(()),
+            MsgStoreSync::MetadataHeaderResponse(_) => Err(()),
+            MsgStoreSync::MerkleResponse(_) => Err(()),
+            MsgStoreSync::PiecesResponse(r) => Ok(r),
         }
     }
 }
@@ -155,8 +183,8 @@ impl<StoreId> StoreSync<StoreId> {
 
 pub(crate) enum StoreSyncCommand {
     MetadataHeaderRequest,
-    MerkleRequest(Vec<Range<u64>>), // Upper bound of 8000 (?) requested hashes.
-    InitialStatePieceRequest(Vec<Range<u64>>), // JP: Vec of ranges?
+    MerkleRequest(Vec<Range<u64>>),
+    InitialStatePieceRequest(Vec<Range<u64>>),
 }
 
 impl<StoreId: Debug + Serialize + for<'a> Deserialize<'a> + Send> MiniProtocol for StoreSync<StoreId> {
@@ -190,13 +218,13 @@ impl<StoreId: Debug + Serialize + for<'a> Deserialize<'a> + Send> MiniProtocol f
                         }
                     }
                     StoreSyncCommand::MerkleRequest(ranges) => {
-                        send(&mut stream, MsgStoreSyncRequest::MerklePieces{ ranges: ranges.clone() }).await.expect("TODO");
+                        send(&mut stream, MsgStoreSyncRequest::MerkleHashes{ ranges: ranges.clone() }).await.expect("TODO");
 
                         let MsgStoreSyncMerkleResponse(result) = receive(&mut stream).await.expect("TODO");
                         match result {
                             StoreSyncResponse::Response(pieces) => {
                                 // Send store the piece hashes and tell store we're ready.
-                                let msg = UntypedStoreCommand::ReceivedMerklePieces {peer: self.peer, ranges, pieces};
+                                let msg = UntypedStoreCommand::ReceivedMerkleHashes {peer: self.peer, ranges, pieces};
                                 self.send_chan.send(msg).expect("TODO");
                             }
                             StoreSyncResponse::Wait => {
@@ -209,7 +237,23 @@ impl<StoreId: Debug + Serialize + for<'a> Deserialize<'a> + Send> MiniProtocol f
                             }
                         }
                     }
-                    StoreSyncCommand::InitialStatePieceRequest(ranges) => todo!(),
+                    StoreSyncCommand::InitialStatePieceRequest(ranges) => {
+                        send(&mut stream, MsgStoreSyncRequest::InitialStatePieces { ranges: ranges.clone() }).await.expect("TODO");
+                        let MsgStoreSyncPieceResponse(result) = receive(&mut stream).await.expect("TODO");
+                        match result {
+                            StoreSyncResponse::Response(pieces) => {
+                                // Send store the pieces and tell store we're ready.
+                                let msg = UntypedStoreCommand::ReceivedInitialStatePieces {peer: self.peer, ranges, pieces};
+                                self.send_chan.send(msg).expect("TODO");
+                            }
+                            StoreSyncResponse::Wait =>
+                                // Wait for response (Must be Reject or Repsonse).
+                                todo!(),
+                            StoreSyncResponse::Reject =>
+                                // Send store they rejected and tell store we're ready.
+                                todo!(),
+                        }
+                    }
                 }
             }
 
@@ -246,7 +290,7 @@ impl<StoreId: Debug + Serialize + for<'a> Deserialize<'a> + Send> MiniProtocol f
 
                         self.run_client_helper::<_, (), store::v0::MetadataHeader<StoreId>, MsgStoreSyncMetadataResponse<StoreId>>(&mut stream, (), build_command, build_response).await;
                     }
-                    MsgStoreSyncRequest::MerklePieces { ranges } => {
+                    MsgStoreSyncRequest::MerkleHashes { ranges } => {
                         const fn build_command<H>(req: HandlePeerRequest<Vec<Range<u64>>, Vec<H>>) -> UntypedStoreCommand<H> {
                             UntypedStoreCommand::HandleMerklePeerRequest(req)
                         }
@@ -255,6 +299,9 @@ impl<StoreId: Debug + Serialize + for<'a> Deserialize<'a> + Send> MiniProtocol f
                         }
 
                         self.run_client_helper::<_, Vec<Range<u64>>, Vec<StoreId>, MsgStoreSyncMerkleResponse<StoreId>>(&mut stream, ranges, build_command, build_response).await;
+                    }
+                    MsgStoreSyncRequest::InitialStatePieces { ranges } => {
+                        todo!()
                     }
                 }
             }

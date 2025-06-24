@@ -440,6 +440,14 @@ pub(crate) fn merkle_root<H: Hash>(hashes: &[H]) -> H {
     H::finalize(h)
 }
 
+pub(crate) fn validate_piece<H: Hash>(piece: &[u8], expected_hash: &H) -> bool {
+    let mut h = H::new();
+    H::update(&mut h, piece);
+    let h = H::finalize(h);
+
+    &h == expected_hash
+}
+
 pub(crate) struct CompressConsecutive<I, T> {
     current: Option<Range<T>>,
     inner: I,

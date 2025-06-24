@@ -21,6 +21,7 @@ lazy_static = "*"
 odyssey-crdt = {path="../odyssey-crdt"}
 rand = "*"
 rand_core = {version="0.6.4", features=["std"]}
+replace_with = "*"
 serde = {version="*", features=["derive"]}
 serde_cbor = {version="*", features=[]}
 sha2 = "*"
