@@ -301,7 +301,14 @@ impl<StoreId: Debug + Serialize + for<'a> Deserialize<'a> + Send> MiniProtocol f
                         self.run_client_helper::<_, Vec<Range<u64>>, Vec<StoreId>, MsgStoreSyncMerkleResponse<StoreId>>(&mut stream, ranges, build_command, build_response).await;
                     }
                     MsgStoreSyncRequest::InitialStatePieces { ranges } => {
-                        todo!()
+                        const fn build_command<H>(req: HandlePeerRequest<Vec<Range<u64>>, Vec<Option<Vec<u8>>>>) -> UntypedStoreCommand<H> {
+                            UntypedStoreCommand::HandlePiecePeerRequest(req)
+                        }
+                        const fn build_response(h: StoreSyncResponse<Vec<Option<Vec<u8>>>>) -> MsgStoreSyncPieceResponse {
+                            MsgStoreSyncPieceResponse(h)
+                        }
+
+                        self.run_client_helper::<_, Vec<Range<u64>>, Vec<Option<Vec<u8>>>, MsgStoreSyncPieceResponse>(&mut stream, ranges, build_command, build_response).await;
                     }
                 }
             }
