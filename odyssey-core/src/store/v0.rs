@@ -54,10 +54,10 @@ pub struct MetadataHeader<Hash> {
     pub initial_state_size: u64,
 
     /// Size in bytes of each piece of the initial state.
-    pub piece_size: u32,
+    pub piece_size: u32, // TODO: Make this constant a 16 KB (2^14), 
 
     /// Hash (merkle root) of the hashes of the initial state's pieces.
-    pub merkle_root: Hash,
+    pub merkle_root: Hash, // TODO: Make this an actual binary (or 512-ary) tree?
 }
 
 // TODO: Signature of MetadataHeader by `owner`.
@@ -110,7 +110,7 @@ pub struct MetadataBody<Hash> {
     /// Serialized (and encrypted) initial state of the store.
     //  TODO: Eventually merkelize the initial state in chunks.
     initial_state: Vec<u8>,
-    piece_size: u32,
+    piece_size: u32, // TODO: Make this constant a 16 KB (2^14), 
     piece_hashes: Vec<Hash>,
 }
 
