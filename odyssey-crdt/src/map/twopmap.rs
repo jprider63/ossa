@@ -1,7 +1,9 @@
 use im::{OrdMap, OrdSet};
+use serde::de::{MapAccess, Visitor};
 use serde::{Deserialize, Serialize};
 use serde::ser::{SerializeStruct, Serializer};
 use std::fmt::{self, Debug};
+use std::marker::PhantomData;
 use typeable::Typeable;
 
 use crate::time::CausalState;
@@ -25,6 +27,58 @@ impl<K: Serialize + Ord + Clone, V: Serialize + Clone> Serialize for TwoPMap<K, 
         s.serialize_field("map", &self.map)?;
         s.serialize_field("tombstones", &self.tombstones)?;
         s.end()
+    }
+}
+
+impl<'d, K: Clone + Ord + Deserialize<'d>, V: Clone + Deserialize<'d>> Deserialize<'d> for TwoPMap<K, V> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'d>
+    {
+        struct SVisitor<K, V> (PhantomData<(K, V)>);
+
+        #[derive(Deserialize)]
+        #[serde(field_identifier, rename_all = "lowercase")]
+        enum Field { Map, Tombstones }
+
+        impl<'d, K: Ord + Clone + Deserialize<'d>, V: Clone + Deserialize<'d>> Visitor<'d> for SVisitor<K, V> {
+            type Value = TwoPMap<K, V>;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct TwoPMap")
+            }
+
+            fn visit_map<M>(self, mut m: M) -> Result<TwoPMap<K, V>, M::Error>
+            where
+                M: MapAccess<'d>,
+            {
+                let mut map = None;
+                let mut tombstones = None;
+                while let Some(key) = m.next_key()? {
+                    match key {
+                        Field::Map => {
+                            if map.is_some() {
+                                return Err(serde::de::Error::duplicate_field("map"));
+                            }
+                            map = Some(m.next_value()?);
+                        }
+                        Field::Tombstones => {
+                            if tombstones.is_some() {
+                                return Err(serde::de::Error::duplicate_field("tombstones"));
+                            }
+                            tombstones = Some(m.next_value()?);
+                        }
+                    }
+                }
+
+                let map = map.ok_or_else(|| serde::de::Error::missing_field("map"))?;
+                let tombstones = tombstones.ok_or_else(|| serde::de::Error::missing_field("tombstones"))?;
+
+                Ok(TwoPMap { map, tombstones })
+            }
+        }
+
+        deserializer.deserialize_struct("TwoPMap", &["map", "tombstones"], SVisitor(PhantomData))
     }
 }
 
