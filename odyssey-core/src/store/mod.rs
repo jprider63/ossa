@@ -69,8 +69,16 @@ struct PeerInfo<Hash> {
     incoming_status: PeerStatus<()>,
     /// Status of outgoing sync status to peer.
     outgoing_status: PeerStatus<OutgoingPeerStatus>,
+    ecg_status: ECGStatus<Hash>,
+}
+
+#[derive(Debug)]
+/// Information about a peer's ECG status.
+struct ECGStatus<Hash> {
     /// Greatest common ancestor between our ECG graphs.
-    ecg_meet: Option<Vec<Hash>>,
+    meet: Vec<Hash>,
+    /// Whether we need to update the meet between us and this peer.
+    meet_needs_update: bool,
 }
 
 impl<Hash> PeerInfo<Hash> {
@@ -199,6 +207,7 @@ impl<Header: ecg::ECGHeader<T> + Clone, T: CRDT + Clone, Hash: util::Hash + Debu
 
     /// Insert a peer as known if its status isn't already tracked by the store.
     fn insert_known_peer(&mut self, peer: DeviceId) {
+        let ecg_status = ECGStatus { meet: vec![], meet_needs_update: true };
         self.peers
             .entry(peer)
             // .and_modify(|s| {
@@ -209,7 +218,7 @@ impl<Header: ecg::ECGHeader<T> + Clone, T: CRDT + Clone, Hash: util::Hash + Debu
             //     }
             // })
             // .or_insert(PeerStatus::Known);
-            .or_insert(PeerInfo { incoming_status: PeerStatus::Known, outgoing_status: PeerStatus::Known, ecg_meet: None});
+            .or_insert(PeerInfo { incoming_status: PeerStatus::Known, outgoing_status: PeerStatus::Known, ecg_status});
     }
 
     /// Helper to update a known peer to initializing.
