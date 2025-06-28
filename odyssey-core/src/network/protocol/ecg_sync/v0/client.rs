@@ -14,7 +14,7 @@ use std::marker::PhantomData;
 
 // TODO: Have this utilize session types.
 /// Sync the headers of the eventual consistency graph.
-/// Finds the least common ancestor (meet) of the graphs.
+/// Attempts to find the greatest common ancestor (meet) of the graphs.
 /// Then we share/receive all the known headers after that point (in batches of size 32).
 pub(crate) async fn ecg_sync_client<S: Stream<MsgECGSync<Header, T>>, StoreId, Header, T: CRDT>(
     conn: &mut ConnectionManager<S>,

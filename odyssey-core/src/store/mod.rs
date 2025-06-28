@@ -18,7 +18,7 @@ pub use v0::{MetadataBody, MetadataHeader, Nonce};
 
 pub struct State<Header: ecg::ECGHeader<T>, T: CRDT, Hash> {
     // Peers that also have this store (that we are potentially connected to?).
-    peers: BTreeMap<DeviceId, PeerInfo>, // BTreeSet<DeviceId>,
+    peers: BTreeMap<DeviceId, PeerInfo<Hash>>, // BTreeSet<DeviceId>,
     state_machine: StateMachine<Header, T, Hash>,
     metadata_subscribers: BTreeMap<DeviceId, oneshot::Sender<Option<v0::MetadataHeader<Hash>>>>,
     merkle_subscribers: BTreeMap<DeviceId, (Vec<Range<u64>>, oneshot::Sender<Option<Vec<Hash>>>)>,
@@ -64,14 +64,16 @@ pub struct DecryptedState<Header: ecg::ECGHeader<T>, T: CRDT> {
 
 /// Information about a peer.
 #[derive(Debug)]
-struct PeerInfo {
+struct PeerInfo<Hash> {
     /// Status of incoming sync status from peer.
     incoming_status: PeerStatus<()>,
     /// Status of outgoing sync status to peer.
     outgoing_status: PeerStatus<OutgoingPeerStatus>,
+    /// Greatest common ancestor between our ECG graphs.
+    ecg_meet: Option<Vec<Hash>>,
 }
 
-impl PeerInfo {
+impl<Hash> PeerInfo<Hash> {
     /// Checks if the peer is ready for a sync request.
     /// This means the peer is syncing and does not have an outstanding request.
     fn is_ready_for_sync(&self) -> bool {
@@ -207,11 +209,11 @@ impl<Header: ecg::ECGHeader<T> + Clone, T: CRDT + Clone, Hash: util::Hash + Debu
             //     }
             // })
             // .or_insert(PeerStatus::Known);
-            .or_insert(PeerInfo { incoming_status: PeerStatus::Known, outgoing_status: PeerStatus::Known});
+            .or_insert(PeerInfo { incoming_status: PeerStatus::Known, outgoing_status: PeerStatus::Known, ecg_meet: None});
     }
 
     /// Helper to update a known peer to initializing.
-    fn update_peer_to_initializing<A>(&mut self, peer: &DeviceId, direction_lambda: fn(&mut PeerInfo) -> &mut PeerStatus<A>)
+    fn update_peer_to_initializing<A>(&mut self, peer: &DeviceId, direction_lambda: fn(&mut PeerInfo<Hash>) -> &mut PeerStatus<A>)
     where
         A: Debug
     {
@@ -239,7 +241,7 @@ impl<Header: ecg::ECGHeader<T> + Clone, T: CRDT + Clone, Hash: util::Hash + Debu
     }
 
     /// Helper to update a known peer to syncing.
-    fn update_peer_to_syncing<A>(&mut self, peer: &DeviceId, direction_lambda: fn(&mut PeerInfo) -> &mut PeerStatus<A>, sender_m: A)
+    fn update_peer_to_syncing<A>(&mut self, peer: &DeviceId, direction_lambda: fn(&mut PeerInfo<Hash>) -> &mut PeerStatus<A>, sender_m: A)
     where
         A: Debug
     {
@@ -293,7 +295,7 @@ impl<Header: ecg::ECGHeader<T> + Clone, T: CRDT + Clone, Hash: util::Hash + Debu
 
     /// Send sync requests to peers.
     fn send_sync_requests(&mut self) {
-        fn send_command(i: &mut PeerInfo, message: StoreSyncCommand) {
+        fn send_command<Hash>(i: &mut PeerInfo<Hash>, message: StoreSyncCommand) {
             let PeerStatus::Syncing(ref mut s) = i.outgoing_status else {
                 unreachable!("Already checked that the peer is ready.");
             };
@@ -786,8 +788,6 @@ where
 
                                 // Send state to subscribers.
                                 update_listeners(&listeners, &decrypted_state.latest_state, &ecg_state);
-
-                                warn!("TODO: Update subscribers");
 
                                 StateMachine::Syncing { metadata, piece_hashes, initial_state, ecg_state, decrypted_state }
                             }

@@ -250,6 +250,7 @@ fn handle_received_headers<Header: ECGHeader<T>, T: CRDT>(
 
 // Precondition: `state` contains header_id.
 // Invariant: if a header is in `their_known`, all the header's ancestors are in `their_known`.
+// JP: Can we avoid this linear time + memory?
 fn mark_as_known<Header: ECGHeader<T>, T: CRDT>(
     state: &ecg::State<Header, T>,
     their_known: &mut BTreeSet<Header::HeaderId>,
