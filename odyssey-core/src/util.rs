@@ -4,6 +4,7 @@ use futures::task::{Context, Poll};
 use rand::{rngs::OsRng, TryRngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use tracing::error;
 use std::fmt::{self, Debug, Display};
 use std::marker::PhantomData;
 use std::ops::{Add, Range};
@@ -325,11 +326,13 @@ impl<T> futures::Sink<T> for Channel<T> {
 
 #[cfg(test)]
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+#[cfg(test)]
+use tokio_stream::wrappers::UnboundedReceiverStream;
 
 #[cfg(test)]
 pub struct UnboundChannel<T> {
     send: UnboundedSender<T>,
-    recv: UnboundedReceiver<T>,
+    recv: UnboundedReceiverStream<T>, // UnboundedReceiver<T>,
 }
 
 #[cfg(test)]
@@ -339,11 +342,11 @@ impl<T> UnboundChannel<T> {
         let (send2, recv2) = tokio::sync::mpsc::unbounded_channel();
         let c1 = UnboundChannel {
             send: send1,
-            recv: recv2,
+            recv: UnboundedReceiverStream::new(recv2),
         };
         let c2 = UnboundChannel {
             send: send2,
-            recv: recv1,
+            recv: UnboundedReceiverStream::new(recv1),
         };
         (c1, c2)
     }
@@ -365,14 +368,14 @@ impl<T> futures::Stream for UnboundChannel<T> {
         mut self: Pin<&mut Self>,
         ctx: &mut Context<'_>,
     ) -> Poll<Option<Result<T, ProtocolError>>> {
-        todo!()
-        // let p = futures::Stream::poll_next(Pin::new(&mut self.recv), ctx);
-        // p.map(|o| o.map(|t| Ok(t)))
+        // todo!()
+        let p = futures::Stream::poll_next(Pin::new(&mut self.recv), ctx);
+        p.map(|o| o.map(|t| Ok(t)))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        todo!()
-        // self.recv.size_hint()
+        // todo!()
+        self.recv.size_hint()
     }
 }
 
@@ -384,7 +387,8 @@ impl<T> futures::Sink<T> for UnboundChannel<T> {
         mut self: Pin<&mut Self>,
         ctx: &mut Context<'_>,
     ) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> {
-        todo!()
+        Poll::Ready(Ok(()))
+        // todo!()
         // let p = Pin::new(&mut self.send).poll_ready(ctx);
         // p.map(|r| {
         //     r.map_err(|e| {
@@ -395,19 +399,19 @@ impl<T> futures::Sink<T> for UnboundChannel<T> {
     }
 
     fn start_send(mut self: Pin<&mut Self>, x: T) -> Result<(), <Self as futures::Sink<T>>::Error> {
-        todo!()
-        // let p = Pin::new(&mut self.send).start_send(x);
-        // p.map_err(|e| {
-        //     log::error!("Send error: {:?}", e);
-        //     ProtocolError::StreamSendError(std::io::Error::other("start_send error"))
-        // })
+        let p = Pin::new(&mut self.send).send(x);
+        p.map_err(|e| {
+            error!("Send error: {:?}", e);
+            ProtocolError::StreamSendError(std::io::Error::other("start_send error"))
+        })
     }
 
     fn poll_flush(
         mut self: Pin<&mut Self>,
         ctx: &mut Context<'_>,
     ) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> {
-        todo!()
+        Poll::Ready(Ok(()))
+        // todo!()
         // let p = Pin::new(&mut self.send).poll_flush(ctx);
         // p.map(|r| {
         //     r.map_err(|e| {
@@ -421,7 +425,8 @@ impl<T> futures::Sink<T> for UnboundChannel<T> {
         mut self: Pin<&mut Self>,
         ctx: &mut Context<'_>,
     ) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> {
-        todo!()
+        Poll::Ready(Ok(()))
+        // todo!()
         // let p = Pin::new(&mut self.send).poll_close(ctx);
         // p.map(|r| {
         //     r.map_err(|e| {
