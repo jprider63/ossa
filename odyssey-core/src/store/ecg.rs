@@ -75,6 +75,7 @@ pub struct State<Header: ECGHeader<T>, T> {
     node_info_map: BTreeMap<Header::HeaderId, NodeInfo<Header>>,
 
     /// Tips of the ECG (hashes of their headers).
+    /// Invariant: All of these headers are in `node_info_map`.
     tips: BTreeSet<Header::HeaderId>,
 
     phantom: PhantomData<T>,
@@ -300,8 +301,8 @@ impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
 }
 
 /// Tests whether two ecg states have the same DAG.
-#[cfg(false)]
-pub(crate) fn equal_dags<Header: ECGHeader>(l: &State<Header>, r: &State<Header>) -> bool
+#[cfg(test)]
+pub(crate) fn equal_dags<Header: ECGHeader<T>, T>(l: &State<Header, T>, r: &State<Header, T>) -> bool
 where
     Header::HeaderId: Copy,
 {
@@ -328,8 +329,8 @@ where
         && node_set_left == node_set_right
 }
 
-#[cfg(false)]
-pub(crate) fn print_dag<Header: ECGHeader>(s: &State<Header>) {
+#[cfg(test)]
+pub(crate) fn print_dag<Header: ECGHeader<T>, T>(s: &State<Header, T>) {
     use petgraph::dot::{Config, Dot};
     use petgraph::stable_graph::StableDiGraph;
 

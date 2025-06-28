@@ -8,7 +8,6 @@ use crate::network::ConnectionManager;
 use crate::store::ecg::ECGHeader;
 use crate::util::Stream;
 use odyssey_crdt::CRDT;
-use std::cmp::min;
 use std::collections::{BTreeSet, BinaryHeap};
 use std::fmt::Debug;
 use std::marker::PhantomData;

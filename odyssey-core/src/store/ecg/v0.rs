@@ -212,9 +212,9 @@ impl<Header: ECGHeader<T>, T: CRDT> CausalState for ecg::State<Header, T> {
 
 #[derive(Clone, Debug)]
 pub struct TestHeader<T> {
-    header_id: u32,
-    parent_ids: Vec<u32>,
-    phantom: PhantomData<T>,
+    pub header_id: u32,
+    pub parent_ids: Vec<u32>,
+    pub phantom: PhantomData<T>,
 }
 
 pub struct TestBody<T: CRDT> {

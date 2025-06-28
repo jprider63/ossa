@@ -9,7 +9,7 @@ use std::num::TryFromIntError;
 
 pub mod client;
 pub mod server;
-#[cfg(false)]
+#[cfg(test)]
 mod test;
 
 /// TODO:
