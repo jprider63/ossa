@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc::{UnboundedReceiver, UnboundedSender}, oneshot};
 use tracing::{debug, warn};
 
-use crate::{auth::DeviceId, network::protocol::{receive, send, MiniProtocol}, store::{self, ecg, ECGStatus, HandlePeerRequest, UntypedStoreCommand}, util::Stream};
+use crate::{auth::DeviceId, network::protocol::{receive, send, MiniProtocol}, store::{self, ecg::{self, ECGHeader}, ECGStatus, HandlePeerRequest, StoreCommand, UntypedStoreCommand}, util::Stream};
 
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -120,31 +120,31 @@ impl<StoreId> TryInto<MsgStoreSyncPieceResponse> for MsgStoreSync<StoreId> {
     }
 }
 
-pub(crate) struct StoreSync<StoreId> {
+pub(crate) struct StoreSync<Header: ECGHeader<T>, T, Hash> {
     peer: DeviceId,
     // Receive commands from store if we have initiatives or send commands to store if we're the responder.
-    recv_chan: Option<UnboundedReceiver<StoreSyncCommand<StoreId>>>,
+    recv_chan: Option<UnboundedReceiver<StoreSyncCommand<Hash>>>,
     // Send commands to store if we're the responder and send results back to store if we're the initiator.
-    send_chan: UnboundedSender<UntypedStoreCommand<StoreId>>, // JP: Make this a stream?
+    send_chan: UnboundedSender<StoreCommand<Header, T, Hash>>, // JP: Make this a stream?
 }
 
-impl<StoreId> StoreSync<StoreId> {
-    pub(crate) fn new_server(peer: DeviceId, recv_chan: UnboundedReceiver<StoreSyncCommand<StoreId>>, send_chan: UnboundedSender<UntypedStoreCommand<StoreId>>) -> Self {
+impl<Header: ECGHeader<T>, T, Hash> StoreSync<Header, T, Hash> {
+    pub(crate) fn new_server(peer: DeviceId, recv_chan: UnboundedReceiver<StoreSyncCommand<Hash>>, send_chan: UnboundedSender<StoreCommand<Header, T, Hash>>) -> Self {
         let recv_chan = Some(recv_chan);
         Self { peer, recv_chan, send_chan }
     }
 
-    pub(crate) fn new_client(peer: DeviceId, send_chan: UnboundedSender<UntypedStoreCommand<StoreId>>) -> Self {
+    pub(crate) fn new_client(peer: DeviceId, send_chan: UnboundedSender<StoreCommand<Header, T, Hash>>) -> Self {
         Self { peer, recv_chan: None, send_chan }
     }
 
 
 
     #[inline(always)]
-    async fn run_client_helper<S: Stream<MsgStoreSync<StoreId>>, Req, Resp, SResp>(&self, stream: &mut S, request: Req, build_command: fn(HandlePeerRequest<Req, Resp>) -> UntypedStoreCommand<StoreId>, build_response: fn(StoreSyncResponse<Resp>) -> SResp)
+    async fn run_client_helper<S: Stream<MsgStoreSync<Hash>>, Req, Resp, SResp>(&self, stream: &mut S, request: Req, build_command: fn(HandlePeerRequest<Req, Resp>) -> StoreCommand<Header, T, Hash>, build_response: fn(StoreSyncResponse<Resp>) -> SResp)
     where
-        StoreId: Debug,
-        SResp: Into<MsgStoreSync<StoreId>> + Debug,
+        Hash: Debug,
+        SResp: Into<MsgStoreSync<Hash>> + Debug,
         Resp: Debug,
     {
         // Send request to store.

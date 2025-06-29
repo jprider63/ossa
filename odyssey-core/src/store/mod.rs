@@ -736,11 +736,12 @@ where
 
 /// Run the handler that owns this store and manages its state. This handler is typically run in
 /// its own tokio thread.
-pub(crate) async fn run_handler<OT: OdysseyType, T>(
+pub(crate) async fn run_handler<OT: OdysseyType, T, Hash>(
     mut store: State<OT::ECGHeader<T>, T, OT::StoreId>,
-    mut recv_commands: UnboundedReceiver<StoreCommand<OT::ECGHeader<T>, T>>,
-    send_commands: UnboundedSender<StoreCommand<OT::ECGHeader<T>, T>>,
-    mut recv_commands_untyped: UnboundedReceiver<UntypedStoreCommand<OT::StoreId>>,
+    send_commands: UnboundedSender<StoreCommand<OT::ECGHeader<T>, T, Hash>>,
+    mut recv_commands: UnboundedReceiver<StoreCommand<OT::ECGHeader<T>, T, Hash>>,
+    send_commands_untyped: UnboundedSender<UntypedStoreCommand>,
+    mut recv_commands_untyped: UnboundedReceiver<UntypedStoreCommand>,
     shared_state: SharedState<OT::StoreId>,
 )
 where
@@ -860,6 +861,36 @@ where
                         // Register this subscriber.
                         listeners.push(send_state);
                     }
+                    StoreCommand::RegisterIncomingPeerSyncing{ peer } => {
+                        // JP: Maybe this actually isn't needed??? We could construct oneshots for every request..
+
+                        // Update peer's state to syncing and register channel.
+                        store.update_peer_to_syncing_incoming(&peer);
+                    }
+                    StoreCommand::HandleMetadataPeerRequest(HandlePeerRequest { peer, request, response_chan }) => {
+                        store.handle_metadata_peer_request(peer, response_chan);
+                    }
+                    StoreCommand::HandleMerklePeerRequest(HandlePeerRequest { peer, request, response_chan }) => {
+                        store.handle_merkle_peer_request(peer, request, response_chan);
+                    }
+                    StoreCommand::HandlePiecePeerRequest(HandlePeerRequest { peer, request, response_chan }) => {
+                        store.handle_piece_peer_request(peer, request, response_chan);
+                    }
+                    StoreCommand::HandleECGSyncRequest(HandlePeerRequest { peer, request, response_chan }) => {
+                        store.handle_ecg_sync_request(peer, request, response_chan);
+                    }
+                    StoreCommand::ReceivedMetadata { peer, metadata } => {
+                        store.handle_received_metadata(peer, metadata);
+                    }
+                    StoreCommand::ReceivedMerkleHashes { peer, ranges, pieces } => {
+                        store.handle_received_merkle_hashes(peer, ranges, pieces);
+                    }
+                    StoreCommand::ReceivedInitialStatePieces { peer, ranges, pieces } => {
+                        store.handle_received_initial_state_pieces(peer, ranges, pieces, &listeners);
+                    }
+                    StoreCommand::ReceivedUpdatedMeet { peer, meet } => {
+                        store.handle_received_updated_meet(peer, meet);
+                    }
                 }
             }
             cmd_m = recv_commands_untyped.recv() => {
@@ -883,7 +914,7 @@ where
                         // Spawn sync threads for each shared store.
                         // TODO: Only do this if server?
                         // Check if we already are syncing these.
-                        manage_peers::<OT,T>(&mut store, &shared_state, &send_commands).await;
+                        manage_peers::<OT,T, Hash>(&mut store, &shared_state, &send_commands).await;
                     }
                     // Sets up task to respond to a request to sync this store from a peer (without initiative).
                     // Called when:
@@ -911,13 +942,13 @@ where
                                             debug!("Sync with peer (without initiative).");
 
                                             // Tell store we're running.
-                                            let register_cmd = UntypedStoreCommand::RegisterIncomingPeerSyncing {
+                                            let register_cmd = StoreCommand::RegisterIncomingPeerSyncing {
                                                 peer,
                                             };
                                             send_commands_untyped.send(register_cmd).expect("TODO");
 
                                             // Start miniprotocol as client.
-                                            let mp = StoreSync::<OT::StoreId>::new_client(peer, send_commands_untyped);
+                                            let mp = StoreSync::<OT::StoreId>::new_client(peer, send_commands);
                                             run_miniprotocol_async::<_, OT>(mp, true, stream_id, sender, receiver).await;
                                             debug!("Store sync with peer (without initiative) exited.")
                                         })
@@ -947,36 +978,6 @@ where
 
                         // Sync with peer(s). Do this for all commands??
                         store.send_sync_requests();
-                    }
-                    UntypedStoreCommand::RegisterIncomingPeerSyncing{ peer } => {
-                        // JP: Maybe this actually isn't needed??? We could construct oneshots for every request..
-
-                        // Update peer's state to syncing and register channel.
-                        store.update_peer_to_syncing_incoming(&peer);
-                    }
-                    UntypedStoreCommand::HandleMetadataPeerRequest(HandlePeerRequest { peer, request, response_chan }) => {
-                        store.handle_metadata_peer_request(peer, response_chan);
-                    }
-                    UntypedStoreCommand::HandleMerklePeerRequest(HandlePeerRequest { peer, request, response_chan }) => {
-                        store.handle_merkle_peer_request(peer, request, response_chan);
-                    }
-                    UntypedStoreCommand::HandlePiecePeerRequest(HandlePeerRequest { peer, request, response_chan }) => {
-                        store.handle_piece_peer_request(peer, request, response_chan);
-                    }
-                    UntypedStoreCommand::HandleECGSyncRequest(HandlePeerRequest { peer, request, response_chan }) => {
-                        store.handle_ecg_sync_request(peer, request, response_chan);
-                    }
-                    UntypedStoreCommand::ReceivedMetadata { peer, metadata } => {
-                        store.handle_received_metadata(peer, metadata);
-                    }
-                    UntypedStoreCommand::ReceivedMerkleHashes { peer, ranges, pieces } => {
-                        store.handle_received_merkle_hashes(peer, ranges, pieces);
-                    }
-                    UntypedStoreCommand::ReceivedInitialStatePieces { peer, ranges, pieces } => {
-                        store.handle_received_initial_state_pieces(peer, ranges, pieces, &listeners);
-                    }
-                    UntypedStoreCommand::ReceivedUpdatedMeet { peer, meet } => {
-                        store.handle_received_updated_meet(peer, meet);
                     }
                 }
             }
