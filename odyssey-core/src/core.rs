@@ -34,18 +34,18 @@ pub struct Odyssey<OT: OdysseyType> {
     tokio_runtime: Runtime,
     /// Active stores.
     // stores: BTreeMap<OT::StoreId,ActiveStore>,
-    active_stores: watch::Sender<StoreStatuses<OT::StoreId>>, // JP: Make this encode more state that other's may want to subscribe to?
+    active_stores: watch::Sender<StoreStatuses<OT::ECGHeader<T>, T, OT::StoreId>>, // JP: Make this encode more state that other's may want to subscribe to?
     shared_state: SharedState<OT::StoreId>, // JP: Could have another thread own and manage this state
                                   // instead?
     phantom: PhantomData<OT>,
     identity_keys: Identity,
 }
-pub type StoreStatuses<StoreId> = BTreeMap<StoreId, StoreStatus<StoreId>>; // Rename this MiniProtocolArgs?
+pub type StoreStatuses<Header, T, Hash> = BTreeMap<Hash, StoreStatus<Header, T, Hash>>; // Rename this MiniProtocolArgs?
 
 // pub enum StoreStatus<O: OdysseyType, T: CRDT<Time = O::Time>>
 // where
 //     T::Op: Serialize,
-pub enum StoreStatus<StoreId> {
+pub enum StoreStatus<Header: ECGHeader<T>, T, Hash> {
     // Store is initializing and async handler is being created.
     Initializing,
     // Store's async handler is running.
@@ -57,7 +57,8 @@ pub enum StoreStatus<StoreId> {
         // https://www.reddit.com/r/rust/comments/1exjiab/the_amazing_pattern_i_discovered_hashmap_with/
         // send_command_chan: UnboundedSender<StoreCommand<store::ecg::v0::Header<dyn Hash, dyn CRDT>, dyn CRDT>>,
         // send_command_chan: UnboundedSender<UntypedStoreCommand>,
-        send_command_chan: UnboundedSender<UntypedStoreCommand<StoreId>>,
+        // send_command_chan: UnboundedSender<UntypedStoreCommand>,
+        send_command_chan: UnboundedSender<StoreCommand<Header, T, Hash>>,
     },
 }
 
@@ -68,7 +69,7 @@ pub(crate) struct SharedState<StoreId> {
 }
 
 
-impl<StoreId> StoreStatus<StoreId> {
+impl<Header: ECGHeader<T>, T, Hash> StoreStatus<Header, T, Hash> {
     pub(crate) fn is_initializing(&self) -> bool {
         match self {
             StoreStatus::Initializing => true,
@@ -80,7 +81,7 @@ impl<StoreId> StoreStatus<StoreId> {
         !self.is_initializing()
     }
 
-    pub(crate) fn command_channel(&self) -> Option<&UnboundedSender<UntypedStoreCommand<StoreId>>> {
+    pub(crate) fn command_channel(&self) -> Option<&UnboundedSender<StoreCommand<Header, T, Hash>>> {
         match self {
             StoreStatus::Initializing => None,
             StoreStatus::Running {send_command_chan, ..} => Some(send_command_chan),
@@ -363,9 +364,9 @@ impl<OT: OdysseyType> Odyssey<OT> {
 
         // Create channels to handle requests and send updates.
         let (send_commands, recv_commands) =
-            tokio::sync::mpsc::unbounded_channel::<store::StoreCommand<OT::ECGHeader<T>, T>>();
+            tokio::sync::mpsc::unbounded_channel::<store::StoreCommand<OT::ECGHeader<T>, T, OT::StoreId>>();
         let (send_commands_untyped, recv_commands_untyped) =
-            tokio::sync::mpsc::unbounded_channel::<store::UntypedStoreCommand<OT::StoreId>>();
+            tokio::sync::mpsc::unbounded_channel::<store::UntypedStoreCommand>();
 
 
         // Add to DHT
@@ -382,7 +383,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
         self.active_stores.send_if_modified(|active_stores| {
             let _ = active_stores.insert(store_id, StoreStatus::Running {
                 store_handle: future_handle,
-                send_command_chan: send_commands_untyped,
+                send_command_chan: send_commands,
             });
             true
         });
@@ -419,12 +420,12 @@ pub struct OdysseyConfig {
     pub port: u16,
 }
 
-pub struct StoreHandle<O: OdysseyType, T: CRDT<Time = O::Time>>
+pub struct StoreHandle<O: OdysseyType, T: CRDT<Time = O::Time>, Hash>
 where
     T::Op: Serialize,
 {
     // future_handle: JoinHandle<()>, // JP: Maybe this should be owned by `Odyssey`?
-    send_command_chan: UnboundedSender<StoreCommand<O::ECGHeader<T>, T>>,
+    send_command_chan: UnboundedSender<StoreCommand<O::ECGHeader<T>, T, Hash>>,
     phantom: PhantomData<O>,
 }
 
@@ -444,7 +445,7 @@ pub trait OdysseyType: 'static {
 }
 
 
-impl<O: OdysseyType, T: CRDT<Time = O::Time>> StoreHandle<O, T>
+impl<O: OdysseyType, T: CRDT<Time = O::Time>> StoreHandle<O, T, O::StoreId>
 where
     T::Op: Serialize,
 {

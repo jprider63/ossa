@@ -355,7 +355,7 @@ impl<Header: ecg::ECGHeader<T> + Clone, T: CRDT + Clone, Hash: util::Hash + Debu
                     send_command(p.1, message);
                 });
             }
-            StateMachine::Syncing { metadata, piece_hashes, initial_state, ecg_state, decrypted_state } => {
+            StateMachine::Syncing { ecg_state, .. } => {
                 // Request ECG updates from peers
                 peers.iter_mut().for_each(|p| {
                     let ecg_status = p.1.ecg_status.clone();
@@ -659,10 +659,10 @@ fn update_listeners<Header: ecg::ECGHeader<T> + Clone, T: CRDT + Clone>(listener
 
 // JP: Or should Odyssey own this/peers?
 /// Manage peers by ranking them, randomize, potentially connecting to some of them, etc.
-async fn manage_peers<OT: OdysseyType, T: CRDT<Time = OT::Time> + Clone + Send + 'static>(
+async fn manage_peers<OT: OdysseyType, T: CRDT<Time = OT::Time> + Clone + Send + 'static, Hash>(
     store: &mut State<OT::ECGHeader<T>, T, OT::StoreId>,
     shared_state: &SharedState<OT::StoreId>,
-    send_commands: &UnboundedSender<UntypedStoreCommand<OT::StoreId>>,
+    send_commands: &UnboundedSender<StoreCommand<OT::ECGHeader<T>, T, Hash>>,
 )
 where
     T::Op: Serialize,
@@ -696,7 +696,7 @@ where
                 let (send_peer, recv_peer) =
                     tokio::sync::mpsc::unbounded_channel::<StoreSyncCommand<OT::StoreId>>();
 
-                let register_cmd = UntypedStoreCommand::RegisterOutgoingPeerSyncing {
+                let register_cmd = StoreCommand::RegisterOutgoingPeerSyncing {
                     peer: peer_id,
                     send_peer,
                 };
@@ -739,7 +739,7 @@ where
 pub(crate) async fn run_handler<OT: OdysseyType, T>(
     mut store: State<OT::ECGHeader<T>, T, OT::StoreId>,
     mut recv_commands: UnboundedReceiver<StoreCommand<OT::ECGHeader<T>, T>>,
-    send_commands_untyped: UnboundedSender<UntypedStoreCommand<OT::StoreId>>,
+    send_commands: UnboundedSender<StoreCommand<OT::ECGHeader<T>, T>>,
     mut recv_commands_untyped: UnboundedReceiver<UntypedStoreCommand<OT::StoreId>>,
     shared_state: SharedState<OT::StoreId>,
 )
@@ -883,7 +883,7 @@ where
                         // Spawn sync threads for each shared store.
                         // TODO: Only do this if server?
                         // Check if we already are syncing these.
-                        manage_peers::<OT,T>(&mut store, &shared_state, &send_commands_untyped).await;
+                        manage_peers::<OT,T>(&mut store, &shared_state, &send_commands).await;
                     }
                     // Sets up task to respond to a request to sync this store from a peer (without initiative).
                     // Called when:
@@ -902,7 +902,7 @@ where
                                     store.update_peer_to_initializing_incoming(&peer);
 
                                     // Create closure that spawns task to sync store with peer.
-                                    let send_commands_untyped = send_commands_untyped.clone();
+                                    let send_commands_untyped = send_commands.clone();
                                     let spawn_task: Box<SpawnMultiplexerTask> = Box::new(move |party, stream_id, sender, receiver| {
                                         // Create miniprotocol
                                         // Spawn task that syncs store with peer.
@@ -985,7 +985,7 @@ where
     debug!("Store thread exiting.");
 }
 
-pub(crate) enum StoreCommand<Header: ECGHeader<T>, T> {
+pub(crate) enum StoreCommand<Header: ECGHeader<T>, T, Hash> {
     Apply {
         operation_header: Header,     // <Hash, T>,
         operation_body: Header::Body, // <Hash, T>,
@@ -993,43 +993,6 @@ pub(crate) enum StoreCommand<Header: ECGHeader<T>, T> {
     // TODO: Support unsubscribe.
     SubscribeState {
         send_state: UnboundedSender<StateUpdate<Header, T>>,
-    },
-}
-
-pub enum StateUpdate<Header: ECGHeader<T>, T> {
-    Downloading {
-        // Percent of the state that we've downloaded (0 - 100).
-        percent: u64,
-    },
-    Snapshot {
-        snapshot: T,
-        ecg_state: ecg::State<Header, T>,
-        // TODO: ECG DAG
-    },
-}
-
-// trait UntypedCRDT: CRDT<Op = dyn Any, Time = dyn Any> {} // Any + Sized + 'static +  
-// trait UntypedECGHeader: ECGHeader<dyn Any> {} // Any + Sized + 'static + 
-// 
-// struct UntypedStoreCommand(StoreCommand<dyn UntypedECGHeader, dyn UntypedCRDT>);
-// struct UntypedStoreCommand(StoreCommand<dyn UntypedECGHeader, dyn Any>);
-
-type HandlePeerResponse<Response> = Result<
-        Response,
-        oneshot::Receiver<Option<Response>>,
-    >;
-
-/// Untyped variant of `StoreCommand` since existentials don't work.
-// #[derive(Debug)]
-pub(crate) enum UntypedStoreCommand<Hash> {
-    /// Register the discovered peers.
-    RegisterPeers {
-        peers: Vec<DeviceId>,
-    },
-    /// Request store to sync with peer. Store can refuse.
-    SyncWithPeer {
-        peer: DeviceId,
-        response_chan: oneshot::Sender<Option<Box<SpawnMultiplexerTask>>>,
     },
     RegisterOutgoingPeerSyncing {
         peer: DeviceId,
@@ -1059,6 +1022,43 @@ pub(crate) enum UntypedStoreCommand<Hash> {
     ReceivedUpdatedMeet {
         peer: DeviceId,
         meet: Vec<Hash>,
+    },
+}
+
+pub enum StateUpdate<Header: ECGHeader<T>, T> {
+    Downloading {
+        // Percent of the state that we've downloaded (0 - 100).
+        percent: u64,
+    },
+    Snapshot {
+        snapshot: T,
+        ecg_state: ecg::State<Header, T>,
+        // TODO: ECG DAG
+    },
+}
+
+// trait UntypedCRDT: CRDT<Op = dyn Any, Time = dyn Any> {} // Any + Sized + 'static +  
+// trait UntypedECGHeader: ECGHeader<dyn Any> {} // Any + Sized + 'static + 
+// 
+// struct UntypedStoreCommand(StoreCommand<dyn UntypedECGHeader, dyn UntypedCRDT>);
+// struct UntypedStoreCommand(StoreCommand<dyn UntypedECGHeader, dyn Any>);
+
+type HandlePeerResponse<Response> = Result<
+        Response,
+        oneshot::Receiver<Option<Response>>,
+    >;
+
+/// Untyped variant of `StoreCommand` since existentials don't work.
+// #[derive(Debug)]
+pub(crate) enum UntypedStoreCommand {
+    /// Register the discovered peers.
+    RegisterPeers {
+        peers: Vec<DeviceId>,
+    },
+    /// Request store to sync with peer. Store can refuse.
+    SyncWithPeer {
+        peer: DeviceId,
+        response_chan: oneshot::Sender<Option<Box<SpawnMultiplexerTask>>>,
     },
 }
 
