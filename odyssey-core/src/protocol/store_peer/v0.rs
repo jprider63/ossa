@@ -120,31 +120,31 @@ impl<StoreId> TryInto<MsgStoreSyncPieceResponse> for MsgStoreSync<StoreId> {
     }
 }
 
-pub(crate) struct StoreSync<StoreId> {
+pub(crate) struct StoreSync<Header: ecg::ECGHeader<T>, T> {
     peer: DeviceId,
     // Receive commands from store if we have initiatives or send commands to store if we're the responder.
-    recv_chan: Option<UnboundedReceiver<StoreSyncCommand<StoreId>>>,
+    recv_chan: Option<UnboundedReceiver<StoreSyncCommand<Header, T>>>,
     // Send commands to store if we're the responder and send results back to store if we're the initiator.
-    send_chan: UnboundedSender<UntypedStoreCommand<StoreId>>, // JP: Make this a stream?
+    send_chan: UnboundedSender<UntypedStoreCommand<Header::HeaderId>>, // JP: Make this a stream?
 }
 
-impl<StoreId> StoreSync<StoreId> {
-    pub(crate) fn new_server(peer: DeviceId, recv_chan: UnboundedReceiver<StoreSyncCommand<StoreId>>, send_chan: UnboundedSender<UntypedStoreCommand<StoreId>>) -> Self {
+impl<Header: ecg::ECGHeader<T>, T> StoreSync<Header, T> {
+    pub(crate) fn new_server(peer: DeviceId, recv_chan: UnboundedReceiver<StoreSyncCommand<Header, T>>, send_chan: UnboundedSender<UntypedStoreCommand<Header::HeaderId>>) -> Self {
         let recv_chan = Some(recv_chan);
         Self { peer, recv_chan, send_chan }
     }
 
-    pub(crate) fn new_client(peer: DeviceId, send_chan: UnboundedSender<UntypedStoreCommand<StoreId>>) -> Self {
+    pub(crate) fn new_client(peer: DeviceId, send_chan: UnboundedSender<UntypedStoreCommand<Header::HeaderId>>) -> Self {
         Self { peer, recv_chan: None, send_chan }
     }
 
 
 
     #[inline(always)]
-    async fn run_client_helper<S: Stream<MsgStoreSync<StoreId>>, Req, Resp, SResp>(&self, stream: &mut S, request: Req, build_command: fn(HandlePeerRequest<Req, Resp>) -> UntypedStoreCommand<StoreId>, build_response: fn(StoreSyncResponse<Resp>) -> SResp)
+    async fn run_client_helper<S: Stream<MsgStoreSync<Header::HeaderId>>, Req, Resp, SResp>(&self, stream: &mut S, request: Req, build_command: fn(HandlePeerRequest<Req, Resp>) -> UntypedStoreCommand<Header::HeaderId>, build_response: fn(StoreSyncResponse<Resp>) -> SResp)
     where
-        StoreId: Debug,
-        SResp: Into<MsgStoreSync<StoreId>> + Debug,
+        Header::HeaderId: Debug,
+        SResp: Into<MsgStoreSync<Header::HeaderId>> + Debug,
         Resp: Debug,
     {
         // Send request to store.
@@ -185,18 +185,23 @@ impl<StoreId> StoreSync<StoreId> {
 
 }
 
-pub(crate) enum StoreSyncCommand<Hash> {
+pub(crate) enum StoreSyncCommand<Header: ecg::ECGHeader<T>, T> {
     MetadataHeaderRequest,
     MerkleRequest(Vec<Range<u64>>),
     InitialStatePieceRequest(Vec<Range<u64>>),
     ECGSyncRequest{
-        ecg_status: ECGStatus<Hash>,
-        // ecg_state: ecg::State<Header, T>,
+        ecg_status: ECGStatus<Header::HeaderId>,
+        ecg_state: ecg::State<Header, T>,
     },
 }
 
-impl<StoreId: Debug + Serialize + for<'a> Deserialize<'a> + Send> MiniProtocol for StoreSync<StoreId> {
-    type Message = MsgStoreSync<StoreId>;
+impl<Header, T> MiniProtocol for StoreSync<Header, T>
+where
+    Header: ecg::ECGHeader<T> + Send,
+    Header::HeaderId: Debug + Serialize + for<'a> Deserialize<'a> + Send,
+    T: Send,
+{
+    type Message = MsgStoreSync<Header::HeaderId>;
 
     // Has initiative
     fn run_server<S: Stream<Self::Message>>(self, mut stream: S) -> impl Future<Output = ()> + Send {
@@ -262,7 +267,7 @@ impl<StoreId: Debug + Serialize + for<'a> Deserialize<'a> + Send> MiniProtocol f
                                 todo!(),
                         }
                     }
-                    StoreSyncCommand::ECGSyncRequest { ecg_status } => {
+                    StoreSyncCommand::ECGSyncRequest { ecg_status, ecg_state } => {
                         if ecg_status.meet_needs_update {
                             // TODO: Actually figure out meet.
                             warn!("TODO: Actually figure out meet");
@@ -324,7 +329,7 @@ impl<StoreId: Debug + Serialize + for<'a> Deserialize<'a> + Send> MiniProtocol f
                             MsgStoreSyncMetadataResponse(h)
                         }
 
-                        self.run_client_helper::<_, (), store::v0::MetadataHeader<StoreId>, MsgStoreSyncMetadataResponse<StoreId>>(&mut stream, (), build_command, build_response).await;
+                        self.run_client_helper::<_, (), store::v0::MetadataHeader<Header::HeaderId>, MsgStoreSyncMetadataResponse<Header::HeaderId>>(&mut stream, (), build_command, build_response).await;
                     }
                     MsgStoreSyncRequest::MerkleHashes { ranges } => {
                         const fn build_command<H>(req: HandlePeerRequest<Vec<Range<u64>>, Vec<H>>) -> UntypedStoreCommand<H> {
@@ -334,7 +339,7 @@ impl<StoreId: Debug + Serialize + for<'a> Deserialize<'a> + Send> MiniProtocol f
                             MsgStoreSyncMerkleResponse(h)
                         }
 
-                        self.run_client_helper::<_, Vec<Range<u64>>, Vec<StoreId>, MsgStoreSyncMerkleResponse<StoreId>>(&mut stream, ranges, build_command, build_response).await;
+                        self.run_client_helper::<_, Vec<Range<u64>>, Vec<Header::HeaderId>, MsgStoreSyncMerkleResponse<Header::HeaderId>>(&mut stream, ranges, build_command, build_response).await;
                     }
                     MsgStoreSyncRequest::InitialStatePieces { ranges } => {
                         const fn build_command<H>(req: HandlePeerRequest<Vec<Range<u64>>, Vec<Option<Vec<u8>>>>) -> UntypedStoreCommand<H> {
