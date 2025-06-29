@@ -64,30 +64,33 @@ struct NodeInfo<Header> {
     header: Header,
 }
 
-#[derive(Debug)]
-pub struct State<Header: ECGHeader<T>, T> {
-    dependency_graph: StableDag<Header::HeaderId, ()>, // JP: Hold the operations? Depth? Do we need StableDag?
+#[derive(Clone, Debug)]
+pub struct UntypedState<HeaderId, Header> {
+    dependency_graph: StableDag<HeaderId, ()>, // JP: Hold the operations? Depth? Do we need StableDag?
 
     /// Nodes at the top of the DAG that depend on the initial state.
-    root_nodes: BTreeSet<Header::HeaderId>,
+    root_nodes: BTreeSet<HeaderId>,
 
     /// Mapping from header ids to node indices.
-    node_info_map: BTreeMap<Header::HeaderId, NodeInfo<Header>>,
+    node_info_map: BTreeMap<HeaderId, NodeInfo<Header>>,
 
     /// Tips of the ECG (hashes of their headers).
     /// Invariant: All of these headers are in `node_info_map`.
-    tips: BTreeSet<Header::HeaderId>,
+    tips: BTreeSet<HeaderId>,
+}
+
+#[derive(Debug)]
+pub struct State<Header: ECGHeader<T>, T> {
+    state: UntypedState<Header::HeaderId, Header>,
 
     phantom: PhantomData<T>,
 }
 
 impl<Header: ECGHeader<T> + Clone, T: CRDT> Clone for State<Header, T> {
     fn clone(&self) -> Self {
+        let state = self.state.clone();
         State {
-            dependency_graph: self.dependency_graph.clone(),
-            root_nodes: self.root_nodes.clone(),
-            node_info_map: self.node_info_map.clone(),
-            tips: self.tips.clone(),
+            state,
             phantom: PhantomData,
         }
     }
@@ -95,21 +98,24 @@ impl<Header: ECGHeader<T> + Clone, T: CRDT> Clone for State<Header, T> {
 
 impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
     pub fn new() -> State<Header, T> {
-        State {
+        let state = UntypedState {
             dependency_graph: StableDag::new(),
             root_nodes: BTreeSet::new(),
             node_info_map: BTreeMap::new(),
             tips: BTreeSet::new(),
+        };
+        State {
+            state,
             phantom: PhantomData,
         }
     }
 
     pub fn tips(&self) -> &BTreeSet<Header::HeaderId> {
-        &self.tips
+        &self.state.tips
     }
 
     pub fn is_root_node(&self, h: &Header::HeaderId) -> bool {
-        self.root_nodes.contains(h)
+        self.state.root_nodes.contains(h)
     }
 
     /// Returns the parents of the given node (with their depths) if it exists. If the returned array is
@@ -118,15 +124,15 @@ impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
         &self,
         h: &Header::HeaderId,
     ) -> Option<Vec<(u64, Header::HeaderId)>> {
-        let node_info = self.node_info_map.get(h)?;
-        self.dependency_graph
+        let node_info = self.state.node_info_map.get(h)?;
+        self.state.dependency_graph
             .parents(node_info.graph_index)
-            .iter(&self.dependency_graph)
+            .iter(&self.state.dependency_graph)
             .map(|(_, parent_idx)| {
-                self.dependency_graph
+                self.state.dependency_graph
                     .node_weight(parent_idx)
                     .and_then(|parent_id| {
-                        self.node_info_map
+                        self.state.node_info_map
                             .get(parent_id)
                             .map(|i| (i.depth, *parent_id))
                     })
@@ -137,11 +143,11 @@ impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
     /// Returns the parents of the given node if it exists. If the returned array is
     /// empty, the node is a root node.
     pub fn get_parents(&self, h: &Header::HeaderId) -> Option<Vec<Header::HeaderId>> {
-        let node_info = self.node_info_map.get(h)?;
-        self.dependency_graph
+        let node_info = self.state.node_info_map.get(h)?;
+        self.state.dependency_graph
             .parents(node_info.graph_index)
-            .iter(&self.dependency_graph)
-            .map(|(_, parent_idx)| self.dependency_graph.node_weight(parent_idx).map(|i| *i))
+            .iter(&self.state.dependency_graph)
+            .map(|(_, parent_idx)| self.state.dependency_graph.node_weight(parent_idx).map(|i| *i))
             .try_collect()
     }
 
@@ -151,15 +157,15 @@ impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
         &self,
         h: &Header::HeaderId,
     ) -> Option<Vec<(Reverse<u64>, Header::HeaderId)>> {
-        let node_info = self.node_info_map.get(h)?;
-        self.dependency_graph
+        let node_info = self.state.node_info_map.get(h)?;
+        self.state.dependency_graph
             .children(node_info.graph_index)
-            .iter(&self.dependency_graph)
+            .iter(&self.state.dependency_graph)
             .map(|(_, child_idx)| {
-                self.dependency_graph
+                self.state.dependency_graph
                     .node_weight(child_idx)
                     .and_then(|child_id| {
-                        self.node_info_map
+                        self.state.node_info_map
                             .get(child_id)
                             .map(|i| (Reverse(i.depth), *child_id))
                     })
@@ -172,7 +178,7 @@ impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
     // }
 
     pub fn contains(&self, h: &Header::HeaderId) -> bool {
-        if let Some(_node_info) = self.node_info_map.get(h) {
+        if let Some(_node_info) = self.state.node_info_map.get(h) {
             true
         } else {
             false
@@ -180,11 +186,11 @@ impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
     }
 
     pub fn get_header(&self, n: &Header::HeaderId) -> Option<&Header> {
-        self.node_info_map.get(n).map(|i| &i.header)
+        self.state.node_info_map.get(n).map(|i| &i.header)
     }
 
     pub fn get_header_depth(&self, n: &Header::HeaderId) -> Option<u64> {
-        self.node_info_map.get(n).map(|i| i.depth)
+        self.state.node_info_map.get(n).map(|i| i.depth)
     }
 
     pub fn insert_header(&mut self, header: Header) -> bool {
@@ -196,13 +202,13 @@ impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
         }
 
         // Check that the header is not already in the dependency_graph.
-        if self.node_info_map.contains_key(&header_id) {
+        if self.state.node_info_map.contains_key(&header_id) {
             return false;
         }
 
         let parents = header.get_parent_ids();
         let (parent_idxs, depth) = if parents.is_empty() {
-            let is_new_insert = self.root_nodes.insert(header_id);
+            let is_new_insert = self.state.root_nodes.insert(header_id);
             // Check if it already existed.
             if !is_new_insert {
                 // TODO: Log that the state is corrupt. Invariant violated that
@@ -211,7 +217,7 @@ impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
             }
 
             // Update tips since the new node is a leaf.
-            self.tips.insert(header_id);
+            self.state.tips.insert(header_id);
 
             (vec![], 1)
         } else {
@@ -219,7 +225,7 @@ impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
             if let Some(parent_idxs) = parents
                 .iter()
                 .map(|parent_id| {
-                    self.node_info_map.get(&parent_id).map(|i| {
+                    self.state.node_info_map.get(&parent_id).map(|i| {
                         depth = cmp::min(depth, i.depth);
                         i.graph_index
                     })
@@ -228,10 +234,10 @@ impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
             {
                 // If any parents were previously a tip, remove from tips.
                 parents.iter().for_each(|parent_id| {
-                    self.tips.remove(parent_id);
+                    self.state.tips.remove(parent_id);
                 });
                 // Insert as tip since received headers must (currently) be a leaf.
-                self.tips.insert(header_id);
+                self.state.tips.insert(header_id);
 
                 (parent_idxs, depth + 1)
             } else {
@@ -242,19 +248,19 @@ impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
 
         // Insert node and store its index in `node_idx_map`.
         // JP: We really want an `add_child` function that takes multiple parents.
-        let graph_index = self.dependency_graph.add_node(header_id);
+        let graph_index = self.state.dependency_graph.add_node(header_id);
         let node_info = NodeInfo {
             graph_index: graph_index.clone(),
             depth,
             header,
         };
-        if let Err(_) = self.node_info_map.try_insert(header_id, node_info) {
+        if let Err(_) = self.state.node_info_map.try_insert(header_id, node_info) {
             // TODO: Should be unreachable. Log this.
             return false;
         }
 
         // Insert edges.
-        if let Err(_) = self.dependency_graph.add_edges(
+        if let Err(_) = self.state.dependency_graph.add_edges(
             parent_idxs
                 .into_iter()
                 .map(|parent_idx| (parent_idx, graph_index, ())),
@@ -273,8 +279,8 @@ impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
         ancestor: &Header::HeaderId,
         descendent: &Header::HeaderId,
     ) -> Option<bool> {
-        let anid = self.node_info_map.get(ancestor)?.graph_index;
-        let dnid = self.node_info_map.get(descendent)?.graph_index;
+        let anid = self.state.node_info_map.get(ancestor)?.graph_index;
+        let dnid = self.state.node_info_map.get(descendent)?.graph_index;
 
         let mut queue = VecDeque::from([dnid]);
         let mut visited = BTreeSet::from([dnid]);
@@ -285,9 +291,10 @@ impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
             }
 
             for (_, pid) in self
+                .state
                 .dependency_graph
                 .parents(nid)
-                .iter(&self.dependency_graph)
+                .iter(&self.state.dependency_graph)
             {
                 if !visited.contains(&pid) {
                     visited.insert(pid);
@@ -318,13 +325,13 @@ where
     let nodes =
         |g: &StableDag<Header::HeaderId, ()>| g.node_references().map(|n| *n.weight()).collect();
 
-    let node_set_left: BTreeSet<_> = nodes(&l.dependency_graph);
-    let node_set_right = nodes(&r.dependency_graph);
-    let edge_set_left: BTreeSet<_> = edges(&l.dependency_graph);
-    let edge_set_right = edges(&r.dependency_graph);
+    let node_set_left: BTreeSet<_> = nodes(&l.state.dependency_graph);
+    let node_set_right = nodes(&r.state.dependency_graph);
+    let edge_set_left: BTreeSet<_> = edges(&l.state.dependency_graph);
+    let edge_set_right = edges(&r.state.dependency_graph);
 
-    l.root_nodes == r.root_nodes
-        && l.tips == r.tips
+    l.state.root_nodes == r.state.root_nodes
+        && l.state.tips == r.state.tips
         && edge_set_left == edge_set_right
         && node_set_left == node_set_right
 }
@@ -335,13 +342,14 @@ pub(crate) fn print_dag<Header: ECGHeader<T>, T>(s: &State<Header, T>) {
     use petgraph::stable_graph::StableDiGraph;
 
     let mut g = s
+        .state
         .dependency_graph
         .map(|_i, n| format!("{:?}", n), |_i, e| e);
 
     // Add root node.
     let root = g.add_node("".to_string());
-    for n in &s.root_nodes {
-        g.add_edge(root, s.node_info_map[n].graph_index, &());
+    for n in &s.state.root_nodes {
+        g.add_edge(root, s.state.node_info_map[n].graph_index, &());
     }
 
     let g: StableDiGraph<_, _> = g.into();
