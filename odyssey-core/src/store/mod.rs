@@ -18,7 +18,7 @@ pub use v0::{MetadataBody, MetadataHeader, Nonce};
 
 pub struct State<Header: ecg::ECGHeader<T>, T: CRDT, Hash> {
     // Peers that also have this store (that we are potentially connected to?).
-    peers: BTreeMap<DeviceId, PeerInfo<Hash>>, // BTreeSet<DeviceId>,
+    peers: BTreeMap<DeviceId, PeerInfo<Header::HeaderId, Header>>, // BTreeSet<DeviceId>,
     state_machine: StateMachine<Header, T, Hash>,
     metadata_subscribers: BTreeMap<DeviceId, oneshot::Sender<Option<v0::MetadataHeader<Hash>>>>,
     merkle_subscribers: BTreeMap<DeviceId, (Vec<Range<u64>>, oneshot::Sender<Option<Vec<Hash>>>)>,
@@ -64,25 +64,25 @@ pub struct DecryptedState<Header: ecg::ECGHeader<T>, T: CRDT> {
 
 /// Information about a peer.
 #[derive(Debug)]
-struct PeerInfo<Hash> {
+struct PeerInfo<HeaderId, Header> {
     /// Status of incoming sync status from peer.
     incoming_status: PeerStatus<()>,
     /// Status of outgoing sync status to peer.
-    outgoing_status: PeerStatus<OutgoingPeerStatus<Hash>>,
-    ecg_status: ECGStatus<Hash>,
+    outgoing_status: PeerStatus<OutgoingPeerStatus<HeaderId, Header>>,
+    ecg_status: ECGStatus<HeaderId>,
 }
 
 #[derive(Clone, Debug)]
 /// Information about a peer's ECG status.
-pub(crate) struct ECGStatus<Hash> {
+pub(crate) struct ECGStatus<HeaderId> {
     /// Greatest common ancestor between our ECG graphs.
-    pub(crate) meet: Vec<Hash>,
+    pub(crate) meet: Vec<HeaderId>,
     /// Whether we need to update the meet between us and this peer.
     pub(crate) meet_needs_update: bool,
     // JP: Track their_tip?
 }
 
-impl<Hash> PeerInfo<Hash> {
+impl<Hash, Header> PeerInfo<Hash, Header> {
     /// Checks if the peer is ready for a sync request.
     /// This means the peer is syncing and does not have an outstanding request.
     fn is_ready_for_sync(&self) -> bool {
@@ -96,9 +96,9 @@ impl<Hash> PeerInfo<Hash> {
 
 #[derive(Debug)]
 /// Outgoing information about a syncing peer.
-struct OutgoingPeerStatus<Hash> {
+struct OutgoingPeerStatus<HeaderId, Header> {
     /// Sender channel for requests to the outgoing peer store.
-    sender_peer: UnboundedSender<StoreSyncCommand<Hash>>,
+    sender_peer: UnboundedSender<StoreSyncCommand<HeaderId, Header>>,
     /// Whether we have an outgoing peer request that is outstanding.
     is_outstanding: bool,
 }
@@ -142,7 +142,7 @@ impl<T> PeerStatus<T> {
     }
 }
 
-impl<Header: ecg::ECGHeader<T> + Clone, T: CRDT + Clone, Hash: util::Hash + Debug> State<Header, T, Hash> {
+impl<Header: ecg::ECGHeader<T> + Clone + Debug, T: CRDT + Clone, Hash: util::Hash + Debug> State<Header, T, Hash> {
     /// Initialize a new store with the given state. This initializes the header, including
     /// generating a random nonce.
     pub fn new_syncing(initial_state: T) -> State<Header, T, Hash>
@@ -223,7 +223,7 @@ impl<Header: ecg::ECGHeader<T> + Clone, T: CRDT + Clone, Hash: util::Hash + Debu
     }
 
     /// Helper to update a known peer to initializing.
-    fn update_peer_to_initializing<A>(&mut self, peer: &DeviceId, direction_lambda: fn(&mut PeerInfo<Hash>) -> &mut PeerStatus<A>)
+    fn update_peer_to_initializing<A>(&mut self, peer: &DeviceId, direction_lambda: fn(&mut PeerInfo<Header::HeaderId, Header>) -> &mut PeerStatus<A>)
     where
         A: Debug
     {
@@ -251,7 +251,7 @@ impl<Header: ecg::ECGHeader<T> + Clone, T: CRDT + Clone, Hash: util::Hash + Debu
     }
 
     /// Helper to update a known peer to syncing.
-    fn update_peer_to_syncing<A>(&mut self, peer: &DeviceId, direction_lambda: fn(&mut PeerInfo<Hash>) -> &mut PeerStatus<A>, sender_m: A)
+    fn update_peer_to_syncing<A>(&mut self, peer: &DeviceId, direction_lambda: fn(&mut PeerInfo<Header::HeaderId, Header>) -> &mut PeerStatus<A>, sender_m: A)
     where
         A: Debug
     {
@@ -279,7 +279,7 @@ impl<Header: ecg::ECGHeader<T> + Clone, T: CRDT + Clone, Hash: util::Hash + Debu
         self.update_peer_to_syncing(peer, |info| &mut info.incoming_status, ());
     }
 
-    fn update_peer_to_syncing_outgoing(&mut self, peer: &DeviceId, sender: OutgoingPeerStatus<Hash>) {
+    fn update_peer_to_syncing_outgoing(&mut self, peer: &DeviceId, sender: OutgoingPeerStatus<Header::HeaderId, Header>) {
         self.update_peer_to_syncing(peer, |info| &mut info.outgoing_status, sender);
     }
 
@@ -305,7 +305,7 @@ impl<Header: ecg::ECGHeader<T> + Clone, T: CRDT + Clone, Hash: util::Hash + Debu
 
     /// Send sync requests to peers.
     fn send_sync_requests(&mut self) {
-        fn send_command<Hash>(i: &mut PeerInfo<Hash>, message: StoreSyncCommand<Hash>) {
+        fn send_command<Hash, Header>(i: &mut PeerInfo<Hash, Header>, message: StoreSyncCommand<Hash, Header>) {
             let PeerStatus::Syncing(ref mut s) = i.outgoing_status else {
                 unreachable!("Already checked that the peer is ready.");
             };
@@ -359,7 +359,8 @@ impl<Header: ecg::ECGHeader<T> + Clone, T: CRDT + Clone, Hash: util::Hash + Debu
                 // Request ECG updates from peers
                 peers.iter_mut().for_each(|p| {
                     let ecg_status = p.1.ecg_status.clone();
-                    let message = StoreSyncCommand::ECGSyncRequest{ ecg_status }; // , ecg_state };
+                    let ecg_state = ecg_state.state().clone();
+                    let message = StoreSyncCommand::ECGSyncRequest{ ecg_status, ecg_state };
                     send_command(p.1, message)
                 });
             }
@@ -416,7 +417,7 @@ impl<Header: ecg::ECGHeader<T> + Clone, T: CRDT + Clone, Hash: util::Hash + Debu
         }
     }
 
-    fn handle_ecg_sync_request(&mut self, peer: DeviceId, piece_ids: (Vec<Hash>, Vec<Hash>), response_chan: Sender<HandlePeerResponse<Vec<()>>>) {
+    fn handle_ecg_sync_request(&mut self, peer: DeviceId, piece_ids: (Vec<Header::HeaderId>, Vec<Header::HeaderId>), response_chan: Sender<HandlePeerResponse<Vec<()>>>) {
         todo!();
     }
 
@@ -631,7 +632,7 @@ impl<Header: ecg::ECGHeader<T> + Clone, T: CRDT + Clone, Hash: util::Hash + Debu
         self.send_sync_requests();
     }
 
-    fn handle_received_updated_meet(&mut self, peer: DeviceId, meet: Vec<Hash>) {
+    fn handle_received_updated_meet(&mut self, peer: DeviceId, meet: Vec<Header::HeaderId>) {
         // Mark peer as ready.
         self.update_outgoing_peer_to_ready(&peer);
 
@@ -662,11 +663,12 @@ fn update_listeners<Header: ecg::ECGHeader<T> + Clone, T: CRDT + Clone>(listener
 async fn manage_peers<OT: OdysseyType, T: CRDT<Time = OT::Time> + Clone + Send + 'static>(
     store: &mut State<OT::ECGHeader<T>, T, OT::StoreId>,
     shared_state: &SharedState<OT::StoreId>,
-    send_commands: &UnboundedSender<UntypedStoreCommand<OT::StoreId>>,
+    send_commands: &UnboundedSender<UntypedStoreCommand<OT::StoreId, <OT::ECGHeader<T> as ECGHeader<T>>::HeaderId, OT::ECGHeader<T>>>,
 )
 where
     T::Op: Serialize,
-    OT::ECGHeader<T>: Clone,
+    OT::ECGHeader<T>: Clone + Serialize + for<'d> Deserialize<'d>,
+    <OT::ECGHeader<T> as ECGHeader<T>>::HeaderId: Serialize + for<'d> Deserialize<'d> + Send,
     //OT::ECGHeader<T>::HeaderId : Send,
     //T: Send,
 {
@@ -694,7 +696,7 @@ where
             tokio::spawn(async move {
                 // Tell store we're running and send it our channel.
                 let (send_peer, recv_peer) =
-                    tokio::sync::mpsc::unbounded_channel::<StoreSyncCommand<OT::StoreId>>();
+                    tokio::sync::mpsc::unbounded_channel::<StoreSyncCommand<<OT::ECGHeader<T> as ECGHeader<T>>::HeaderId, OT::ECGHeader<T>>>();
 
                 let register_cmd = UntypedStoreCommand::RegisterOutgoingPeerSyncing {
                     peer: peer_id,
@@ -703,7 +705,7 @@ where
                 send_commands.send(register_cmd).expect("TODO");
 
                 // Start miniprotocol as server.
-                let mp = StoreSync::<OT::StoreId>::new_server(peer_id, recv_peer, send_commands);
+                let mp = StoreSync::<OT::StoreId, _, _>::new_server(peer_id, recv_peer, send_commands);
                 run_miniprotocol_async::<_, OT>(mp, false, stream_id, sender, receiver).await;
 
                 debug!("Store sync with peer (with initiative) exited.")
@@ -739,14 +741,14 @@ where
 pub(crate) async fn run_handler<OT: OdysseyType, T>(
     mut store: State<OT::ECGHeader<T>, T, OT::StoreId>,
     mut recv_commands: UnboundedReceiver<StoreCommand<OT::ECGHeader<T>, T>>,
-    send_commands_untyped: UnboundedSender<UntypedStoreCommand<OT::StoreId>>,
-    mut recv_commands_untyped: UnboundedReceiver<UntypedStoreCommand<OT::StoreId>>,
+    send_commands_untyped: UnboundedSender<UntypedStoreCommand<OT::StoreId, <OT::ECGHeader<T> as ECGHeader<T>>::HeaderId, OT::ECGHeader<T>>>,
+    mut recv_commands_untyped: UnboundedReceiver<UntypedStoreCommand<OT::StoreId, <OT::ECGHeader<T> as ECGHeader<T>>::HeaderId, OT::ECGHeader<T>>>,
     shared_state: SharedState<OT::StoreId>,
 )
 where
-    <OT as OdysseyType>::ECGHeader<T>: Send + Clone + 'static,
+    <OT as OdysseyType>::ECGHeader<T>: Send + Clone + Serialize + for<'d> Deserialize<'d> + 'static,
     <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: ECGBody<T> + Send,
-    <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::HeaderId: Send,
+    <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::HeaderId: Send + Serialize + for<'d> Deserialize<'d>,
     T::Op: Serialize,
     T: CRDT<Time = OT::Time> + Clone + Send + 'static + for<'d> Deserialize<'d>,
 {
@@ -917,7 +919,7 @@ where
                                             send_commands_untyped.send(register_cmd).expect("TODO");
 
                                             // Start miniprotocol as client.
-                                            let mp = StoreSync::<OT::StoreId>::new_client(peer, send_commands_untyped);
+                                            let mp = StoreSync::<OT::StoreId, _, _>::new_client(peer, send_commands_untyped);
                                             run_miniprotocol_async::<_, OT>(mp, true, stream_id, sender, receiver).await;
                                             debug!("Store sync with peer (without initiative) exited.")
                                         })
@@ -1021,7 +1023,7 @@ type HandlePeerResponse<Response> = Result<
 
 /// Untyped variant of `StoreCommand` since existentials don't work.
 // #[derive(Debug)]
-pub(crate) enum UntypedStoreCommand<Hash> {
+pub(crate) enum UntypedStoreCommand<Hash, HeaderId, Header> {
     /// Register the discovered peers.
     RegisterPeers {
         peers: Vec<DeviceId>,
@@ -1033,12 +1035,12 @@ pub(crate) enum UntypedStoreCommand<Hash> {
     },
     RegisterOutgoingPeerSyncing {
         peer: DeviceId,
-        send_peer: UnboundedSender<StoreSyncCommand<Hash>>,
+        send_peer: UnboundedSender<StoreSyncCommand<HeaderId, Header>>,
     },
     HandleMetadataPeerRequest(HandlePeerRequest<(), v0::MetadataHeader<Hash>>),
     HandleMerklePeerRequest(HandlePeerRequest<Vec<Range<u64>>, Vec<Hash>>),
     HandlePiecePeerRequest(HandlePeerRequest<Vec<Range<u64>>, Vec<Option<Vec<u8>>>>),
-    HandleECGSyncRequest(HandlePeerRequest<(Vec<Hash>, Vec<Hash>), Vec<()>>),
+    HandleECGSyncRequest(HandlePeerRequest<(Vec<HeaderId>, Vec<HeaderId>), Vec<()>>),
     RegisterIncomingPeerSyncing {
         peer: DeviceId,
     },
@@ -1058,7 +1060,7 @@ pub(crate) enum UntypedStoreCommand<Hash> {
     },
     ReceivedUpdatedMeet {
         peer: DeviceId,
-        meet: Vec<Hash>,
+        meet: Vec<HeaderId>,
     },
 }
 

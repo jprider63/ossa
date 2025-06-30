@@ -73,11 +73,11 @@ impl Multiplexer {
     }
 
     /// Run the multiplexer with these initial mini protocols.
-    /// The minitprotocols are assigned identifiers in order, starting at 0.
+    /// The miniprotocols are assigned identifiers in order, starting at 0.
     pub(crate) async fn run_with_miniprotocols<O: OdysseyType>(
         mut self,
         mut stream: TcpStream,
-        miniprotocols: Vec<MiniProtocols<O::StoreId>>,
+        miniprotocols: Vec<MiniProtocols<O::StoreId, O::Hash, O::ECGHeader::HeaderId, O::ECGHeader>>,
     ) {
         debug!("run_with_miniprotocols: {:?}", self.party);
 

@@ -26,12 +26,12 @@ use crate::store;
 use crate::util;
 
 // Required since Rust can't handle proper existentials.
-pub(crate) enum MiniProtocols<StoreId> {
+pub(crate) enum MiniProtocols<StoreId, Hash, HeaderId, Header> {
     Heartbeat(Heartbeat),
-    Manager(Manager<StoreId>),
+    Manager(Manager<StoreId, Hash, HeaderId, Header>),
 }
 
-impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug + Serialize + for<'a> Deserialize<'a>> MiniProtocols<StoreId> {
+impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug + Serialize + for<'a> Deserialize<'a>, Hash, HeaderId, Header> MiniProtocols<StoreId, Hash, HeaderId, Header> {
     pub(crate) async fn run_async<O: OdysseyType>(
         self,
         is_client: bool,
@@ -58,7 +58,7 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug + Serialize + for<'
 // N - (N is odd for client, even for server):
 //     - StoreSync i
 /// Miniprotocols initially run when connected for V0.
-fn initial_miniprotocols<StoreId>(party: Party, args: MiniProtocolArgs<StoreId>, multiplexer_cmd_send: UnboundedSender<MultiplexerCommand>) -> Vec<MiniProtocols<StoreId>> {
+fn initial_miniprotocols<StoreId, Hash, HeaderId, Header>(party: Party, args: MiniProtocolArgs<StoreId>, multiplexer_cmd_send: UnboundedSender<MultiplexerCommand>) -> Vec<MiniProtocols<StoreId, Hash, HeaderId, Header>> {
     let (client_chan, server_chan) = if let Party::Client = party {
         (Some(args.manager_channel), None)
     } else {

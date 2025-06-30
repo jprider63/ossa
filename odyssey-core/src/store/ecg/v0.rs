@@ -32,7 +32,7 @@ pub struct Header<Hash, T> {
     parent_ids: Vec<HeaderId<Hash>>,
 
     /// The number of operations in the corresponding body.
-    /// The maximum number of operations is 256.
+    /// The maximum number of operations is 255.
     operations_count: u8,
 
     /// The hash of (batched) operations in the corresponding body.

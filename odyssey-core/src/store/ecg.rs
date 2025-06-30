@@ -79,11 +79,17 @@ pub struct UntypedState<HeaderId, Header> {
     tips: BTreeSet<HeaderId>,
 }
 
+impl<HeaderId, Header> UntypedState<HeaderId, Header> {
+    pub fn tips(&self) -> &BTreeSet<HeaderId> {
+        &self.tips
+    }
+}
+
 #[derive(Debug)]
 pub struct State<Header: ECGHeader<T>, T> {
     state: UntypedState<Header::HeaderId, Header>,
 
-    phantom: PhantomData<T>,
+    phantom: PhantomData<fn(T)>,
 }
 
 impl<Header: ECGHeader<T> + Clone, T: CRDT> Clone for State<Header, T> {
@@ -304,6 +310,10 @@ impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
         }
 
         Some(false)
+    }
+
+    pub fn state(&self) -> &UntypedState<Header::HeaderId, Header> {
+        &self.state
     }
 }
 

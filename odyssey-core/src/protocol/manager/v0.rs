@@ -6,6 +6,7 @@ use tracing::{debug, error, info, warn};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
 use std::future::Future;
+use std::marker::PhantomData;
 use tokio::sync::{oneshot, watch};
 use tokio::time::{sleep, Duration};
 
@@ -22,7 +23,7 @@ use crate::{
 };
 
 // MiniProtocol instance for stream/connection management.
-pub(crate) struct Manager<StoreId> {
+pub(crate) struct Manager<StoreId, Hash, HeaderId, Header> {
     party_with_initiative: Party,
     peer_id: DeviceId, // DeviceId of peer we're connected to.
     active_stores: watch::Receiver<StoreStatuses<StoreId>>,
@@ -30,10 +31,11 @@ pub(crate) struct Manager<StoreId> {
     manager_channel: Option<UnboundedReceiver<PeerManagerCommand<StoreId>>>,
     latest_stream_id: StreamId,
     multiplexer_channel: UnboundedSender<MultiplexerCommand>,
+    phantom: PhantomData<fn(Hash, HeaderId, Header)>,
 }
 
-impl<StoreId> Manager<StoreId> {
-    pub(crate) fn new(initiative: Party, peer_id: DeviceId, active_stores: watch::Receiver<StoreStatuses<StoreId>>, manager_channel: Option<UnboundedReceiver<PeerManagerCommand<StoreId>>>, latest_stream_id: StreamId, multiplexer_channel: UnboundedSender<MultiplexerCommand>) -> Manager<StoreId> {
+impl<StoreId, Hash, HeaderId, Header> Manager<StoreId, Hash, HeaderId, Header> {
+    pub(crate) fn new(initiative: Party, peer_id: DeviceId, active_stores: watch::Receiver<StoreStatuses<StoreId>>, manager_channel: Option<UnboundedReceiver<PeerManagerCommand<StoreId>>>, latest_stream_id: StreamId, multiplexer_channel: UnboundedSender<MultiplexerCommand>) -> Manager<StoreId, Hash, HeaderId, Header> {
         Manager {
             party_with_initiative: initiative,
             peer_id,
@@ -41,6 +43,7 @@ impl<StoreId> Manager<StoreId> {
             manager_channel,
             latest_stream_id,
             multiplexer_channel,
+            phantom: PhantomData,
         }
     }
 
@@ -52,7 +55,7 @@ impl<StoreId> Manager<StoreId> {
     }
 }
 
-impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug + Serialize + for<'a> Deserialize<'a>> MiniProtocol for Manager<StoreId> {
+impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug + Serialize + for<'a> Deserialize<'a>, Hash, HeaderId, Header> MiniProtocol for Manager<StoreId, Hash, HeaderId, Header> {
     type Message = MsgManager<StoreId>;
 
     async fn run_server<S: Stream<Self::Message>>(self, stream: S) {
@@ -76,13 +79,13 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug + Serialize + for<'
     }
 }
 
-impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug> Manager<StoreId> {
+impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug, Hash, HeaderId, Header> Manager<StoreId, Hash, HeaderId, Header> {
     /// Manager run in mode that sends requests to peer.
     async fn run_with_initiative<S: Stream<MsgManager<StoreId>>>(mut self, mut stream: S) {
         debug!("Mux manager started with initiative!");
     
         // Advertise stores.
-        let shared_stores = run_advertise_stores_server(&mut stream, &mut self.active_stores).await;
+        let shared_stores = run_advertise_stores_server::<_, _, Hash, HeaderId, Header>(&mut stream, &mut self.active_stores).await;
         handle_shared_stores(self.peer_id, shared_stores);
     
         // Note: This replaces the manager_channel with `None`. This will fail if this manager ends up being called multiple times.
@@ -93,7 +96,7 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug> Manager<StoreId> {
                 changed_e = self.active_stores.changed() => {
                     changed_e.expect("TODO");
     
-                    let shared_stores = run_advertise_stores_server(&mut stream, &mut self.active_stores).await;
+                    let shared_stores = run_advertise_stores_server::<_, _, Hash, HeaderId, Header>(&mut stream, &mut self.active_stores).await;
                     debug!("Client sent store ids: {:?}", shared_stores);
                     handle_shared_stores(self.peer_id, shared_stores);
                 }
@@ -126,7 +129,7 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug> Manager<StoreId> {
             match response {
                 MsgManagerRequest::AdvertiseStores { nonce, store_ids } => {
                     debug!("Received MsgManagerRequest::AdvertiseStores: {nonce:?}, {store_ids:?}");
-                    let shared_stores = run_advertise_stores_client(&mut stream, nonce, store_ids, &mut self.active_stores).await;
+                    let shared_stores = run_advertise_stores_client::<_, _, Hash, HeaderId, Header>(&mut stream, nonce, store_ids, &mut self.active_stores).await;
                     // TODO: Store and handle peers too?
                     debug!("Server sent store ids: {:?}", shared_stores);
                     handle_shared_stores(self.peer_id, shared_stores);
@@ -276,9 +279,9 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug> Manager<StoreId> {
 // Or: Map<StoreId, watch::Sender<Set<PeerId>>? ***
 // Or: Spawn sync threads for each shared store.
 
-fn handle_shared_stores<StoreId>(
+fn handle_shared_stores<StoreId, Hash, HeaderId, Header>(
     peer_id: DeviceId,
-    shared_stores: Vec<(StoreId, UnboundedSender<UntypedStoreCommand<StoreId>>)>,
+    shared_stores: Vec<(StoreId, UnboundedSender<UntypedStoreCommand<Hash, HeaderId, Header>>)>,
 ) {
     // Register the peer for this store.
     let peers = vec![peer_id];
@@ -299,10 +302,10 @@ fn hash_store_id_with_nonce<StoreId: AsRef<[u8]>>(nonce: [u8; 4], store_id: &Sto
     <Sha256Hash as Hash>::finalize(h)
 }
 
-async fn run_advertise_stores_server<S: Stream<MsgManager<StoreId>>, StoreId>(
+async fn run_advertise_stores_server<S: Stream<MsgManager<StoreId>>, StoreId, Hash, HeaderId, Header>(
     stream: &mut S,
     store_ids: &mut watch::Receiver<StoreStatuses<StoreId>>
-) -> Vec<(StoreId, UnboundedSender<UntypedStoreCommand<StoreId>>)>
+) -> Vec<(StoreId, UnboundedSender<UntypedStoreCommand<Hash, HeaderId, Header>>)>
 where
     StoreId: Copy + AsRef<[u8]>,
 {
@@ -328,7 +331,7 @@ where
     store_ids.into_iter().zip(response.have_stores).filter_map(|((store_id, chan), is_shared)| if is_shared { Some((store_id, chan)) } else { None }).collect()
 }
 
-async fn run_advertise_stores_client<S: Stream<MsgManager<StoreId>>, StoreId: Copy + Ord + AsRef<[u8]>>(stream: &mut S, nonce: [u8; 4], their_store_ids: Vec<Sha256Hash>, our_store_ids: &mut watch::Receiver<StoreStatuses<StoreId>>) -> Vec<(StoreId, UnboundedSender<UntypedStoreCommand<StoreId>>)> {
+async fn run_advertise_stores_client<S: Stream<MsgManager<StoreId>>, StoreId: Copy + Ord + AsRef<[u8]>, Hash, HeaderId, Header>(stream: &mut S, nonce: [u8; 4], their_store_ids: Vec<Sha256Hash>, our_store_ids: &mut watch::Receiver<StoreStatuses<StoreId>>) -> Vec<(StoreId, UnboundedSender<UntypedStoreCommand<Hash, HeaderId, Header>>)> {
     let mut our_store_ids: BTreeMap<Sha256Hash, (StoreId, UnboundedSender<_>)> = our_store_ids.borrow_and_update().iter().filter_map(|e| e.1.command_channel().map(|c| (e.0, c))).map(|(store_id, c)| {
         let h = hash_store_id_with_nonce(nonce, store_id);
         (h, (*store_id, c.clone()))
