@@ -22,7 +22,7 @@ pub(crate) async fn ecg_sync_client<S: Stream<MsgECGSync<Header, T>>, StoreId, H
     state: &mut ecg::State<Header, T>,
 ) -> Result<(), ECGSyncError>
 where
-    Header: Clone + ECGHeader<T> + Debug,
+    Header: Clone + ECGHeader + Debug,
 {
     // TODO:
     // - Get cached peer state.

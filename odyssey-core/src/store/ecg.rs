@@ -12,7 +12,7 @@ use std::marker::PhantomData;
 pub mod v0;
 
 /// Trait that ECG headers (nodes?) must implement.
-pub trait ECGHeader<T: ?Sized> {
+pub trait ECGHeader {
     type HeaderId: Ord + Copy + Debug;
 
     // /// Type identifying operations that implements CausalOrder so that it can be used as CRDT::Time.
@@ -33,14 +33,14 @@ pub trait ECGHeader<T: ?Sized> {
     fn new_header(parents: BTreeSet<Self::HeaderId>, body: &Self::Body) -> Self;
 
     // TODO: Can we return the following instead? impl Iterator<(T::Time, Item = T::Time)>
-    fn zip_operations_with_time(&self, body: Self::Body) -> Vec<(T::Time, T::Op)>
+    fn zip_operations_with_time<T>(&self, body: Self::Body) -> Vec<(T::Time, T::Op)>
     where
         T: CRDT + Sized,
-        <Self as ECGHeader<T>>::Body: ECGBody<T>;
+        <Self as ECGHeader>::Body: ECGBody<T>;
 
     /// Retrieve the times for each operation in this ECG header and body.
     // TODO: Can we return the following instead? impl Iterator<Item = T::Time>
-    fn get_operation_times(&self, body: &Self::Body) -> Vec<T::Time> where T: CRDT;
+    fn get_operation_times<T>(&self, body: &Self::Body) -> Vec<T::Time> where T: CRDT;
 }
 
 pub trait ECGBody<T: CRDT> {
@@ -86,13 +86,13 @@ impl<HeaderId, Header> UntypedState<HeaderId, Header> {
 }
 
 #[derive(Debug)]
-pub struct State<Header: ECGHeader<T>, T> {
+pub struct State<Header: ECGHeader, T> {
     state: UntypedState<Header::HeaderId, Header>,
 
-    phantom: PhantomData<fn(T)>,
+    phantom: PhantomData<fn(T)>, // TODO: Delete T?
 }
 
-impl<Header: ECGHeader<T> + Clone, T: CRDT> Clone for State<Header, T> {
+impl<Header: ECGHeader + Clone, T: CRDT> Clone for State<Header, T> {
     fn clone(&self) -> Self {
         let state = self.state.clone();
         State {
@@ -102,7 +102,7 @@ impl<Header: ECGHeader<T> + Clone, T: CRDT> Clone for State<Header, T> {
     }
 }
 
-impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
+impl<Header: ECGHeader, T: CRDT> State<Header, T> {
     pub fn new() -> State<Header, T> {
         let state = UntypedState {
             dependency_graph: StableDag::new(),
@@ -319,7 +319,7 @@ impl<Header: ECGHeader<T>, T: CRDT> State<Header, T> {
 
 /// Tests whether two ecg states have the same DAG.
 #[cfg(test)]
-pub(crate) fn equal_dags<Header: ECGHeader<T>, T>(l: &State<Header, T>, r: &State<Header, T>) -> bool
+pub(crate) fn equal_dags<Header: ECGHeader, T>(l: &State<Header, T>, r: &State<Header, T>) -> bool
 where
     Header::HeaderId: Copy,
 {
@@ -347,7 +347,7 @@ where
 }
 
 #[cfg(test)]
-pub(crate) fn print_dag<Header: ECGHeader<T>, T>(s: &State<Header, T>) {
+pub(crate) fn print_dag<Header: ECGHeader, T>(s: &State<Header, T>) {
     use petgraph::dot::{Config, Dot};
     use petgraph::stable_graph::StableDiGraph;
 

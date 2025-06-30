@@ -34,18 +34,18 @@ pub struct Odyssey<OT: OdysseyType> {
     tokio_runtime: Runtime,
     /// Active stores.
     // stores: BTreeMap<OT::StoreId,ActiveStore>,
-    active_stores: watch::Sender<StoreStatuses<OT::StoreId>>, // JP: Make this encode more state that other's may want to subscribe to?
+    active_stores: watch::Sender<StoreStatuses<OT::StoreId, OT::Hash, <OT::ECGHeader as ECGHeader>::HeaderId, OT::ECGHeader>>, // JP: Make this encode more state that other's may want to subscribe to?
     shared_state: SharedState<OT::StoreId>, // JP: Could have another thread own and manage this state
                                   // instead?
     phantom: PhantomData<OT>,
     identity_keys: Identity,
 }
-pub type StoreStatuses<StoreId> = BTreeMap<StoreId, StoreStatus<StoreId>>; // Rename this MiniProtocolArgs?
+pub type StoreStatuses<StoreId, Hash, HeaderId, Header> = BTreeMap<StoreId, StoreStatus<Hash, HeaderId, Header>>; // Rename this MiniProtocolArgs?
 
 // pub enum StoreStatus<O: OdysseyType, T: CRDT<Time = O::Time>>
 // where
 //     T::Op: Serialize,
-pub enum StoreStatus<StoreId> {
+pub enum StoreStatus<Hash, HeaderId, Header> {
     // Store is initializing and async handler is being created.
     Initializing,
     // Store's async handler is running.
@@ -53,11 +53,11 @@ pub enum StoreStatus<StoreId> {
         store_handle: JoinHandle<()>, // JP: Does this belong here? The state is owned here, but
                                       // the miniprotocols probably don't need to block waiting on
                                       // it...
-        // send_command_chan: UnboundedSender<StoreCommand<O::ECGHeader<T>, T>>,
+        // send_command_chan: UnboundedSender<StoreCommand<O::ECGHeader, T>>,
         // https://www.reddit.com/r/rust/comments/1exjiab/the_amazing_pattern_i_discovered_hashmap_with/
         // send_command_chan: UnboundedSender<StoreCommand<store::ecg::v0::Header<dyn Hash, dyn CRDT>, dyn CRDT>>,
         // send_command_chan: UnboundedSender<UntypedStoreCommand>,
-        send_command_chan: UnboundedSender<UntypedStoreCommand<StoreId>>,
+        send_command_chan: UnboundedSender<UntypedStoreCommand<Hash, HeaderId, Header>>,
     },
 }
 
@@ -68,7 +68,7 @@ pub(crate) struct SharedState<StoreId> {
 }
 
 
-impl<StoreId> StoreStatus<StoreId> {
+impl<Hash, HeaderId, Header> StoreStatus<Hash, HeaderId, Header> {
     pub(crate) fn is_initializing(&self) -> bool {
         match self {
             StoreStatus::Initializing => true,
@@ -80,7 +80,7 @@ impl<StoreId> StoreStatus<StoreId> {
         !self.is_initializing()
     }
 
-    pub(crate) fn command_channel(&self) -> Option<&UnboundedSender<UntypedStoreCommand<StoreId>>> {
+    pub(crate) fn command_channel(&self) -> Option<&UnboundedSender<UntypedStoreCommand<Hash, HeaderId, Header>>> {
         match self {
             StoreStatus::Initializing => None,
             StoreStatus::Running {send_command_chan, ..} => Some(send_command_chan),
@@ -211,12 +211,12 @@ impl<OT: OdysseyType> Odyssey<OT> {
     where
         T: CRDT<Time = OT::Time> + Clone + Send + 'static + Typeable + Serialize + for<'d> Deserialize<'d>,
         T::Op: Serialize,
-        <OT as OdysseyType>::ECGHeader<T>: Send + Clone + 'static,
-        <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: Send + ECGBody<T>,
-        <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::HeaderId: Send,
+        <OT as OdysseyType>::ECGHeader: Send + Clone + 'static + Serialize + for<'d> Deserialize<'d>,
+        <<OT as OdysseyType>::ECGHeader as ECGHeader>::Body: Send + ECGBody<T>,
+        <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId: Send + Serialize + for<'d> Deserialize<'d>,
     {
         // Create store by generating nonce, etc.
-        let store = store::State::<OT::ECGHeader<T>, T, OT::StoreId>::new_syncing(initial_state.clone());
+        let store = store::State::<OT::StoreId, OT::ECGHeader, T, OT::Hash>::new_syncing(initial_state.clone());
         let store_id = store.store_id();
 
         // Check if this store id already exists and try again if there's a conflict.
@@ -246,9 +246,9 @@ impl<OT: OdysseyType> Odyssey<OT> {
         // storage: S,
     ) -> StoreHandle<OT, T>
     where
-        <OT as OdysseyType>::ECGHeader<T>: Send + Clone + 'static,
-        <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: Send + ECGBody<T>,
-        <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::HeaderId: Send,
+        <OT as OdysseyType>::ECGHeader: Send + Clone + 'static,
+        <<OT as OdysseyType>::ECGHeader as ECGHeader>::Body: Send + ECGBody<T>,
+        <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId: Send,
         T: CRDT<Time = OT::Time> + Clone + Send + 'static + for<'d> Deserialize<'d>,
         T::Op: Serialize,
     {
@@ -350,12 +350,12 @@ impl<OT: OdysseyType> Odyssey<OT> {
     fn launch_store<T>(
         &self,
         store_id: OT::StoreId,
-        store: store::State<OT::ECGHeader<T>, T, OT::StoreId>,
+        store: store::State<OT::StoreId, OT::ECGHeader, T, OT::Hash>,
     ) -> StoreHandle<OT, T>
     where
-        <OT as OdysseyType>::ECGHeader<T>: Send + Clone + 'static,
-        <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: ECGBody<T> + Send,
-        <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::HeaderId: Send,
+        <OT as OdysseyType>::ECGHeader: Send + Clone + 'static + for<'d> Deserialize<'d> + Serialize,
+        <<OT as OdysseyType>::ECGHeader as ECGHeader>::Body: ECGBody<T> + Send,
+        <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId: Send + for<'d> Deserialize<'d> + Serialize,
         T::Op: Serialize,
         T: CRDT<Time = OT::Time> + Clone + Send + 'static + for<'d> Deserialize<'d>,
     {
@@ -363,9 +363,9 @@ impl<OT: OdysseyType> Odyssey<OT> {
 
         // Create channels to handle requests and send updates.
         let (send_commands, recv_commands) =
-            tokio::sync::mpsc::unbounded_channel::<store::StoreCommand<OT::ECGHeader<T>, T>>();
+            tokio::sync::mpsc::unbounded_channel::<store::StoreCommand<OT::ECGHeader, T>>();
         let (send_commands_untyped, recv_commands_untyped) =
-            tokio::sync::mpsc::unbounded_channel::<store::UntypedStoreCommand<OT::StoreId>>();
+            tokio::sync::mpsc::unbounded_channel::<store::UntypedStoreCommand<OT::Hash, <OT::ECGHeader as ECGHeader>::HeaderId, OT::ECGHeader>>();
 
 
         // Add to DHT
@@ -424,15 +424,16 @@ where
     T::Op: Serialize,
 {
     // future_handle: JoinHandle<()>, // JP: Maybe this should be owned by `Odyssey`?
-    send_command_chan: UnboundedSender<StoreCommand<O::ECGHeader<T>, T>>,
+    send_command_chan: UnboundedSender<StoreCommand<O::ECGHeader, T>>,
     phantom: PhantomData<O>,
 }
 
 /// Trait to define newtype wrapers that instantiate type families required by Odyssey.
 pub trait OdysseyType: 'static {
-    type StoreId: util::Hash + Debug + Display + Copy + Ord + Send + Sync + 'static + Serialize + for<'a> Deserialize<'a>; // Hashable instead of AsRef???
-    type Hash: util::Hash + Debug + Display + Copy + Ord + Send + Sync + 'static + Serialize + for<'a> Deserialize<'a>; // Hashable instead of AsRef???
-    type ECGHeader<T: CRDT<Time = Self::Time, Op: Serialize>>: store::ecg::ECGHeader<T> + Debug + Send;
+    type StoreId: Debug + Display + Eq + Copy + Ord + Send + Sync + 'static + Serialize + for<'a> Deserialize<'a> + AsRef<[u8]>; // Hashable instead of AsRef???
+    type Hash: util::Hash + Debug + Display + Copy + Ord + Send + Sync + 'static + Serialize + for<'a> Deserialize<'a> + Into<Self::StoreId>; // Hashable instead of AsRef???
+    // type ECGHeader<T: CRDT<Time = Self::Time, Op: Serialize>>: store::ecg::ECGHeader + Debug + Send;
+    type ECGHeader: store::ecg::ECGHeader<HeaderId: Send + Sync + Serialize + for<'a> Deserialize<'a>> + Debug + Send + Serialize + for<'a> Deserialize<'a>;
     type Time;
     type CausalState<T: CRDT<Time = Self::Time, Op: Serialize>>: CausalState<Time = Self::Time>;
     // type OperationId;
@@ -440,7 +441,7 @@ pub trait OdysseyType: 'static {
 
     // TODO: This should be refactored and provided automatically.
     fn to_causal_state<T: CRDT<Time = Self::Time, Op: Serialize>>(
-        st: &store::ecg::State<Self::ECGHeader<T>, T>,
+        st: &store::ecg::State<Self::ECGHeader, T>,
     ) -> &Self::CausalState<T>;
 }
 
@@ -451,11 +452,11 @@ where
 {
     pub fn apply(
         &mut self,
-        parents: BTreeSet<<<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::HeaderId>,
+        parents: BTreeSet<<<O as OdysseyType>::ECGHeader as ECGHeader>::HeaderId>,
         op: T::Op,
     ) -> T::Time
     where
-        <<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: ECGBody<T>,
+        <<O as OdysseyType>::ECGHeader as ECGHeader>::Body: ECGBody<T>,
     {
         self.apply_batch(parents, vec![op]).pop().unwrap()
     }
@@ -463,11 +464,11 @@ where
     // TODO: Don't take parents as an argument. Pull it from the state. XXX
     pub fn apply_batch(
         &mut self,
-        parents: BTreeSet<<<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::HeaderId>,
+        parents: BTreeSet<<<O as OdysseyType>::ECGHeader as ECGHeader>::HeaderId>,
         op: Vec<T::Op>,
     ) -> Vec<T::Time>
     where
-        <<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: ECGBody<T>,
+        <<O as OdysseyType>::ECGHeader as ECGHeader>::Body: ECGBody<T>,
     {
         // TODO: Divide into 256 operation chunks.
         if op.is_empty() {
@@ -476,9 +477,9 @@ where
 
         // Create ECG header and body.
         let body =
-            <<<O as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body as ECGBody<T>>::new_body(op);
+            <<<O as OdysseyType>::ECGHeader as ECGHeader>::Body as ECGBody<T>>::new_body(op);
         let header = O::ECGHeader::new_header(parents, &body);
-        let times = header.get_operation_times(&body);
+        let times = todo!("TODO: FIXME XXX"); // header.get_operation_times(&body);
 
         self.send_command_chan.send(StoreCommand::Apply {
             operation_header: header,
@@ -488,7 +489,7 @@ where
         times
     }
 
-    pub fn subscribe_to_state(&mut self) -> UnboundedReceiver<StateUpdate<O::ECGHeader<T>, T>> {
+    pub fn subscribe_to_state(&mut self) -> UnboundedReceiver<StateUpdate<O::ECGHeader, T>> {
         let (send_state, recv_state) = tokio::sync::mpsc::unbounded_channel();
         self.send_command_chan
             .send(StoreCommand::SubscribeState { send_state }).expect("TODO");

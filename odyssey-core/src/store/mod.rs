@@ -16,10 +16,10 @@ pub mod v0; // TODO: Move this to network::protocol
 
 pub use v0::{MetadataBody, MetadataHeader, Nonce};
 
-pub struct State<Header: ecg::ECGHeader<T>, T: CRDT, Hash> {
+pub struct State<StoreId, Header: ecg::ECGHeader, T: CRDT, Hash> {
     // Peers that also have this store (that we are potentially connected to?).
     peers: BTreeMap<DeviceId, PeerInfo<Header::HeaderId, Header>>, // BTreeSet<DeviceId>,
-    state_machine: StateMachine<Header, T, Hash>,
+    state_machine: StateMachine<StoreId, Header, T, Hash>,
     metadata_subscribers: BTreeMap<DeviceId, oneshot::Sender<Option<v0::MetadataHeader<Hash>>>>,
     merkle_subscribers: BTreeMap<DeviceId, (Vec<Range<u64>>, oneshot::Sender<Option<Vec<Hash>>>)>,
     piece_subscribers: BTreeMap<DeviceId, (Vec<Range<u64>>, oneshot::Sender<Option<Vec<Option<Vec<u8>>>>>)>,
@@ -30,9 +30,9 @@ pub struct State<Header: ecg::ECGHeader<T>, T: CRDT, Hash> {
 // - Initializing - Setting up the thread that owns the store (not defined here).
 // - DownloadingMetadata - Don't have the header so we're downloading it.
 // - Syncing - Have the header and syncing updates between peers.
-pub enum StateMachine<Header: ecg::ECGHeader<T>, T: CRDT, Hash> {
+pub enum StateMachine<StoreId, Header: ecg::ECGHeader, T: CRDT, Hash> {
     DownloadingMetadata {
-        store_id: Hash,
+        store_id: StoreId,
     },
     DownloadingMerkle {
         metadata: MetadataHeader<Hash>,
@@ -54,7 +54,7 @@ pub enum StateMachine<Header: ecg::ECGHeader<T>, T: CRDT, Hash> {
     },
 }
 
-pub struct DecryptedState<Header: ecg::ECGHeader<T>, T: CRDT> {
+pub struct DecryptedState<Header: ecg::ECGHeader, T: CRDT> {
     /// Latest ECG application state we've seen.
     latest_state: T,
 
@@ -142,10 +142,10 @@ impl<T> PeerStatus<T> {
     }
 }
 
-impl<Header: ecg::ECGHeader<T> + Clone + Debug, T: CRDT + Clone, Hash: util::Hash + Debug> State<Header, T, Hash> {
+impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone, Hash: util::Hash + Debug + Into<StoreId>> State<StoreId, Header, T, Hash> {
     /// Initialize a new store with the given state. This initializes the header, including
     /// generating a random nonce.
-    pub fn new_syncing(initial_state: T) -> State<Header, T, Hash>
+    pub fn new_syncing(initial_state: T) -> State<StoreId, Header, T, Hash>
     where
         T: Serialize + Typeable,
     {
@@ -175,7 +175,7 @@ impl<Header: ecg::ECGHeader<T> + Clone + Debug, T: CRDT + Clone, Hash: util::Has
     }
 
     /// Create a new store with the given store id that is downloading the store's header.
-    pub(crate) fn new_downloading(store_id: Hash) -> Self {
+    pub(crate) fn new_downloading(store_id: StoreId) -> Self {
         let state_machine = StateMachine::DownloadingMetadata {
             store_id
         };
@@ -189,7 +189,7 @@ impl<Header: ecg::ECGHeader<T> + Clone + Debug, T: CRDT + Clone, Hash: util::Has
         }
     }
 
-    pub fn store_id(&self) -> Hash {
+    pub fn store_id(&self) -> StoreId {
         match &self.state_machine {
             StateMachine::DownloadingMetadata{store_id} => {
                 *store_id
@@ -648,7 +648,7 @@ impl<Header: ecg::ECGHeader<T> + Clone + Debug, T: CRDT + Clone, Hash: util::Has
     }
 }
 
-fn update_listeners<Header: ecg::ECGHeader<T> + Clone, T: CRDT + Clone>(listeners: &[UnboundedSender<StateUpdate<Header, T>>], latest_state: &T, ecg_state: &ecg::State<Header, T>) {
+fn update_listeners<Header: ecg::ECGHeader + Clone, T: CRDT + Clone>(listeners: &[UnboundedSender<StateUpdate<Header, T>>], latest_state: &T, ecg_state: &ecg::State<Header, T>) {
     for l in listeners {
         let snapshot: StateUpdate<Header, T> = StateUpdate::Snapshot {
             snapshot: latest_state.clone(),
@@ -661,14 +661,14 @@ fn update_listeners<Header: ecg::ECGHeader<T> + Clone, T: CRDT + Clone>(listener
 // JP: Or should Odyssey own this/peers?
 /// Manage peers by ranking them, randomize, potentially connecting to some of them, etc.
 async fn manage_peers<OT: OdysseyType, T: CRDT<Time = OT::Time> + Clone + Send + 'static>(
-    store: &mut State<OT::ECGHeader<T>, T, OT::StoreId>,
+    store: &mut State<OT::StoreId, OT::ECGHeader, T, OT::Hash>,
     shared_state: &SharedState<OT::StoreId>,
-    send_commands: &UnboundedSender<UntypedStoreCommand<OT::StoreId, <OT::ECGHeader<T> as ECGHeader<T>>::HeaderId, OT::ECGHeader<T>>>,
+    send_commands: &UnboundedSender<UntypedStoreCommand<OT::Hash, <OT::ECGHeader as ECGHeader>::HeaderId, OT::ECGHeader>>,
 )
 where
     T::Op: Serialize,
-    OT::ECGHeader<T>: Clone + Serialize + for<'d> Deserialize<'d>,
-    <OT::ECGHeader<T> as ECGHeader<T>>::HeaderId: Serialize + for<'d> Deserialize<'d> + Send,
+    OT::ECGHeader: Clone + Serialize + for<'d> Deserialize<'d>,
+    <OT::ECGHeader as ECGHeader>::HeaderId: Serialize + for<'d> Deserialize<'d> + Send,
     //OT::ECGHeader<T>::HeaderId : Send,
     //T: Send,
 {
@@ -696,7 +696,7 @@ where
             tokio::spawn(async move {
                 // Tell store we're running and send it our channel.
                 let (send_peer, recv_peer) =
-                    tokio::sync::mpsc::unbounded_channel::<StoreSyncCommand<<OT::ECGHeader<T> as ECGHeader<T>>::HeaderId, OT::ECGHeader<T>>>();
+                    tokio::sync::mpsc::unbounded_channel::<StoreSyncCommand<<OT::ECGHeader as ECGHeader>::HeaderId, OT::ECGHeader>>();
 
                 let register_cmd = UntypedStoreCommand::RegisterOutgoingPeerSyncing {
                     peer: peer_id,
@@ -705,7 +705,7 @@ where
                 send_commands.send(register_cmd).expect("TODO");
 
                 // Start miniprotocol as server.
-                let mp = StoreSync::<OT::StoreId, _, _>::new_server(peer_id, recv_peer, send_commands);
+                let mp = StoreSync::<OT::Hash, _, _>::new_server(peer_id, recv_peer, send_commands);
                 run_miniprotocol_async::<_, OT>(mp, false, stream_id, sender, receiver).await;
 
                 debug!("Store sync with peer (with initiative) exited.")
@@ -739,20 +739,20 @@ where
 /// Run the handler that owns this store and manages its state. This handler is typically run in
 /// its own tokio thread.
 pub(crate) async fn run_handler<OT: OdysseyType, T>(
-    mut store: State<OT::ECGHeader<T>, T, OT::StoreId>,
-    mut recv_commands: UnboundedReceiver<StoreCommand<OT::ECGHeader<T>, T>>,
-    send_commands_untyped: UnboundedSender<UntypedStoreCommand<OT::StoreId, <OT::ECGHeader<T> as ECGHeader<T>>::HeaderId, OT::ECGHeader<T>>>,
-    mut recv_commands_untyped: UnboundedReceiver<UntypedStoreCommand<OT::StoreId, <OT::ECGHeader<T> as ECGHeader<T>>::HeaderId, OT::ECGHeader<T>>>,
+    mut store: State<OT::StoreId, OT::ECGHeader, T, OT::Hash>,
+    mut recv_commands: UnboundedReceiver<StoreCommand<OT::ECGHeader, T>>,
+    send_commands_untyped: UnboundedSender<UntypedStoreCommand<OT::Hash, <OT::ECGHeader as ECGHeader>::HeaderId, OT::ECGHeader>>,
+    mut recv_commands_untyped: UnboundedReceiver<UntypedStoreCommand<OT::Hash, <OT::ECGHeader as ECGHeader>::HeaderId, OT::ECGHeader>>,
     shared_state: SharedState<OT::StoreId>,
 )
 where
-    <OT as OdysseyType>::ECGHeader<T>: Send + Clone + Serialize + for<'d> Deserialize<'d> + 'static,
-    <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::Body: ECGBody<T> + Send,
-    <<OT as OdysseyType>::ECGHeader<T> as ECGHeader<T>>::HeaderId: Send + Serialize + for<'d> Deserialize<'d>,
+    <OT as OdysseyType>::ECGHeader: Send + Clone + Serialize + for<'d> Deserialize<'d> + 'static,
+    <<OT as OdysseyType>::ECGHeader as ECGHeader>::Body: ECGBody<T> + Send,
+    <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId: Send + Serialize + for<'d> Deserialize<'d>,
     T::Op: Serialize,
     T: CRDT<Time = OT::Time> + Clone + Send + 'static + for<'d> Deserialize<'d>,
 {
-    let mut listeners: Vec<UnboundedSender<StateUpdate<OT::ECGHeader<T>, T>>> = vec![];
+    let mut listeners: Vec<UnboundedSender<StateUpdate<OT::ECGHeader, T>>> = vec![];
 
     // TODO: Check when done
     loop {
@@ -919,7 +919,7 @@ where
                                             send_commands_untyped.send(register_cmd).expect("TODO");
 
                                             // Start miniprotocol as client.
-                                            let mp = StoreSync::<OT::StoreId, _, _>::new_client(peer, send_commands_untyped);
+                                            let mp = StoreSync::<OT::Hash, _, _>::new_client(peer, send_commands_untyped);
                                             run_miniprotocol_async::<_, OT>(mp, true, stream_id, sender, receiver).await;
                                             debug!("Store sync with peer (without initiative) exited.")
                                         })
@@ -987,7 +987,7 @@ where
     debug!("Store thread exiting.");
 }
 
-pub(crate) enum StoreCommand<Header: ECGHeader<T>, T> {
+pub(crate) enum StoreCommand<Header: ECGHeader, T> {
     Apply {
         operation_header: Header,     // <Hash, T>,
         operation_body: Header::Body, // <Hash, T>,
@@ -998,7 +998,7 @@ pub(crate) enum StoreCommand<Header: ECGHeader<T>, T> {
     },
 }
 
-pub enum StateUpdate<Header: ECGHeader<T>, T> {
+pub enum StateUpdate<Header: ECGHeader, T> {
     Downloading {
         // Percent of the state that we've downloaded (0 - 100).
         percent: u64,
@@ -1075,7 +1075,7 @@ fn handle_merkle_peer_request_helper<H: Copy>(piece_hashes: &[H], piece_ids: &[R
     handle_peer_request_range_helper(piece_hashes, piece_ids)
 }
 
-fn handle_piece_peer_request_helper<Header: ecg::ECGHeader<T>, T: CRDT, Hash>(state_machine: &StateMachine<Header, T, Hash>, piece_ids: &[Range<u64>]) -> Option<Vec<Option<Vec<u8>>>> {
+fn handle_piece_peer_request_helper<StoreId, Header: ecg::ECGHeader, T: CRDT, Hash>(state_machine: &StateMachine<StoreId, Header, T, Hash>, piece_ids: &[Range<u64>]) -> Option<Vec<Option<Vec<u8>>>> {
     // TODO: Can we avoid these clones?
     match state_machine {
         StateMachine::DownloadingMetadata { .. } => None,
@@ -1100,3 +1100,4 @@ fn handle_peer_request_range_helper<T: Clone>(piece_hashes: &[T], piece_ids: &[R
     let hashes: Vec<_> = piece_ids.iter().cloned().flatten().map(|i| piece_hashes.get(i as usize).expect("TODO: Properly handle invalid requests").clone()).collect();
     hashes
 }
+

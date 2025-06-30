@@ -67,7 +67,7 @@ where
 impl<
         Hash: Clone + Copy + Debug + Ord + util::Hash,
         T: CRDT<Time = OperationId<HeaderId<Hash>>>,
-    > ECGHeader<T> for Header<Hash, T>
+    > ECGHeader for Header<Hash, T>
 where
     <T as CRDT>::Op: Serialize,
     Hash: Serialize, // TODO
@@ -108,21 +108,24 @@ where
     }
 
     // Replace OperationId<H> with T::Time? Or add another associated type to ECGHeader?
-    fn zip_operations_with_time(&self, body: Self::Body) -> Vec<(T::Time, T::Op)> {
-        let times = self.get_operation_times(&body);
-        let ops = body.operations();
-        times.into_iter().zip(ops).collect()
+    fn zip_operations_with_time<A>(&self, body: Self::Body) -> Vec<(A::Time, A::Op)> where A: CRDT {
+        // let times = self.get_operation_times(&body);
+        // let ops = body.operations();
+        // times.into_iter().zip(ops).collect();
+        todo!()
+
     }
 
-    fn get_operation_times(&self, body: &Self::Body) -> Vec<T::Time> {
-        let header_id = Some(self.get_header_id());
-        let operations_c = body.operations_count();
-        (0..operations_c)
-            .map(move |i| OperationId {
-                header_id,
-                operation_position: i,
-            })
-            .collect()
+    fn get_operation_times<A>(&self, body: &Self::Body) -> Vec<A::Time> where A: CRDT {
+        // let header_id = Some(self.get_header_id());
+        // let operations_c = body.operations_count();
+        // (0..operations_c)
+        //     .map(move |i| OperationId {
+        //         header_id,
+        //         operation_position: i,
+        //     })
+        //     .collect();
+        todo!()
     }
 }
 
@@ -187,7 +190,7 @@ impl<HeaderId> OperationId<HeaderId> {
     }
 }
 
-impl<Header: ECGHeader<T>, T: CRDT> CausalState for ecg::State<Header, T> {
+impl<Header: ECGHeader, T: CRDT> CausalState for ecg::State<Header, T> {
     type Time = OperationId<Header::HeaderId>;
 
     fn happens_before(&self, a: &Self::Time, b: &Self::Time) -> bool {
@@ -239,9 +242,9 @@ impl<T: CRDT> ECGBody<T> for TestBody<T> {
 }
 
 // For testing, just have the header store the parent ids.
-impl<T: CRDT> ECGHeader<T> for TestHeader<T> {
+impl<A: CRDT> ECGHeader for TestHeader<A> {
     type HeaderId = u32;
-    type Body = TestBody<T>;
+    type Body = TestBody<A>;
 
     fn get_parent_ids(&self) -> &[u32] {
         &self.parent_ids
@@ -259,15 +262,17 @@ impl<T: CRDT> ECGHeader<T> for TestHeader<T> {
         todo!()
     }
 
-    fn zip_operations_with_time(&self, body: Self::Body) -> Vec<(T::Time, T::Op)>
+    // JP: TODO: Move this to ECGBody?
+    fn zip_operations_with_time<T>(&self, body: Self::Body) -> Vec<(T::Time, T::Op)>
     where
+        T: CRDT,
         Self::Body: ECGBody<T>,
     {
         let v: Vec<_> = todo!();
         v
     }
 
-    fn get_operation_times(&self, body: &Self::Body) -> Vec<T::Time> {
+    fn get_operation_times<T>(&self, body: &Self::Body) -> Vec<T::Time> where T: CRDT, {
         let v: Vec<_> = todo!();
         v
     }

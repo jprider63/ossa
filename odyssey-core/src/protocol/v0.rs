@@ -18,7 +18,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use crate::{auth::DeviceId, core::{OdysseyType, StoreStatuses}, network::{
     multiplexer::{run_miniprotocol_async, Multiplexer, MultiplexerCommand, Party, StreamId},
     protocol::MiniProtocol,
-}};
+}, store::ecg::ECGHeader};
 use crate::protocol::MiniProtocolArgs;
 use crate::protocol::heartbeat::v0::Heartbeat;
 use crate::protocol::manager::v0::Manager;
@@ -31,7 +31,7 @@ pub(crate) enum MiniProtocols<StoreId, Hash, HeaderId, Header> {
     Manager(Manager<StoreId, Hash, HeaderId, Header>),
 }
 
-impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug + Serialize + for<'a> Deserialize<'a>, Hash, HeaderId, Header> MiniProtocols<StoreId, Hash, HeaderId, Header> {
+impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug + Serialize + for<'a> Deserialize<'a>, Hash: Send, HeaderId: Send, Header: Send> MiniProtocols<StoreId, Hash, HeaderId, Header> {
     pub(crate) async fn run_async<O: OdysseyType>(
         self,
         is_client: bool,
@@ -58,7 +58,7 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug + Serialize + for<'
 // N - (N is odd for client, even for server):
 //     - StoreSync i
 /// Miniprotocols initially run when connected for V0.
-fn initial_miniprotocols<StoreId, Hash, HeaderId, Header>(party: Party, args: MiniProtocolArgs<StoreId>, multiplexer_cmd_send: UnboundedSender<MultiplexerCommand>) -> Vec<MiniProtocols<StoreId, Hash, HeaderId, Header>> {
+fn initial_miniprotocols<StoreId, Hash, HeaderId, Header>(party: Party, args: MiniProtocolArgs<StoreId, Hash, HeaderId, Header>, multiplexer_cmd_send: UnboundedSender<MultiplexerCommand>) -> Vec<MiniProtocols<StoreId, Hash, HeaderId, Header>> {
     let (client_chan, server_chan) = if let Party::Client = party {
         (Some(args.manager_channel), None)
     } else {
@@ -73,15 +73,15 @@ fn initial_miniprotocols<StoreId, Hash, HeaderId, Header>(party: Party, args: Mi
     ]
 }
 
-pub(crate) async fn run_miniprotocols_server<O: OdysseyType>(stream: TcpStream, args: MiniProtocolArgs<O::StoreId>) {
+pub(crate) async fn run_miniprotocols_server<O: OdysseyType>(stream: TcpStream, args: MiniProtocolArgs<O::StoreId, O::Hash, <O::ECGHeader as ECGHeader>::HeaderId, O::ECGHeader>) {
     run_miniprotocols::<O>(stream, args, Party::Server).await
 }
 
-pub(crate) async fn run_miniprotocols_client<O: OdysseyType>(stream: TcpStream, args: MiniProtocolArgs<O::StoreId>) {
+pub(crate) async fn run_miniprotocols_client<O: OdysseyType>(stream: TcpStream, args: MiniProtocolArgs<O::StoreId, O::Hash, <O::ECGHeader as ECGHeader>::HeaderId, O::ECGHeader>) {
     run_miniprotocols::<O>(stream, args, Party::Client).await
 }
 
-async fn run_miniprotocols<O: OdysseyType>(stream: TcpStream, args: MiniProtocolArgs<O::StoreId>, party: Party) {
+async fn run_miniprotocols<O: OdysseyType>(stream: TcpStream, args: MiniProtocolArgs<O::StoreId, O::Hash, <O::ECGHeader as ECGHeader>::HeaderId, O::ECGHeader>, party: Party) {
     // Start multiplexer.
     let (mux_cmd_send, mux_cmd_recv) = mpsc::unbounded_channel();
     let multiplexer = Multiplexer::new(party, mux_cmd_recv);

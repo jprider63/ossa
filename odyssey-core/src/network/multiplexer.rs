@@ -23,6 +23,7 @@ use tokio_util::sync::{PollSendError, PollSender};
 use tracing::{debug, error, trace, warn};
 
 use crate::core::{OdysseyType, StoreStatuses};
+use crate::store::ecg::ECGHeader;
 use crate::{
     network::protocol::{MiniProtocol, ProtocolError},
     protocol::v0::MiniProtocols,
@@ -77,7 +78,7 @@ impl Multiplexer {
     pub(crate) async fn run_with_miniprotocols<O: OdysseyType>(
         mut self,
         mut stream: TcpStream,
-        miniprotocols: Vec<MiniProtocols<O::StoreId, O::Hash, O::ECGHeader::HeaderId, O::ECGHeader>>,
+        miniprotocols: Vec<MiniProtocols<O::StoreId, O::Hash, <O::ECGHeader as ECGHeader>::HeaderId, O::ECGHeader>>,
     ) {
         debug!("run_with_miniprotocols: {:?}", self.party);
 

@@ -12,17 +12,17 @@ use crate::store::ecg::v0::TestHeader;
 use crate::store::ecg::{self, ECGHeader};
 use crate::util::UnboundChannel;
 
-fn run_ecg_sync<Header: ECGHeader<T> + Send + Clone + Debug, T: CRDT + Send>(
+fn run_ecg_sync<Header: ECGHeader + Send + Clone + Debug, T: CRDT + Send>(
     st1: &mut ecg::State<Header, T>,
     st2: &mut ecg::State<Header, T>,
 ) where
-    <Header as ECGHeader<T>>::HeaderId: Send,
+    <Header as ECGHeader>::HeaderId: Send,
 {
-    async fn future<Header: ECGHeader<T> + Send + Clone + Debug, T: CRDT + Send>(
+    async fn future<Header: ECGHeader + Send + Clone + Debug, T: CRDT + Send>(
         st1: &mut ecg::State<Header, T>,
         st2: &mut ecg::State<Header, T>,
     ) where
-        <Header as ECGHeader<T>>::HeaderId: Send,
+        <Header as ECGHeader>::HeaderId: Send,
     {
         let store_id = 0_u64;
         // let channel: Channel<bytes::Bytes> = Channel::new();

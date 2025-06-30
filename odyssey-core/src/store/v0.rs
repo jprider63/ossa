@@ -84,18 +84,18 @@ impl<H: Hash> MetadataHeader<H> {
 
     /// Compute the store id for the `MetadataHeader`.
     /// This function must be updated any time `MetadataHeader` is updated.
-    pub fn store_id(&self) -> H {
+    pub fn store_id<StoreId>(&self) -> StoreId where H: Into<StoreId> {
         let mut h = H::new();
         H::update(&mut h, self.nonce);
         H::update(&mut h, [self.protocol_version.as_byte()]);
         H::update(&mut h, self.store_type);
         H::update(&mut h, self.initial_state_size.to_be_bytes());
         H::update(&mut h, self.merkle_root);
-        H::finalize(h)
+        H::finalize(h).into()
     }
 
     /// Validate the metadata with respect to the store id.
-    pub fn validate_store_id(&self, store_id: H) -> bool {
+    pub fn validate_store_id<StoreId: Eq>(&self, store_id: StoreId) -> bool where H: Into<StoreId> {
         warn!("TODO: Check other properties like upper bounds on constants, etc");
         store_id == self.store_id()
     }
