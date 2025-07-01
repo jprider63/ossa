@@ -21,7 +21,7 @@ pub struct HeaderId<Hash>(Hash);
 
 // TODO: Move this to the right location.
 /// An ECG header.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 // #[derive(Clone, Typeable)]
 // #[tag = "v1"]
 pub struct Header<Hash> { // , T> {

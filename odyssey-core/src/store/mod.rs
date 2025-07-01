@@ -740,7 +740,7 @@ where
 /// its own tokio thread.
 pub(crate) async fn run_handler<OT: OdysseyType, T>(
     mut store: State<OT::StoreId, OT::ECGHeader, T, OT::Hash>,
-    mut recv_commands: UnboundedReceiver<StoreCommand<OT::ECGHeader, OT::ECGBody, T>>,
+    mut recv_commands: UnboundedReceiver<StoreCommand<OT::ECGHeader, OT::ECGBody<T>, T>>,
     send_commands_untyped: UnboundedSender<UntypedStoreCommand<OT::Hash, <OT::ECGHeader as ECGHeader>::HeaderId, OT::ECGHeader>>,
     mut recv_commands_untyped: UnboundedReceiver<UntypedStoreCommand<OT::Hash, <OT::ECGHeader as ECGHeader>::HeaderId, OT::ECGHeader>>,
     shared_state: SharedState<OT::StoreId>,
@@ -748,7 +748,7 @@ pub(crate) async fn run_handler<OT: OdysseyType, T>(
 where
     <OT as OdysseyType>::ECGHeader: Send + Clone + Serialize + for<'d> Deserialize<'d> + 'static,
     // <<OT as OdysseyType>::ECGHeader as ECGHeader>::Body: ECGBody<T> + Send,
-    <OT as OdysseyType>::ECGBody: ECGBody<T, Header = OT::ECGHeader> + Send,
+    <OT as OdysseyType>::ECGBody<T>: ECGBody<T, Header = OT::ECGHeader> + Send,
     <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId: Send + Serialize + for<'d> Deserialize<'d>,
     T::Op: Serialize,
     T: CRDT<Time = OT::Time> + Clone + Send + 'static + for<'d> Deserialize<'d>,
