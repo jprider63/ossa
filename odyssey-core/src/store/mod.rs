@@ -740,14 +740,15 @@ where
 /// its own tokio thread.
 pub(crate) async fn run_handler<OT: OdysseyType, T>(
     mut store: State<OT::StoreId, OT::ECGHeader, T, OT::Hash>,
-    mut recv_commands: UnboundedReceiver<StoreCommand<OT::ECGHeader, T>>,
+    mut recv_commands: UnboundedReceiver<StoreCommand<OT::ECGHeader, OT::ECGBody, T>>,
     send_commands_untyped: UnboundedSender<UntypedStoreCommand<OT::Hash, <OT::ECGHeader as ECGHeader>::HeaderId, OT::ECGHeader>>,
     mut recv_commands_untyped: UnboundedReceiver<UntypedStoreCommand<OT::Hash, <OT::ECGHeader as ECGHeader>::HeaderId, OT::ECGHeader>>,
     shared_state: SharedState<OT::StoreId>,
 )
 where
     <OT as OdysseyType>::ECGHeader: Send + Clone + Serialize + for<'d> Deserialize<'d> + 'static,
-    <<OT as OdysseyType>::ECGHeader as ECGHeader>::Body: ECGBody<T> + Send,
+    // <<OT as OdysseyType>::ECGHeader as ECGHeader>::Body: ECGBody<T> + Send,
+    <OT as OdysseyType>::ECGBody: ECGBody<T, Header = OT::ECGHeader> + Send,
     <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId: Send + Serialize + for<'d> Deserialize<'d>,
     T::Op: Serialize,
     T: CRDT<Time = OT::Time> + Clone + Send + 'static + for<'d> Deserialize<'d>,
@@ -816,7 +817,7 @@ where
                                 // the batched operations?
                                 let causal_state = OT::to_causal_state(&ecg_state);
                                 for (time, operation) in
-                                    operation_header.zip_operations_with_time(operation_body)
+                                    operation_body.zip_operations_with_time(&operation_header)
                                 {
                                     decrypted_state.latest_state = decrypted_state.latest_state.apply(causal_state, time, operation);
                                 }
@@ -987,10 +988,10 @@ where
     debug!("Store thread exiting.");
 }
 
-pub(crate) enum StoreCommand<Header: ECGHeader, T> {
+pub(crate) enum StoreCommand<Header: ECGHeader, Body, T> {
     Apply {
         operation_header: Header,     // <Hash, T>,
-        operation_body: Header::Body, // <Hash, T>,
+        operation_body: Body, // <Hash, T>,
     },
     // TODO: Support unsubscribe.
     SubscribeState {

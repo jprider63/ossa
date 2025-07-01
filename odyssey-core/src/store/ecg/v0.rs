@@ -24,7 +24,7 @@ pub struct HeaderId<Hash>(Hash);
 #[derive(Clone, Serialize)]
 // #[derive(Clone, Typeable)]
 // #[tag = "v1"]
-pub struct Header<Hash, T> {
+pub struct Header<Hash> { // , T> {
     /// A nonce to randomize the header.
     nonce: u8,
 
@@ -39,8 +39,8 @@ pub struct Header<Hash, T> {
     /// TODO: Eventually this should be of the encrypted body..
     operations_hash: Hash,
 
-    // TODO: DeviceId and UserId of device signing? Maybe whole auth chain?
-    phantom: PhantomData<T>,
+    // // TODO: DeviceId and UserId of device signing? Maybe whole auth chain?
+    // phantom: PhantomData<T>,
 }
 
 pub struct Body<Hash, T: CRDT> {
@@ -66,14 +66,14 @@ where
 
 impl<
         Hash: Clone + Copy + Debug + Ord + util::Hash,
-        T: CRDT<Time = OperationId<HeaderId<Hash>>>,
-    > ECGHeader for Header<Hash, T>
+        // T : CRDT<Time = OperationId<HeaderId<Hash>>>,
+    > ECGHeader for Header<Hash>
 where
-    <T as CRDT>::Op: Serialize,
+    // <T as CRDT>::Op: Serialize,
     Hash: Serialize, // TODO
 {
     type HeaderId = HeaderId<Hash>;
-    type Body = Body<Hash, T>;
+    // type Body = Body<Hash, T>;
 
     fn get_parent_ids(&self) -> &[HeaderId<Hash>] {
         &self.parent_ids
@@ -88,50 +88,57 @@ where
         true
     }
 
-    // TODO: Move this to ECG state?
-    fn new_header(parents: BTreeSet<Self::HeaderId>, body: &Body<Hash, T>) -> Self {
-        let mut rng = rand::thread_rng();
-        let nonce = rng.gen();
+    // // TODO: Move this to ECG state?
+    // fn new_header(parents: BTreeSet<Self::HeaderId>, body: &Body<Hash, T>) -> Self {
+    //     let mut rng = rand::thread_rng();
+    //     let nonce = rng.gen();
 
-        // Sort parent headers.
-        let parents = parents.into_iter().collect();
+    //     // Sort parent headers.
+    //     let parents = parents.into_iter().collect();
 
-        // TODO: Check for hash conflicts and generate another nonce?
+    //     // TODO: Check for hash conflicts and generate another nonce?
 
-        Header {
-            parent_ids: parents,
-            nonce,
-            operations_count: body.operations_count(),
-            operations_hash: body.get_hash(),
-            phantom: PhantomData,
-        }
-    }
+    //     Header {
+    //         parent_ids: parents,
+    //         nonce,
+    //         operations_count: body.operations_count(),
+    //         operations_hash: body.get_hash(),
+    //         phantom: PhantomData,
+    //     }
+    // }
 
-    // Replace OperationId<H> with T::Time? Or add another associated type to ECGHeader?
-    fn zip_operations_with_time<A>(&self, body: Self::Body) -> Vec<(A::Time, A::Op)> where A: CRDT {
-        // let times = self.get_operation_times(&body);
-        // let ops = body.operations();
-        // times.into_iter().zip(ops).collect();
-        todo!()
+    // // Replace OperationId<H> with T::Time? Or add another associated type to ECGHeader?
+    // fn zip_operations_with_time<A>(&self, body: Self::Body) -> Vec<(A::Time, A::Op)> where A: CRDT {
+    //     // let times = self.get_operation_times(&body);
+    //     // let ops = body.operations();
+    //     // times.into_iter().zip(ops).collect();
+    //     todo!()
 
-    }
+    // }
 
-    fn get_operation_times<A>(&self, body: &Self::Body) -> Vec<A::Time> where A: CRDT {
-        // let header_id = Some(self.get_header_id());
-        // let operations_c = body.operations_count();
-        // (0..operations_c)
-        //     .map(move |i| OperationId {
-        //         header_id,
-        //         operation_position: i,
-        //     })
-        //     .collect();
-        todo!()
-    }
+    // fn get_operation_times<A>(&self, body: &Self::Body) -> Vec<A::Time> where A: CRDT {
+    //     // let header_id = Some(self.get_header_id());
+    //     // let operations_c = body.operations_count();
+    //     // (0..operations_c)
+    //     //     .map(move |i| OperationId {
+    //     //         header_id,
+    //     //         operation_position: i,
+    //     //     })
+    //     //     .collect();
+    //     todo!()
+    // }
 }
 
 const MAX_OPERATION_COUNT: usize = 256;
 
-impl<Hash, T: CRDT> ECGBody<T> for Body<Hash, T> {
+impl<Hash, T: CRDT<Time = OperationId<HeaderId<Hash>>>> ECGBody<T> for Body<Hash, T> 
+where
+    <T as CRDT>::Op: Serialize,
+    Hash: Clone + Copy + Debug + Ord + util::Hash + Serialize,
+    // Self::Header: ECGHeader<HeaderId = HeaderId<Hash>>,
+{
+    type Header = Header<Hash>;
+
     fn new_body(operations: Vec<T::Op>) -> Self {
         if operations.len() > MAX_OPERATION_COUNT {
             panic!("Exceeded the maximum number of batched operations.");
@@ -152,6 +159,42 @@ impl<Hash, T: CRDT> ECGBody<T> for Body<Hash, T> {
             .len()
             .try_into()
             .expect("Unreachable: Length is bound by MAX_OPERATION_COUNT.")
+    }
+
+    fn new_header(&self, parents: BTreeSet<<Self::Header as ECGHeader>::HeaderId>) -> Self::Header
+    {
+        let mut rng = rand::thread_rng();
+        let nonce = rng.gen();
+
+        // Sort parent headers.
+        let parents = parents.into_iter().collect();
+
+        // TODO: Check for hash conflicts and generate another nonce?
+
+        Header {
+            parent_ids: parents,
+            nonce,
+            operations_count: self.operations_count(),
+            operations_hash: self.get_hash(),
+            // phantom: PhantomData,
+        }
+    }
+
+    fn zip_operations_with_time(self, header: &Self::Header) -> Vec<(<T as CRDT>::Time, <T as CRDT>::Op)> {
+        let times = self.get_operation_times(header);
+        let ops = self.operations();
+        times.into_iter().zip(ops).collect()
+    }
+
+    fn get_operation_times(&self, header: &Self::Header) -> Vec<<T as CRDT>::Time> {
+        let header_id = Some(header.get_header_id());
+        let operations_c = self.operations_count();
+        (0..operations_c)
+            .map(move |i| OperationId {
+                header_id,
+                operation_position: i,
+            })
+            .collect()
     }
 }
 
@@ -225,6 +268,8 @@ pub struct TestBody<T: CRDT> {
 }
 
 impl<T: CRDT> ECGBody<T> for TestBody<T> {
+    type Header = TestHeader<T>;
+
     fn new_body(operations: Vec<T::Op>) -> Self {
         TestBody { operations }
     }
@@ -239,12 +284,24 @@ impl<T: CRDT> ECGBody<T> for TestBody<T> {
             .try_into()
             .expect("Unreachable: Length is bound by MAX_OPERATION_COUNT.")
     }
+
+    fn zip_operations_with_time(self, header: &Self::Header) -> Vec<(<T as CRDT>::Time, <T as CRDT>::Op)> {
+        todo!()
+    }
+
+    fn get_operation_times(&self, header: &Self::Header) -> Vec<<T as CRDT>::Time> {
+        todo!()
+    }
+
+    fn new_header(&self, parents: BTreeSet<<Self::Header as ECGHeader>::HeaderId>) -> Self::Header {
+        todo!()
+    }
 }
 
 // For testing, just have the header store the parent ids.
 impl<A: CRDT> ECGHeader for TestHeader<A> {
     type HeaderId = u32;
-    type Body = TestBody<A>;
+    // type Body = TestBody<A>;
 
     fn get_parent_ids(&self) -> &[u32] {
         &self.parent_ids
@@ -258,22 +315,22 @@ impl<A: CRDT> ECGHeader for TestHeader<A> {
         true
     }
 
-    fn new_header(parents: BTreeSet<Self::HeaderId>, _body: &Self::Body) -> Self {
-        todo!()
-    }
+    // fn new_header(parents: BTreeSet<Self::HeaderId>, _body: &Self::Body) -> Self {
+    //     todo!()
+    // }
 
-    // JP: TODO: Move this to ECGBody?
-    fn zip_operations_with_time<T>(&self, body: Self::Body) -> Vec<(T::Time, T::Op)>
-    where
-        T: CRDT,
-        Self::Body: ECGBody<T>,
-    {
-        let v: Vec<_> = todo!();
-        v
-    }
+    // // JP: TODO: Move this to ECGBody?
+    // fn zip_operations_with_time<T>(&self, body: Self::Body) -> Vec<(T::Time, T::Op)>
+    // where
+    //     T: CRDT,
+    //     Self::Body: ECGBody<T>,
+    // {
+    //     let v: Vec<_> = todo!();
+    //     v
+    // }
 
-    fn get_operation_times<T>(&self, body: &Self::Body) -> Vec<T::Time> where T: CRDT, {
-        let v: Vec<_> = todo!();
-        v
-    }
+    // fn get_operation_times<T>(&self, body: &Self::Body) -> Vec<T::Time> where T: CRDT, {
+    //     let v: Vec<_> = todo!();
+    //     v
+    // }
 }

@@ -18,8 +18,8 @@ pub trait ECGHeader {
     // /// Type identifying operations that implements CausalOrder so that it can be used as CRDT::Time.
     // type OperationId;
 
-    /// Type associated with this header that implements ECGBody.
-    type Body;
+    // /// Type associated with this header that implements ECGBody.
+    // type Body;
 
     /// Return the parents ids of a node. If an empty slice is returned, the root node is the
     /// parent.
@@ -30,20 +30,21 @@ pub trait ECGHeader {
 
     fn validate_header(&self, header_id: Self::HeaderId) -> bool;
 
-    fn new_header(parents: BTreeSet<Self::HeaderId>, body: &Self::Body) -> Self;
+    // // TODO: Can we return the following instead? impl Iterator<(T::Time, Item = T::Time)>
+    // fn zip_operations_with_time<T>(&self, body: Self::Body) -> Vec<(T::Time, T::Op)>
+    // where
+    //     T: CRDT + Sized,
+    //     <Self as ECGHeader>::Body: ECGBody<T>;
 
-    // TODO: Can we return the following instead? impl Iterator<(T::Time, Item = T::Time)>
-    fn zip_operations_with_time<T>(&self, body: Self::Body) -> Vec<(T::Time, T::Op)>
-    where
-        T: CRDT + Sized,
-        <Self as ECGHeader>::Body: ECGBody<T>;
-
-    /// Retrieve the times for each operation in this ECG header and body.
-    // TODO: Can we return the following instead? impl Iterator<Item = T::Time>
-    fn get_operation_times<T>(&self, body: &Self::Body) -> Vec<T::Time> where T: CRDT;
+    // /// Retrieve the times for each operation in this ECG header and body.
+    // // TODO: Can we return the following instead? impl Iterator<Item = T::Time>
+    // fn get_operation_times<T>(&self, body: &Self::Body) -> Vec<T::Time> where T: CRDT;
 }
 
 pub trait ECGBody<T: CRDT> {
+    /// Header type associated with this body.
+    type Header: ECGHeader;
+
     /// Create a new body from a vector of operations.
     fn new_body(operations: Vec<T::Op>) -> Self;
 
@@ -52,6 +53,24 @@ pub trait ECGBody<T: CRDT> {
 
     /// The number of operations in this body.
     fn operations_count(&self) -> u8;
+
+    // fn new_header(&self, parents: BTreeSet<<Self::Header as ECGHeader>::HeaderId>) -> Self::Header
+    fn new_header(&self, parents: BTreeSet<<Self::Header as ECGHeader>::HeaderId>) -> Self::Header;
+    // fn new_header<HeaderId>(&self, parents: BTreeSet<HeaderId>) -> Self::Header
+    // where 
+    //     // Self::Header: ECGHeader;
+    //     Self::Header: ECGHeader<HeaderId = HeaderId>;
+
+
+    // TODO: Can we return the following instead? impl Iterator<(T::Time, Item = T::Time)>
+    fn zip_operations_with_time(self, header: &Self::Header) -> Vec<(T::Time, T::Op)>;
+    // where
+        // T: CRDT + Sized,
+        // <Self as ECGHeader>::Body: ECGBody<T>;
+
+    /// Retrieve the times for each operation in this ECG header and body.
+    // TODO: Can we return the following instead? impl Iterator<Item = T::Time>
+    fn get_operation_times(&self, header: &Self::Header) -> Vec<T::Time>;
 }
 
 #[derive(Clone, Debug)]

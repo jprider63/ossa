@@ -211,8 +211,8 @@ impl<OT: OdysseyType> Odyssey<OT> {
     where
         T: CRDT<Time = OT::Time> + Clone + Send + 'static + Typeable + Serialize + for<'d> Deserialize<'d>,
         T::Op: Serialize,
-        <OT as OdysseyType>::ECGHeader: Send + Clone + 'static + Serialize + for<'d> Deserialize<'d>,
-        <<OT as OdysseyType>::ECGHeader as ECGHeader>::Body: Send + ECGBody<T>,
+        OT::ECGHeader: Send + Clone + 'static + Serialize + for<'d> Deserialize<'d>,
+        OT::ECGBody: Send + ECGBody<T, Header = OT::ECGHeader>,
         <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId: Send + Serialize + for<'d> Deserialize<'d>,
     {
         // Create store by generating nonce, etc.
@@ -246,8 +246,8 @@ impl<OT: OdysseyType> Odyssey<OT> {
         // storage: S,
     ) -> StoreHandle<OT, T>
     where
-        <OT as OdysseyType>::ECGHeader: Send + Clone + 'static,
-        <<OT as OdysseyType>::ECGHeader as ECGHeader>::Body: Send + ECGBody<T>,
+        OT::ECGHeader: Send + Clone + 'static,
+        OT::ECGBody: Send + ECGBody<T, Header = OT::ECGHeader>,
         <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId: Send,
         T: CRDT<Time = OT::Time> + Clone + Send + 'static + for<'d> Deserialize<'d>,
         T::Op: Serialize,
@@ -353,8 +353,8 @@ impl<OT: OdysseyType> Odyssey<OT> {
         store: store::State<OT::StoreId, OT::ECGHeader, T, OT::Hash>,
     ) -> StoreHandle<OT, T>
     where
-        <OT as OdysseyType>::ECGHeader: Send + Clone + 'static + for<'d> Deserialize<'d> + Serialize,
-        <<OT as OdysseyType>::ECGHeader as ECGHeader>::Body: ECGBody<T> + Send,
+        OT::ECGHeader: Send + Clone + 'static + for<'d> Deserialize<'d> + Serialize,
+        OT::ECGBody: Send + ECGBody<T, Header = OT::ECGHeader>,
         <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId: Send + for<'d> Deserialize<'d> + Serialize,
         T::Op: Serialize,
         T: CRDT<Time = OT::Time> + Clone + Send + 'static + for<'d> Deserialize<'d>,
@@ -363,7 +363,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
 
         // Create channels to handle requests and send updates.
         let (send_commands, recv_commands) =
-            tokio::sync::mpsc::unbounded_channel::<store::StoreCommand<OT::ECGHeader, T>>();
+            tokio::sync::mpsc::unbounded_channel::<store::StoreCommand<OT::ECGHeader, OT::ECGBody, T>>();
         let (send_commands_untyped, recv_commands_untyped) =
             tokio::sync::mpsc::unbounded_channel::<store::UntypedStoreCommand<OT::Hash, <OT::ECGHeader as ECGHeader>::HeaderId, OT::ECGHeader>>();
 
@@ -424,7 +424,7 @@ where
     T::Op: Serialize,
 {
     // future_handle: JoinHandle<()>, // JP: Maybe this should be owned by `Odyssey`?
-    send_command_chan: UnboundedSender<StoreCommand<O::ECGHeader, T>>,
+    send_command_chan: UnboundedSender<StoreCommand<O::ECGHeader, O::ECGBody, T>>,
     phantom: PhantomData<O>,
 }
 
@@ -434,6 +434,7 @@ pub trait OdysseyType: 'static {
     type Hash: util::Hash + Debug + Display + Copy + Ord + Send + Sync + 'static + Serialize + for<'a> Deserialize<'a> + Into<Self::StoreId>; // Hashable instead of AsRef???
     // type ECGHeader<T: CRDT<Time = Self::Time, Op: Serialize>>: store::ecg::ECGHeader + Debug + Send;
     type ECGHeader: store::ecg::ECGHeader<HeaderId: Send + Sync + Serialize + for<'a> Deserialize<'a>> + Debug + Send + Serialize + for<'a> Deserialize<'a>;
+    type ECGBody;
     type Time;
     type CausalState<T: CRDT<Time = Self::Time, Op: Serialize>>: CausalState<Time = Self::Time>;
     // type OperationId;
@@ -456,7 +457,7 @@ where
         op: T::Op,
     ) -> T::Time
     where
-        <<O as OdysseyType>::ECGHeader as ECGHeader>::Body: ECGBody<T>,
+        <O as OdysseyType>::ECGBody: ECGBody<T, Header = O::ECGHeader>,
     {
         self.apply_batch(parents, vec![op]).pop().unwrap()
     }
@@ -468,7 +469,7 @@ where
         op: Vec<T::Op>,
     ) -> Vec<T::Time>
     where
-        <<O as OdysseyType>::ECGHeader as ECGHeader>::Body: ECGBody<T>,
+        <O as OdysseyType>::ECGBody: ECGBody<T, Header = O::ECGHeader>,
     {
         // TODO: Divide into 256 operation chunks.
         if op.is_empty() {
@@ -477,9 +478,9 @@ where
 
         // Create ECG header and body.
         let body =
-            <<<O as OdysseyType>::ECGHeader as ECGHeader>::Body as ECGBody<T>>::new_body(op);
-        let header = O::ECGHeader::new_header(parents, &body);
-        let times = todo!("TODO: FIXME XXX"); // header.get_operation_times(&body);
+            <<O as OdysseyType>::ECGBody as ECGBody<T>>::new_body(op);
+        let header = body.new_header(parents);
+        let times = body.get_operation_times(&header);
 
         self.send_command_chan.send(StoreCommand::Apply {
             operation_header: header,
