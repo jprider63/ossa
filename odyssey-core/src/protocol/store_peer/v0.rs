@@ -304,7 +304,7 @@ impl<Hash: Debug + Serialize + for<'a> Deserialize<'a> + Send + Clone, HeaderId:
                             let tip = ecg_state.tips().iter().cloned().collect();
                             let msg = MsgStoreSyncRequest::ECGSync { meet: ecg_status.meet, tip };
                             send(&mut stream, msg).await.expect("TODO");
-                            let MsgStoreSyncPieceResponse(result) = receive(&mut stream).await.expect("TODO");
+                            let MsgStoreECGSyncResponse(result) = receive(&mut stream).await.expect("TODO");
                             match result {
                                 StoreSyncResponse::Response(operations) => {
                                     todo!();
@@ -375,11 +375,11 @@ impl<Hash: Debug + Serialize + for<'a> Deserialize<'a> + Send + Clone, HeaderId:
                         self.run_client_helper::<_, Vec<Range<u64>>, Vec<Option<Vec<u8>>>, MsgStoreSyncPieceResponse>(&mut stream, ranges, build_command, build_response).await;
                     }
                     MsgStoreSyncRequest::ECGSync { meet, tip } => {
-                        const fn build_command<Hash, HeaderId, Header>(req: HandlePeerRequest<(Vec<HeaderId>, Vec<HeaderId>), Vec<()>>) -> UntypedStoreCommand<Hash, HeaderId, Header> {
+                        const fn build_command<Hash, HeaderId, Header>(req: HandlePeerRequest<(Vec<HeaderId>, Vec<HeaderId>), Vec<(Header, RawECGBody)>>) -> UntypedStoreCommand<Hash, HeaderId, Header> {
                             UntypedStoreCommand::HandleECGSyncRequest(req)
                         }
-                        const fn build_response<Header>(h: StoreSyncResponse<Vec<()>>) -> MsgStoreECGSyncResponse<Header> {
-                            todo!()
+                        const fn build_response<Header>(h: StoreSyncResponse<Vec<(Header, RawECGBody)>>) -> MsgStoreECGSyncResponse<Header> {
+                            MsgStoreECGSyncResponse(h)
                         }
                         self.run_client_helper::<_, _, _, _>(&mut stream, (meet, tip), build_command, build_response).await;
                     }

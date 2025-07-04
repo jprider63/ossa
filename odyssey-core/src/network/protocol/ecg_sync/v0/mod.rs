@@ -514,3 +514,43 @@ impl<H: ECGHeader, T: CRDT> TryInto<MsgECGSyncData<H, T>> for MsgECGSync<H, T> {
         }
     }
 }
+
+
+
+
+// What's the goal? Long term: Request all operations that responder has that initiator doesn't have (R \ I).
+// At this step, compute unknown frontier? (Only responder knows it? Or return it?)
+//
+// The following assumes a snapshot of the ECG DAG
+//
+// Initiator        Responder
+// ---------        ---------
+// tips_i      ->
+//                  // if we don't have any of their tips, our tips are either ancestors or branches
+//                  //    We don't care about ancestors, but we do want to let them know about branches
+//                  for their tips we do have, the tips' children are in the unknown frontier
+//                  for their tips we don't have, our tips are either their ancestors or branches
+//                     We don't care about their ancestors, but we do want to let them know about branches
+//
+//                  Mark all their tips and the tips' ancestors as know by them?
+//
+//             <-   tips_r \ tips_i (and potentially their exponential ancestors?)
+// 
+// have_bitmap ->   If they have the tip we suggested, it's an ancestor so we're done with that tip (it's fine to add children since we don't have children?).
+//                     Mark all the tips and the tip's ancestors as know by them?
+//                  If they don't have the tip, it's a branch
+//             <-      send exponential ancestors (queue order by reverse depth?)
+//                     
+// have_bitmap ->   ...
+//
+// 
+// Return the frontier? Or the wants? Or the wanted operations themselves?
+// If don't have anything to share, tell them to wait?
+//
+//
+// Downsides: O(N) time + space for responder, especially for marking operations as known. Could overshoot and report more wants than necessary
+// Good: logN network communication
+//
+// Byzantine resistance: Probably? As long as initiator validates the provided responses. The responder is upper bounded by the depth of its DAG. The intiator isn't upper bounded though so cut off the peer after some threshold of ? Also cut off peer if I has acknowledged a have but the responder hasn't shared any operations?
+//
+ 

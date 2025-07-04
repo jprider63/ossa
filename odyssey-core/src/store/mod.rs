@@ -9,7 +9,7 @@ use std::{collections::{BTreeMap, BTreeSet}, ops::Range};
 use std::fmt::Debug;
 use typeable::{TypeId, Typeable};
 
-use crate::{auth::DeviceId, core::{OdysseyType, SharedState}, network::{multiplexer::{run_miniprotocol_async, SpawnMultiplexerTask}, protocol::MiniProtocol}, protocol::{manager::v0::PeerManagerCommand, store_peer::v0::{MsgStoreSyncRequest, StoreSync, StoreSyncCommand}}, store::{ecg::{ECGBody, ECGHeader}, v0::{MERKLE_REQUEST_LIMIT, PIECE_REQUEST_LIMIT, PIECE_SIZE}}, util::{self, compress_consecutive_into_ranges}};
+use crate::{auth::DeviceId, core::{OdysseyType, SharedState}, network::{multiplexer::{run_miniprotocol_async, SpawnMultiplexerTask}, protocol::MiniProtocol}, protocol::{manager::v0::PeerManagerCommand, store_peer::v0::{MsgStoreSyncRequest, RawECGBody, StoreSync, StoreSyncCommand}}, store::{ecg::{ECGBody, ECGHeader}, v0::{MERKLE_REQUEST_LIMIT, PIECE_REQUEST_LIMIT, PIECE_SIZE}}, util::{self, compress_consecutive_into_ranges}};
 
 pub mod ecg;
 pub mod v0; // TODO: Move this to network::protocol
@@ -417,7 +417,13 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
         }
     }
 
-    fn handle_ecg_sync_request(&mut self, peer: DeviceId, piece_ids: (Vec<Header::HeaderId>, Vec<Header::HeaderId>), response_chan: Sender<HandlePeerResponse<Vec<()>>>) {
+    fn handle_ecg_sync_request(&mut self, peer: DeviceId, request: (Vec<Header::HeaderId>, Vec<Header::HeaderId>), response_chan: Sender<HandlePeerResponse<Vec<(Header, RawECGBody)>>>) {
+        // JP: Instead of receiving the meet, receive the frontier of what they need? Or have an
+        // enum where that's one option (but what if a new branch from the root is added)??
+        let (meet, tips) = request;
+        // Send everything after the meet (that they don't have). Update meet? 
+
+        // Traverse backwards from our tip + stop once we get to something they have
         todo!();
     }
 
@@ -1041,7 +1047,7 @@ pub(crate) enum UntypedStoreCommand<Hash, HeaderId, Header> {
     HandleMetadataPeerRequest(HandlePeerRequest<(), v0::MetadataHeader<Hash>>),
     HandleMerklePeerRequest(HandlePeerRequest<Vec<Range<u64>>, Vec<Hash>>),
     HandlePiecePeerRequest(HandlePeerRequest<Vec<Range<u64>>, Vec<Option<Vec<u8>>>>),
-    HandleECGSyncRequest(HandlePeerRequest<(Vec<HeaderId>, Vec<HeaderId>), Vec<()>>),
+    HandleECGSyncRequest(HandlePeerRequest<(Vec<HeaderId>, Vec<HeaderId>), Vec<(Header, RawECGBody)>>), // (Meet, Tips)
     RegisterIncomingPeerSyncing {
         peer: DeviceId,
     },
