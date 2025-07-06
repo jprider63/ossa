@@ -102,6 +102,17 @@ impl<HeaderId, Header> UntypedState<HeaderId, Header> {
     pub fn tips(&self) -> &BTreeSet<HeaderId> {
         &self.tips
     }
+
+    pub fn contains(&self, h: &HeaderId) -> bool
+    where
+        HeaderId: Ord
+    {
+        if let Some(_node_info) = self.node_info_map.get(h) {
+            true
+        } else {
+            false
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -203,11 +214,7 @@ impl<Header: ECGHeader, T: CRDT> State<Header, T> {
     // }
 
     pub fn contains(&self, h: &Header::HeaderId) -> bool {
-        if let Some(_node_info) = self.state.node_info_map.get(h) {
-            true
-        } else {
-            false
-        }
+        self.state.contains(h)
     }
 
     pub fn get_header(&self, n: &Header::HeaderId) -> Option<&Header> {

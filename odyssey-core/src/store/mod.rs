@@ -417,15 +417,15 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
         }
     }
 
-    fn handle_ecg_sync_request(&mut self, peer: DeviceId, request: (Vec<Header::HeaderId>, Vec<Header::HeaderId>), response_chan: Sender<HandlePeerResponse<Vec<(Header, RawECGBody)>>>) {
-        // JP: Instead of receiving the meet, receive the frontier of what they need? Or have an
-        // enum where that's one option (but what if a new branch from the root is added)??
-        let (meet, tips) = request;
-        // Send everything after the meet (that they don't have). Update meet? 
+    // fn handle_ecg_sync_request(&mut self, peer: DeviceId, request: (Vec<Header::HeaderId>, Vec<Header::HeaderId>), response_chan: Sender<HandlePeerResponse<Vec<(Header, RawECGBody)>>>) {
+    //     // JP: Instead of receiving the meet, receive the frontier of what they need? Or have an
+    //     // enum where that's one option (but what if a new branch from the root is added)??
+    //     let (meet, tips) = request;
+    //     // Send everything after the meet (that they don't have). Update meet? 
 
-        // Traverse backwards from our tip + stop once we get to something they have
-        todo!();
-    }
+    //     // Traverse backwards from our tip + stop once we get to something they have
+    //     todo!();
+    // }
 
     fn handle_received_metadata(&mut self, peer: DeviceId, metadata: MetadataHeader<Hash>) {
         debug!("Recieved metadata from peer ({peer}): {metadata:?}");
@@ -638,20 +638,20 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
         self.send_sync_requests();
     }
 
-    fn handle_received_updated_meet(&mut self, peer: DeviceId, meet: Vec<Header::HeaderId>) {
-        // Mark peer as ready.
-        self.update_outgoing_peer_to_ready(&peer);
+    // fn handle_received_updated_meet(&mut self, peer: DeviceId, meet: Vec<Header::HeaderId>) {
+    //     // Mark peer as ready.
+    //     self.update_outgoing_peer_to_ready(&peer);
 
-        let Some(info) = self.peers.get_mut(&peer) else {
-            error!("Invariant violated. Attempted to update an unknown peer: {}", peer);
-            panic!();
-        };
+    //     let Some(info) = self.peers.get_mut(&peer) else {
+    //         error!("Invariant violated. Attempted to update an unknown peer: {}", peer);
+    //         panic!();
+    //     };
 
-        // JP: Join current meet with new meet?
-        debug!("JP: Join current meet with new meet?");
-        info.ecg_status.meet = meet;
-        info.ecg_status.meet_needs_update = false;
-    }
+    //     // JP: Join current meet with new meet?
+    //     debug!("JP: Join current meet with new meet?");
+    //     info.ecg_status.meet = meet;
+    //     info.ecg_status.meet_needs_update = false;
+    // }
 }
 
 fn update_listeners<Header: ecg::ECGHeader + Clone, T: CRDT + Clone>(listeners: &[UnboundedSender<StateUpdate<Header, T>>], latest_state: &T, ecg_state: &ecg::State<Header, T>) {
@@ -673,7 +673,7 @@ async fn manage_peers<OT: OdysseyType, T: CRDT<Time = OT::Time> + Clone + Send +
 )
 where
     T::Op: Serialize,
-    OT::ECGHeader: Clone + Serialize + for<'d> Deserialize<'d>,
+    OT::ECGHeader: Clone + Serialize + for<'d> Deserialize<'d> + Send + Sync,
     <OT::ECGHeader as ECGHeader>::HeaderId: Serialize + for<'d> Deserialize<'d> + Send,
     //OT::ECGHeader<T>::HeaderId : Send,
     //T: Send,
@@ -752,7 +752,7 @@ pub(crate) async fn run_handler<OT: OdysseyType, T>(
     shared_state: SharedState<OT::StoreId>,
 )
 where
-    <OT as OdysseyType>::ECGHeader: Send + Clone + Serialize + for<'d> Deserialize<'d> + 'static,
+    <OT as OdysseyType>::ECGHeader: Send + Sync + Clone + Serialize + for<'d> Deserialize<'d> + 'static,
     // <<OT as OdysseyType>::ECGHeader as ECGHeader>::Body: ECGBody<T> + Send,
     <OT as OdysseyType>::ECGBody<T>: ECGBody<T, Header = OT::ECGHeader> + Send,
     <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId: Send + Serialize + for<'d> Deserialize<'d>,
@@ -972,9 +972,9 @@ where
                     UntypedStoreCommand::HandlePiecePeerRequest(HandlePeerRequest { peer, request, response_chan }) => {
                         store.handle_piece_peer_request(peer, request, response_chan);
                     }
-                    UntypedStoreCommand::HandleECGSyncRequest(HandlePeerRequest { peer, request, response_chan }) => {
-                        store.handle_ecg_sync_request(peer, request, response_chan);
-                    }
+                    // UntypedStoreCommand::HandleECGSyncRequest(HandlePeerRequest { peer, request, response_chan }) => {
+                    //     store.handle_ecg_sync_request(peer, request, response_chan);
+                    // }
                     UntypedStoreCommand::ReceivedMetadata { peer, metadata } => {
                         store.handle_received_metadata(peer, metadata);
                     }
@@ -984,8 +984,11 @@ where
                     UntypedStoreCommand::ReceivedInitialStatePieces { peer, ranges, pieces } => {
                         store.handle_received_initial_state_pieces(peer, ranges, pieces, &listeners);
                     }
-                    UntypedStoreCommand::ReceivedUpdatedMeet { peer, meet } => {
-                        store.handle_received_updated_meet(peer, meet);
+                    // UntypedStoreCommand::ReceivedUpdatedMeet { peer, meet } => {
+                    //     store.handle_received_updated_meet(peer, meet);
+                    // }
+                    UntypedStoreCommand::ReceivedECGOperations { peer, operations } => {
+                        todo!()
                     }
                 }
             }
@@ -1047,7 +1050,7 @@ pub(crate) enum UntypedStoreCommand<Hash, HeaderId, Header> {
     HandleMetadataPeerRequest(HandlePeerRequest<(), v0::MetadataHeader<Hash>>),
     HandleMerklePeerRequest(HandlePeerRequest<Vec<Range<u64>>, Vec<Hash>>),
     HandlePiecePeerRequest(HandlePeerRequest<Vec<Range<u64>>, Vec<Option<Vec<u8>>>>),
-    HandleECGSyncRequest(HandlePeerRequest<(Vec<HeaderId>, Vec<HeaderId>), Vec<(Header, RawECGBody)>>), // (Meet, Tips)
+    // HandleECGSyncRequest(HandlePeerRequest<(Vec<HeaderId>, Vec<HeaderId>), Vec<(Header, RawECGBody)>>), // (Meet, Tips)
     RegisterIncomingPeerSyncing {
         peer: DeviceId,
     },
@@ -1065,9 +1068,9 @@ pub(crate) enum UntypedStoreCommand<Hash, HeaderId, Header> {
         ranges: Vec<Range<u64>>,
         pieces: Vec<Option<Vec<u8>>>,
     },
-    ReceivedUpdatedMeet {
+    ReceivedECGOperations {
         peer: DeviceId,
-        meet: Vec<HeaderId>,
+        operations: Vec<(Header, RawECGBody)>,
     },
 }
 

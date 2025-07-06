@@ -211,7 +211,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
     where
         T: CRDT<Time = OT::Time> + Clone + Send + 'static + Typeable + Serialize + for<'d> Deserialize<'d>,
         T::Op: Serialize,
-        OT::ECGHeader: Send + Clone + 'static + Serialize + for<'d> Deserialize<'d>,
+        OT::ECGHeader: Send + Sync + Clone + 'static + Serialize + for<'d> Deserialize<'d>,
         OT::ECGBody<T>: Send + ECGBody<T, Header = OT::ECGHeader>,
         <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId: Send + Serialize + for<'d> Deserialize<'d>,
     {
@@ -246,7 +246,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
         // storage: S,
     ) -> StoreHandle<OT, T>
     where
-        OT::ECGHeader: Send + Clone + 'static,
+        OT::ECGHeader: Send + Sync + Clone + 'static,
         OT::ECGBody<T>: Send + ECGBody<T, Header = OT::ECGHeader>,
         <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId: Send,
         T: CRDT<Time = OT::Time> + Clone + Send + 'static + for<'d> Deserialize<'d>,
@@ -353,7 +353,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
         store: store::State<OT::StoreId, OT::ECGHeader, T, OT::Hash>,
     ) -> StoreHandle<OT, T>
     where
-        OT::ECGHeader: Send + Clone + 'static + for<'d> Deserialize<'d> + Serialize,
+        OT::ECGHeader: Send + Sync + Clone + 'static + for<'d> Deserialize<'d> + Serialize,
         OT::ECGBody<T>: Send + ECGBody<T, Header = OT::ECGHeader>,
         <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId: Send + for<'d> Deserialize<'d> + Serialize,
         T::Op: Serialize,
