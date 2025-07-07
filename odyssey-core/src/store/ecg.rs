@@ -113,6 +113,81 @@ impl<HeaderId, Header> UntypedState<HeaderId, Header> {
             false
         }
     }
+
+    pub fn get_parents(&self, h: &HeaderId) -> Option<Vec<HeaderId>>
+    where
+        HeaderId: Ord + Copy,
+    {
+        let node_info = self.node_info_map.get(h)?;
+        self.dependency_graph
+            .parents(node_info.graph_index)
+            .iter(&self.dependency_graph)
+            .map(|(_, parent_idx)| self.dependency_graph.node_weight(parent_idx).map(|i| *i))
+            .try_collect()
+    }
+
+    pub fn get_parents_with_depth(
+        &self,
+        h: &HeaderId,
+    ) -> Option<Vec<(u64, HeaderId)>>
+    where
+        HeaderId: Ord + Copy,
+    {
+        let node_info = self.node_info_map.get(h)?;
+        self.dependency_graph
+            .parents(node_info.graph_index)
+            .iter(&self.dependency_graph)
+            .map(|(_, parent_idx)| {
+                self.dependency_graph
+                    .node_weight(parent_idx)
+                    .and_then(|parent_id| {
+                        self.node_info_map
+                            .get(parent_id)
+                            .map(|i| (i.depth, *parent_id))
+                    })
+            })
+            .try_collect()
+    }
+
+    /// Returns the children of the given node (with their depths) if it exists. If the returned array is
+    /// empty, the node is a leaf node.
+    pub fn get_children_with_depth(
+        &self,
+        h: &HeaderId,
+    ) -> Option<Vec<(Reverse<u64>, HeaderId)>>
+    where
+        HeaderId: Ord + Copy,
+    {
+        let node_info = self.node_info_map.get(h)?;
+        self.dependency_graph
+            .children(node_info.graph_index)
+            .iter(&self.dependency_graph)
+            .map(|(_, child_idx)| {
+                self.dependency_graph
+                    .node_weight(child_idx)
+                    .and_then(|child_id| {
+                        self.node_info_map
+                            .get(child_id)
+                            .map(|i| (Reverse(i.depth), *child_id))
+                    })
+            })
+            .try_collect()
+    }
+
+    pub(crate) fn get_header_depth(&self, n: &HeaderId) -> Option<u64>
+    where
+        HeaderId: Ord,
+    {
+        self.node_info_map.get(n).map(|i| i.depth)
+    }
+
+    pub(crate) fn get_header(&self, n: &HeaderId) -> Option<&Header>
+    where
+        HeaderId: Ord,
+    {
+        self.node_info_map.get(n).map(|i| &i.header)
+    }
+
 }
 
 #[derive(Debug)]
@@ -160,31 +235,13 @@ impl<Header: ECGHeader, T: CRDT> State<Header, T> {
         &self,
         h: &Header::HeaderId,
     ) -> Option<Vec<(u64, Header::HeaderId)>> {
-        let node_info = self.state.node_info_map.get(h)?;
-        self.state.dependency_graph
-            .parents(node_info.graph_index)
-            .iter(&self.state.dependency_graph)
-            .map(|(_, parent_idx)| {
-                self.state.dependency_graph
-                    .node_weight(parent_idx)
-                    .and_then(|parent_id| {
-                        self.state.node_info_map
-                            .get(parent_id)
-                            .map(|i| (i.depth, *parent_id))
-                    })
-            })
-            .try_collect()
+        self.state.get_parents_with_depth(h)
     }
 
     /// Returns the parents of the given node if it exists. If the returned array is
     /// empty, the node is a root node.
     pub fn get_parents(&self, h: &Header::HeaderId) -> Option<Vec<Header::HeaderId>> {
-        let node_info = self.state.node_info_map.get(h)?;
-        self.state.dependency_graph
-            .parents(node_info.graph_index)
-            .iter(&self.state.dependency_graph)
-            .map(|(_, parent_idx)| self.state.dependency_graph.node_weight(parent_idx).map(|i| *i))
-            .try_collect()
+        self.state.get_parents(h)
     }
 
     /// Returns the children of the given node (with their depths) if it exists. If the returned array is
@@ -193,20 +250,7 @@ impl<Header: ECGHeader, T: CRDT> State<Header, T> {
         &self,
         h: &Header::HeaderId,
     ) -> Option<Vec<(Reverse<u64>, Header::HeaderId)>> {
-        let node_info = self.state.node_info_map.get(h)?;
-        self.state.dependency_graph
-            .children(node_info.graph_index)
-            .iter(&self.state.dependency_graph)
-            .map(|(_, child_idx)| {
-                self.state.dependency_graph
-                    .node_weight(child_idx)
-                    .and_then(|child_id| {
-                        self.state.node_info_map
-                            .get(child_id)
-                            .map(|i| (Reverse(i.depth), *child_id))
-                    })
-            })
-            .try_collect()
+        self.state.get_children_with_depth(h)
     }
 
     // pub fn get_children(&self, n:&HeaderId) -> Vec<HeaderId> {
@@ -218,11 +262,11 @@ impl<Header: ECGHeader, T: CRDT> State<Header, T> {
     }
 
     pub fn get_header(&self, n: &Header::HeaderId) -> Option<&Header> {
-        self.state.node_info_map.get(n).map(|i| &i.header)
+        self.state.get_header(n)
     }
 
     pub fn get_header_depth(&self, n: &Header::HeaderId) -> Option<u64> {
-        self.state.node_info_map.get(n).map(|i| i.depth)
+        self.state.get_header_depth(n)
     }
 
     pub fn insert_header(&mut self, header: Header) -> bool {

@@ -498,6 +498,11 @@ where
     }
 }
 
+/// Check if the input is a power of two (inclusive of 0).
+pub(crate) fn is_power_of_two(x: u64) -> bool {
+    0 == (x & (x.wrapping_sub(1)))
+}
+
 mod test {
     use super::*;
 

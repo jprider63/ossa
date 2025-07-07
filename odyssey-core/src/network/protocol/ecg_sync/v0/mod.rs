@@ -1,4 +1,5 @@
 use crate::store::ecg::{self, ECGHeader};
+use crate::util::is_power_of_two;
 use async_session_types::{Eps, Recv, Send};
 use bitvec::{order::Msb0, BitArr};
 use odyssey_crdt::CRDT;
@@ -338,11 +339,6 @@ fn prepare_headers<Header: ECGHeader, T: CRDT>(
     go(state, send_queue, their_known, headers)
 }
 
-/// Check if the input is a power of two (inclusive of 0).
-fn is_power_of_two(x: u64) -> bool {
-    0 == (x & (x.wrapping_sub(1)))
-}
-
 fn handle_received_known<Header: ECGHeader, T: CRDT>(
     state: &ecg::State<Header, T>,
     their_known: &mut BTreeSet<Header::HeaderId>,
@@ -526,13 +522,14 @@ impl<H: ECGHeader, T: CRDT> TryInto<MsgECGSyncData<H, T>> for MsgECGSync<H, T> {
 // Initiator                  Responder
 // ---------                  ---------
 // tips_i                     ->
+//                                 Mark all their tips and the tips' ancestors as known by them?
+//
 //                                 // if we don't have any of their tips, our tips are either ancestors or branches
 //                                 //    We don't care about ancestors, but we do want to let them know about branches
 //                                 for their tips we do have, the tips' children are in the unknown frontier
+//                                    Send the tips' children
 //                                 for their tips we don't have, our tips are either their ancestors or branches
 //                                    We don't care about their ancestors, but we do want to let them know about branches
-//
-//                                 Mark all their tips and the tips' ancestors as known by them?
 //
 //                            <-   tips_r \ tips_i (and potentially their exponential ancestors?)
 // 

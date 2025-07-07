@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc::{UnboundedReceiver, UnboundedSender}, oneshot};
 use tracing::{debug, warn};
 
-use crate::{auth::DeviceId, network::protocol::{receive, send, MiniProtocol}, protocol::store_peer::ecg_sync::ECGSyncServer, store::{self, ecg, ECGStatus, HandlePeerRequest, UntypedStoreCommand}, util::Stream};
+use crate::{auth::DeviceId, network::protocol::{receive, send, MiniProtocol}, protocol::store_peer::ecg_sync::{ECGSyncInitiator, ECGSyncResponder}, store::{self, ecg, HandlePeerRequest, UntypedStoreCommand}, util::Stream};
 
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -17,7 +17,11 @@ pub(crate) enum MsgStoreSync<Hash, HeaderId, Header> {
     ECGResponse(MsgStoreECGSyncResponse<HeaderId, Header>),
 }
 
+/// The maximum number of `have` hashes that can be sent in each message.
 pub const MAX_HAVE_HEADERS: u16 = 32;
+/// The maximum number of headers that can be sent in each message.
+pub const MAX_DELIVER_HEADERS: u16 = 32;
+
 pub type HeaderBitmap = BitArr!(for MAX_HAVE_HEADERS as usize, in u8, Msb0);
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) enum MsgStoreSyncRequest<HeaderId> {
@@ -223,6 +227,11 @@ impl<Hash, HeaderId, Header> StoreSync<Hash, HeaderId, Header> {
         }
     }
 
+    async fn request_ecg_state(&self) -> ecg::UntypedState<HeaderId, Header> {
+    // <Hash: Debug + Serialize + for<'a> Deserialize<'a> + Send + Sync + Clone, HeaderId: Debug + Ord + Serialize + for<'a> Deserialize<'a> + Send + Sync + Clone, Header: Debug + Send + Sync + Serialize + for<'a> Deserialize<'a>>
+        todo!()
+    }
+
 }
 
 pub(crate) enum StoreSyncCommand<HeaderId, Header> {
@@ -230,18 +239,18 @@ pub(crate) enum StoreSyncCommand<HeaderId, Header> {
     MerkleRequest(Vec<Range<u64>>),
     InitialStatePieceRequest(Vec<Range<u64>>),
     ECGSyncRequest{
-        ecg_status: ECGStatus<HeaderId>,
+        // ecg_status: ECGStatus<HeaderId>,
         ecg_state: ecg::UntypedState<HeaderId, Header>,
     },
 }
 
-impl<Hash: Debug + Serialize + for<'a> Deserialize<'a> + Send + Sync + Clone, HeaderId: Debug + Ord + Serialize + for<'a> Deserialize<'a> + Send + Sync + Clone, Header: Debug + Send + Sync + Serialize + for<'a> Deserialize<'a>> MiniProtocol for StoreSync<Hash, HeaderId, Header> {
+impl<Hash: Debug + Serialize + for<'a> Deserialize<'a> + Send + Sync + Clone, HeaderId: Debug + Ord + Serialize + for<'a> Deserialize<'a> + Send + Sync + Clone + Copy, Header: Clone + Debug + Send + Sync + Serialize + for<'a> Deserialize<'a>> MiniProtocol for StoreSync<Hash, HeaderId, Header> {
     type Message = MsgStoreSync<Hash, HeaderId, Header>;
 
     // Has initiative
     fn run_server<S: Stream<Self::Message>>(self, mut stream: S) -> impl Future<Output = ()> + Send {
         async move {
-            let mut ecg_sync: Option<ECGSyncServer<Hash, HeaderId, Header>> = None;
+            let mut ecg_sync: Option<ECGSyncInitiator<Hash, HeaderId, Header>> = None;
 
             // Wait for command from store.
             let mut recv_chan = self.recv_chan.expect("Unreachable. Server must be given a receive channel.");
@@ -304,40 +313,14 @@ impl<Hash: Debug + Serialize + for<'a> Deserialize<'a> + Send + Sync + Clone, He
                                 todo!(),
                         }
                     }
-                    StoreSyncCommand::ECGSyncRequest { ecg_status, ecg_state } => {
-                        // if ecg_status.meet_needs_update {
-                        //     // TODO: Actually figure out meet.
-                        //     warn!("TODO: Actually figure out meet");
-                        //     let meet = ecg_status.meet;
-                        //     let msg = UntypedStoreCommand::ReceivedUpdatedMeet { peer: self.peer, meet};
-                        //     self.send_chan.send(msg).expect("TODO");
-                        // } else {
-                        //     // TODO: Only request updates if they have a tip we don't know or if they're caught up to us?
-                        //     warn!("TODO: Only request updates if they have a tip we don't know or if they're caught up to us?");
-
-                        //     let tip = ecg_state.tips().iter().cloned().collect();
-                        //     let msg = MsgStoreSyncRequest::ECGSync { meet: ecg_status.meet, tip };
-                        //     send(&mut stream, msg).await.expect("TODO");
-                        //     let MsgStoreECGSyncResponse(result) = receive(&mut stream).await.expect("TODO");
-                        //     match result {
-                        //         StoreSyncResponse::Response(operations) => {
-                        //             todo!();
-                        //         }
-                        //         StoreSyncResponse::Wait =>
-                        //             // Wait for response (Must be Reject or Repsonse).
-                        //             todo!(),
-                        //         StoreSyncResponse::Reject =>
-                        //             // Send store they rejected and tell store we're ready.
-                        //             todo!(),
-                        //     }
-                        // }
-
+                    StoreSyncCommand::ECGSyncRequest { ecg_state } => {
+                        // Run ECG sync to get new operations from peer.
                         let operations = match ecg_sync {
                             None => {
                                 // First round of ECG sync, so create and run first round.
 
                                 // JP: Eventually switch ecg_state to an Arc<RWLock>?
-                                let (new_ecg_sync, operations) = ECGSyncServer::run_new(&mut stream, ecg_state).await;
+                                let (new_ecg_sync, operations) = ECGSyncInitiator::run_new(&mut stream, &ecg_state).await;
                                 ecg_sync = Some(new_ecg_sync);
                                 operations
                             }
@@ -371,6 +354,8 @@ impl<Hash: Debug + Serialize + for<'a> Deserialize<'a> + Send + Sync + Clone, He
 
     fn run_client<S: Stream<Self::Message>>(self, mut stream: S) -> impl Future<Output = ()> + Send {
         async move {
+            let mut ecg_sync: Option<ECGSyncResponder<Hash, HeaderId, Header>> = None;
+
             // TODO: Check when done.
             loop {
                 // Receive request.
@@ -407,17 +392,23 @@ impl<Hash: Debug + Serialize + for<'a> Deserialize<'a> + Send + Sync + Clone, He
                         self.run_client_helper::<_, Vec<Range<u64>>, Vec<Option<Vec<u8>>>, MsgStoreSyncPieceResponse>(&mut stream, ranges, build_command, build_response).await;
                     }
                     MsgStoreSyncRequest::ECGInitialSync { tips } => {
-                        // const fn build_command<Hash, HeaderId, Header>(req: HandlePeerRequest<(Vec<HeaderId>, Vec<HeaderId>), Vec<(Header, RawECGBody)>>) -> UntypedStoreCommand<Hash, HeaderId, Header> {
-                        //     UntypedStoreCommand::HandleECGSyncRequest(req)
-                        // }
-                        // const fn build_response<Header>(h: StoreSyncResponse<Vec<(Header, RawECGBody)>>) -> MsgStoreECGSyncResponse<Header> {
-                        //     MsgStoreECGSyncResponse(h)
-                        // }
-                        // self.run_client_helper::<_, _, _, _>(&mut stream, (meet, tip), build_command, build_response).await;
-                        todo!();
+                        if ecg_sync.is_some() {
+                            todo!("TODO: Error, ECG sync has already been initialized.");
+                        }
+
+                        let ecg_state = self.request_ecg_state().await;
+                        warn!("TODO: For each our_unknown that we now know, remove and make as their_known");
+
+                        ecg_sync = Some(ECGSyncResponder::run_new(&mut stream, &ecg_state, tips).await);
                     }
                     MsgStoreSyncRequest::ECGSync { tips, known } => {
-                        todo!();
+                        let Some(ref mut ecg_sync) = ecg_sync else {
+                            todo!("TODO: Error, ECG sync hasn't been initialized.");
+                        };
+
+                        let ecg_state = self.request_ecg_state().await;
+
+                        ecg_sync.run_round(&mut stream, &ecg_state).await;
                     }
                 }
             }

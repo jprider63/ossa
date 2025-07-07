@@ -69,18 +69,18 @@ struct PeerInfo<HeaderId, Header> {
     incoming_status: PeerStatus<()>,
     /// Status of outgoing sync status to peer.
     outgoing_status: PeerStatus<OutgoingPeerStatus<HeaderId, Header>>,
-    ecg_status: ECGStatus<HeaderId>,
+    // ecg_status: ECGStatus<HeaderId>,
 }
 
-#[derive(Clone, Debug)]
-/// Information about a peer's ECG status.
-pub(crate) struct ECGStatus<HeaderId> {
-    /// Greatest common ancestor between our ECG graphs.
-    pub(crate) meet: Vec<HeaderId>,
-    /// Whether we need to update the meet between us and this peer.
-    pub(crate) meet_needs_update: bool,
-    // JP: Track their_tip?
-}
+// #[derive(Clone, Debug)]
+// /// Information about a peer's ECG status.
+// pub(crate) struct ECGStatus<HeaderId> {
+//     /// Greatest common ancestor between our ECG graphs.
+//     pub(crate) meet: Vec<HeaderId>,
+//     /// Whether we need to update the meet between us and this peer.
+//     pub(crate) meet_needs_update: bool,
+//     // JP: Track their_tip?
+// }
 
 impl<Hash, Header> PeerInfo<Hash, Header> {
     /// Checks if the peer is ready for a sync request.
@@ -208,7 +208,7 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
 
     /// Insert a peer as known if its status isn't already tracked by the store.
     fn insert_known_peer(&mut self, peer: DeviceId) {
-        let ecg_status = ECGStatus { meet: vec![], meet_needs_update: true };
+        // let ecg_status = ECGStatus { meet: vec![], meet_needs_update: true };
         self.peers
             .entry(peer)
             // .and_modify(|s| {
@@ -219,7 +219,7 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
             //     }
             // })
             // .or_insert(PeerStatus::Known);
-            .or_insert(PeerInfo { incoming_status: PeerStatus::Known, outgoing_status: PeerStatus::Known, ecg_status});
+            .or_insert(PeerInfo { incoming_status: PeerStatus::Known, outgoing_status: PeerStatus::Known}); // , ecg_status});
     }
 
     /// Helper to update a known peer to initializing.
@@ -358,9 +358,9 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
             StateMachine::Syncing { metadata, piece_hashes, initial_state, ecg_state, decrypted_state } => {
                 // Request ECG updates from peers
                 peers.iter_mut().for_each(|p| {
-                    let ecg_status = p.1.ecg_status.clone();
+                    // let ecg_status = p.1.ecg_status.clone();
                     let ecg_state = ecg_state.state().clone();
-                    let message = StoreSyncCommand::ECGSyncRequest{ ecg_status, ecg_state };
+                    let message = StoreSyncCommand::ECGSyncRequest{ ecg_state };
                     send_command(p.1, message)
                 });
             }
