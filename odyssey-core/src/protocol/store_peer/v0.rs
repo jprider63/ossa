@@ -418,7 +418,6 @@ impl<Hash: Debug + Serialize + for<'a> Deserialize<'a> + Send + Sync + Clone, He
                         let mut ecg_sync_ = ECGSyncResponder::new();
 
                         let ecg_state = self.request_ecg_state(&mut ecg_sync_).await;
-                        warn!("TODO: For each our_unknown that we now know, remove and make as their_known");
 
                         ecg_sync_.run_initial(&self, &mut stream, &ecg_state, tips).await;
                         ecg_sync = Some(ecg_sync_);
