@@ -188,11 +188,18 @@ impl<HeaderId, Header> UntypedState<HeaderId, Header> {
         self.node_info_map.get(n).map(|i| &i.header)
     }
 
+    pub(crate) fn is_root_node(&self, h: &HeaderId) -> bool
+    where
+        HeaderId: Ord,
+    {
+        self.root_nodes.contains(h)
+    }
+
 }
 
 #[derive(Debug)]
 pub struct State<Header: ECGHeader, T> {
-    state: UntypedState<Header::HeaderId, Header>,
+    pub(crate) state: UntypedState<Header::HeaderId, Header>,
 
     phantom: PhantomData<fn(T)>, // TODO: Delete T?
 }
@@ -226,7 +233,7 @@ impl<Header: ECGHeader, T: CRDT> State<Header, T> {
     }
 
     pub fn is_root_node(&self, h: &Header::HeaderId) -> bool {
-        self.state.root_nodes.contains(h)
+        self.state.is_root_node(h)
     }
 
     /// Returns the parents of the given node (with their depths) if it exists. If the returned array is

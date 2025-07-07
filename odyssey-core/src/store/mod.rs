@@ -23,6 +23,7 @@ pub struct State<StoreId, Header: ecg::ECGHeader, T: CRDT, Hash> {
     metadata_subscribers: BTreeMap<DeviceId, oneshot::Sender<Option<v0::MetadataHeader<Hash>>>>,
     merkle_subscribers: BTreeMap<DeviceId, (Vec<Range<u64>>, oneshot::Sender<Option<Vec<Hash>>>)>,
     piece_subscribers: BTreeMap<DeviceId, (Vec<Range<u64>>, oneshot::Sender<Option<Vec<Option<Vec<u8>>>>>)>,
+    ecg_subscribers: BTreeMap<DeviceId, oneshot::Sender<ecg::UntypedState<Header::HeaderId, Header>>>,
     // listeners: Vec<UnboundedSender<StateUpdate<Header, T>>>,
 }
 
@@ -171,6 +172,7 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
             metadata_subscribers: BTreeMap::new(),
             merkle_subscribers: BTreeMap::new(),
             piece_subscribers: BTreeMap::new(),
+            ecg_subscribers: BTreeMap::new(),
         }
     }
 
@@ -186,6 +188,7 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
             metadata_subscribers: BTreeMap::new(),
             merkle_subscribers: BTreeMap::new(),
             piece_subscribers: BTreeMap::new(),
+            ecg_subscribers: BTreeMap::new(),
         }
     }
 
@@ -343,7 +346,7 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
                     send_command(p.1, message);
                 });
             }
-            StateMachine::DownloadingInitialState { metadata, piece_hashes, initial_state } => {
+            StateMachine::DownloadingInitialState { initial_state, .. } => {
                 let needed_pieces = initial_state.iter().enumerate().filter_map(|h| if h.1.is_none() { Some(h.0 as u64) } else { None }).chunks(PIECE_REQUEST_LIMIT as usize);
                 let mut needed_pieces: Vec<_> = needed_pieces.into_iter().collect();
 
@@ -355,7 +358,7 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
                     send_command(p.1, message);
                 });
             }
-            StateMachine::Syncing { metadata, piece_hashes, initial_state, ecg_state, decrypted_state } => {
+            StateMachine::Syncing { ecg_state, .. } => {
                 // Request ECG updates from peers
                 peers.iter_mut().for_each(|p| {
                     // let ecg_status = p.1.ecg_status.clone();
@@ -415,6 +418,29 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
             // Register the wait channel.
             self.piece_subscribers.insert(peer, (piece_ids, send_chan)); // JP: Safe to drop old one?
         }
+    }
+
+
+    fn handle_ecg_subscribe(
+        &mut self,
+        peer: DeviceId,
+        tips: BTreeSet<Header::HeaderId>,
+        response_chan: oneshot::Sender<ecg::UntypedState<Header::HeaderId, Header>>,
+    ) {
+        // Respond immediately if peer thread is stale.
+        match &self.state_machine {
+            StateMachine::Syncing { ecg_state, .. } => {
+                if !ecg_state.tips().eq(&tips) {
+                    response_chan.send(ecg_state.state.clone()).expect("TODO");
+
+                    return;
+                }
+            },
+            _ => {},
+        };
+
+        // Register subscriber.
+        self.ecg_subscribers.insert(peer, response_chan);
     }
 
     // fn handle_ecg_sync_request(&mut self, peer: DeviceId, request: (Vec<Header::HeaderId>, Vec<Header::HeaderId>), response_chan: Sender<HandlePeerResponse<Vec<(Header, RawECGBody)>>>) {
@@ -624,7 +650,7 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
         let StateMachine::Syncing { ecg_state, decrypted_state, .. } = &self.state_machine else {
             unreachable!("We just set our state to syncing")
         };
-        update_listeners(&listeners, &decrypted_state.latest_state, &ecg_state);
+        update_listeners(&mut self.ecg_subscribers, &listeners, &decrypted_state.latest_state, &ecg_state);
 
         // Send pieces to any peers that are waiting.
         let subs = std::mem::take(&mut self.piece_subscribers);
@@ -654,13 +680,19 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
     // }
 }
 
-fn update_listeners<Header: ecg::ECGHeader + Clone, T: CRDT + Clone>(listeners: &[UnboundedSender<StateUpdate<Header, T>>], latest_state: &T, ecg_state: &ecg::State<Header, T>) {
+fn update_listeners<Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone>(ecg_subscribers: &mut BTreeMap<DeviceId, oneshot::Sender<ecg::UntypedState<Header::HeaderId, Header>>>, listeners: &[UnboundedSender<StateUpdate<Header, T>>], latest_state: &T, ecg_state: &ecg::State<Header, T>) {
     for l in listeners {
         let snapshot: StateUpdate<Header, T> = StateUpdate::Snapshot {
             snapshot: latest_state.clone(),
             ecg_state: ecg_state.clone(),
         };
         l.send(snapshot).expect("TODO");
+    }
+
+    // Send updated state to one-time subscribers.
+    let subs = std::mem::take(ecg_subscribers);
+    for (_sub_peer, sub) in subs {
+        sub.send(ecg_state.state.clone()).expect("TODO");
     }
 }
 
@@ -829,7 +861,7 @@ where
                                 }
 
                                 // Send state to subscribers.
-                                update_listeners(&listeners, &decrypted_state.latest_state, &ecg_state);
+                                update_listeners(&mut store.ecg_subscribers, &listeners, &decrypted_state.latest_state, &ecg_state);
 
                                 StateMachine::Syncing { metadata, piece_hashes, initial_state, ecg_state, decrypted_state }
                             }
@@ -990,6 +1022,9 @@ where
                     UntypedStoreCommand::ReceivedECGOperations { peer, operations } => {
                         todo!()
                     }
+                    UntypedStoreCommand::SubscribeECG { peer, tips, response_chan } => {
+                        store.handle_ecg_subscribe(peer, tips, response_chan);
+                    }
                 }
             }
         }
@@ -1072,6 +1107,11 @@ pub(crate) enum UntypedStoreCommand<Hash, HeaderId, Header> {
         peer: DeviceId,
         operations: Vec<(Header, RawECGBody)>,
     },
+    SubscribeECG {
+        peer: DeviceId,
+        tips: BTreeSet<HeaderId>,
+        response_chan: oneshot::Sender<ecg::UntypedState<HeaderId, Header>>,
+    }
 }
 
 pub(crate) struct HandlePeerRequest<Request, Response> {

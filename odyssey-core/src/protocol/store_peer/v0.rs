@@ -227,11 +227,25 @@ impl<Hash, HeaderId, Header> StoreSync<Hash, HeaderId, Header> {
         }
     }
 
-    async fn request_ecg_state(&self) -> ecg::UntypedState<HeaderId, Header> {
+    async fn request_ecg_state(&self, responder: &mut ECGSyncResponder<Hash, HeaderId, Header>) -> ecg::UntypedState<HeaderId, Header>
+    where
+        HeaderId: Ord + Copy,
+    {
     // <Hash: Debug + Serialize + for<'a> Deserialize<'a> + Send + Sync + Clone, HeaderId: Debug + Ord + Serialize + for<'a> Deserialize<'a> + Send + Sync + Clone, Header: Debug + Send + Sync + Serialize + for<'a> Deserialize<'a>>
-        todo!()
+        let state = todo!();
+
+        responder.update_our_unknown(&state);
+
+        state
     }
 
+    pub(crate) fn peer(&self) -> DeviceId {
+        self.peer
+    }
+
+    pub(crate) fn send_chan(&self) -> &UnboundedSender<UntypedStoreCommand<Hash, HeaderId, Header>> {
+        &self.send_chan
+    }
 }
 
 pub(crate) enum StoreSyncCommand<HeaderId, Header> {
@@ -396,19 +410,22 @@ impl<Hash: Debug + Serialize + for<'a> Deserialize<'a> + Send + Sync + Clone, He
                             todo!("TODO: Error, ECG sync has already been initialized.");
                         }
 
-                        let ecg_state = self.request_ecg_state().await;
+                        let mut ecg_sync_ = ECGSyncResponder::new();
+
+                        let ecg_state = self.request_ecg_state(&mut ecg_sync_).await;
                         warn!("TODO: For each our_unknown that we now know, remove and make as their_known");
 
-                        ecg_sync = Some(ECGSyncResponder::run_new(&mut stream, &ecg_state, tips).await);
+                        ecg_sync_.run_initial(&self, &mut stream, &ecg_state, tips).await;
+                        ecg_sync = Some(ecg_sync_);
                     }
                     MsgStoreSyncRequest::ECGSync { tips, known } => {
                         let Some(ref mut ecg_sync) = ecg_sync else {
                             todo!("TODO: Error, ECG sync hasn't been initialized.");
                         };
 
-                        let ecg_state = self.request_ecg_state().await;
+                        let ecg_state = self.request_ecg_state(ecg_sync).await;
 
-                        ecg_sync.run_round(&mut stream, &ecg_state).await;
+                        ecg_sync.run_round(&self, &mut stream, &ecg_state, tips, known).await;
                     }
                 }
             }
