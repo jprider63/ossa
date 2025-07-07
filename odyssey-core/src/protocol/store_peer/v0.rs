@@ -232,8 +232,13 @@ impl<Hash, HeaderId, Header> StoreSync<Hash, HeaderId, Header> {
         HeaderId: Ord + Copy,
     {
     // <Hash: Debug + Serialize + for<'a> Deserialize<'a> + Send + Sync + Clone, HeaderId: Debug + Ord + Serialize + for<'a> Deserialize<'a> + Send + Sync + Clone, Header: Debug + Send + Sync + Serialize + for<'a> Deserialize<'a>>
-        let state = todo!();
+        // Send request to store.
+        let (response_chan, recv_chan) = oneshot::channel();
+        let cmd = UntypedStoreCommand::SubscribeECG { peer: self.peer(), tips: None, response_chan };
+        self.send_chan().send(cmd).expect("TODO");
 
+        // Wait for ECG updates.
+        let state = recv_chan.await.expect("TODO");
         responder.update_our_unknown(&state);
 
         state

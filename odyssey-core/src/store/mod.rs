@@ -424,19 +424,22 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
     fn handle_ecg_subscribe(
         &mut self,
         peer: DeviceId,
-        tips: BTreeSet<Header::HeaderId>,
+        tips: Option<BTreeSet<Header::HeaderId>>,
         response_chan: oneshot::Sender<ecg::UntypedState<Header::HeaderId, Header>>,
     ) {
-        // Respond immediately if peer thread is stale.
-        match &self.state_machine {
-            StateMachine::Syncing { ecg_state, .. } => {
-                if !ecg_state.tips().eq(&tips) {
-                    response_chan.send(ecg_state.state.clone()).expect("TODO");
+        // Respond immediately if peer thread is stale (or they requested it immediately with None).
+        if let StateMachine::Syncing { ecg_state, .. } = &self.state_machine {
+            let respond_immediately = if let Some(tips) = tips {
+                !ecg_state.tips().eq(&tips)
+            } else {
+                true
+            };
 
-                    return;
-                }
-            },
-            _ => {},
+            if respond_immediately {
+                response_chan.send(ecg_state.state.clone()).expect("TODO");
+
+                return;
+            }
         };
 
         // Register subscriber.
@@ -1109,7 +1112,7 @@ pub(crate) enum UntypedStoreCommand<Hash, HeaderId, Header> {
     },
     SubscribeECG {
         peer: DeviceId,
-        tips: BTreeSet<HeaderId>,
+        tips: Option<BTreeSet<HeaderId>>,
         response_chan: oneshot::Sender<ecg::UntypedState<HeaderId, Header>>,
     }
 }
