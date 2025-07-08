@@ -231,7 +231,8 @@ impl<Hash, HeaderId, Header> StoreSync<Hash, HeaderId, Header> {
     where
         HeaderId: Ord + Copy,
     {
-    // <Hash: Debug + Serialize + for<'a> Deserialize<'a> + Send + Sync + Clone, HeaderId: Debug + Ord + Serialize + for<'a> Deserialize<'a> + Send + Sync + Clone, Header: Debug + Send + Sync + Serialize + for<'a> Deserialize<'a>>
+        debug!("Requesting ECG state");
+
         // Send request to store.
         let (response_chan, recv_chan) = oneshot::channel();
         let cmd = UntypedStoreCommand::SubscribeECG { peer: self.peer(), tips: None, response_chan };
@@ -240,6 +241,8 @@ impl<Hash, HeaderId, Header> StoreSync<Hash, HeaderId, Header> {
         // Wait for ECG updates.
         let state = recv_chan.await.expect("TODO");
         responder.update_our_unknown(&state);
+
+        debug!("Received ECG state");
 
         state
     }
@@ -349,8 +352,12 @@ impl<Hash: Debug + Serialize + for<'a> Deserialize<'a> + Send + Sync + Clone, He
                             }
                         };
 
+                        debug!("Received ECG operations from peer: {:?}", operations);
+                        // JP: Should we check if the operation set is empty?
+                        // if !operations.is_empty() {
                         let msg = UntypedStoreCommand::ReceivedECGOperations { peer: self.peer, operations};
                         self.send_chan.send(msg).expect("TODO");
+                        // } else { todo!() }
                     }
                 }
             }
@@ -411,6 +418,8 @@ impl<Hash: Debug + Serialize + for<'a> Deserialize<'a> + Send + Sync + Clone, He
                         self.run_client_helper::<_, Vec<Range<u64>>, Vec<Option<Vec<u8>>>, MsgStoreSyncPieceResponse>(&mut stream, ranges, build_command, build_response).await;
                     }
                     MsgStoreSyncRequest::ECGInitialSync { tips } => {
+                        debug!("Received initial ECG sync request with tips: {tips:?}");
+
                         if ecg_sync.is_some() {
                             todo!("TODO: Error, ECG sync has already been initialized.");
                         }
@@ -419,7 +428,7 @@ impl<Hash: Debug + Serialize + for<'a> Deserialize<'a> + Send + Sync + Clone, He
 
                         let ecg_state = self.request_ecg_state(&mut ecg_sync_).await;
 
-                        ecg_sync_.run_initial(&self, &mut stream, &ecg_state, tips).await;
+                        ecg_sync_.run_initial(&self, &mut stream, ecg_state, tips).await;
                         ecg_sync = Some(ecg_sync_);
                     }
                     MsgStoreSyncRequest::ECGSync { tips, known } => {
@@ -429,7 +438,7 @@ impl<Hash: Debug + Serialize + for<'a> Deserialize<'a> + Send + Sync + Clone, He
 
                         let ecg_state = self.request_ecg_state(ecg_sync).await;
 
-                        ecg_sync.run_round(&self, &mut stream, &ecg_state, tips, known).await;
+                        ecg_sync.run_round(&self, &mut stream, ecg_state, tips, known).await;
                     }
                 }
             }

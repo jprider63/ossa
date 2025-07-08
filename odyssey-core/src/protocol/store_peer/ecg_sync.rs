@@ -45,7 +45,7 @@ use std::{cmp::Reverse, collections::{BTreeSet, BinaryHeap, VecDeque}, fmt::Debu
 
 use bitvec::array::BitArray;
 use tokio::sync::oneshot;
-use tracing::warn;
+use tracing::{debug, warn};
 
 use crate::{network::protocol::{receive, send}, protocol::store_peer::v0::{HeaderBitmap, MsgStoreECGSyncResponse, MsgStoreSync, MsgStoreSyncRequest, RawECGBody, StoreSync, MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS}, store::{ecg, UntypedStoreCommand}, util::{is_power_of_two, Stream}};
 
@@ -194,21 +194,30 @@ impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
         }
     }
 
-    pub(crate) async fn run_response_helper<S: Stream<MsgStoreSync<Hash, HeaderId, Header>>>(&mut self, store_peer: &StoreSync<Hash, HeaderId, Header>, stream: &mut S, ecg_state: &ecg::UntypedState<HeaderId, Header>)
+    pub(crate) async fn run_response_helper<S: Stream<MsgStoreSync<Hash, HeaderId, Header>>>(&mut self, store_peer: &StoreSync<Hash, HeaderId, Header>, stream: &mut S, mut ecg_state: ecg::UntypedState<HeaderId, Header>, their_tips: Vec<HeaderId>)
     where
-        HeaderId: Ord + Copy,
-        Header: Clone,
+        HeaderId: Debug + Ord + Copy,
+        Header: Debug + Clone,
     {
         let mut is_first_run = true;
         loop {
+            if !is_first_run {
+                // Reprocess their tips to save a roundtrip.
+                warn!("TODO: Use a heuristic to decide whether to submit new operations?");
+                self.handle_their_tips(&ecg_state, &their_tips);
+            }
+
             // Add our tips to the queue.
-            self.prepare_our_tips(ecg_state);
+            self.prepare_our_tips(&ecg_state);
 
             // Send the operations we have.
-            let operations = self.prepare_operations(ecg_state);
+            let operations = self.prepare_operations(&ecg_state);
 
             // Propose headers we have.
-            self.prepare_sent_haves(ecg_state);
+            self.prepare_sent_haves(&ecg_state);
+
+            debug!("Prepared sent_haves: {:?}", self.sent_haves);
+            debug!("Prepared operations: {:?}", operations);
 
             // Check response is empty.
             if operations.is_empty() && self.sent_haves.is_empty() {
@@ -220,12 +229,13 @@ impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
                 }
 
                 // Subscribe for updates.
+                debug!("Subscribing to ECG state");
                 let (response_chan, recv_chan) = oneshot::channel();
                 let cmd = UntypedStoreCommand::SubscribeECG { peer: store_peer.peer(), tips: Some(ecg_state.tips().iter().cloned().collect()), response_chan };
                 store_peer.send_chan().send(cmd).expect("TODO");
 
                 // Wait for ECG updates.
-                let ecg_state = recv_chan.await.expect("TODO");
+                ecg_state = recv_chan.await.expect("TODO");
                 self.update_our_unknown(&ecg_state);
 
                 // self.run_response_helper(store_peer, stream, &ecg_state, false).await;
@@ -240,29 +250,29 @@ impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
 
     /// Create a new ECGSyncResponder and run the first round.
     // TODO: Eventually take an Arc<RWLock>? Could also take a watch::Receiver?
-    pub(crate) async fn run_initial<S: Stream<MsgStoreSync<Hash, HeaderId, Header>>>(&mut self, store_peer: &StoreSync<Hash, HeaderId, Header>, stream: &mut S, ecg_state: &ecg::UntypedState<HeaderId, Header>, their_tips: Vec<HeaderId>)
+    pub(crate) async fn run_initial<S: Stream<MsgStoreSync<Hash, HeaderId, Header>>>(&mut self, store_peer: &StoreSync<Hash, HeaderId, Header>, stream: &mut S, ecg_state: ecg::UntypedState<HeaderId, Header>, their_tips: Vec<HeaderId>)
     where
-        HeaderId: Ord + Copy,
-        Header: Clone,
+        HeaderId: Debug + Ord + Copy,
+        Header: Debug + Clone,
     {
         // Process their tips.
-        self.handle_their_tips(ecg_state, their_tips);
+        self.handle_their_tips(&ecg_state, &their_tips);
 
-        self.run_response_helper(store_peer, stream, ecg_state).await;
+        self.run_response_helper(store_peer, stream, ecg_state, their_tips).await;
     }
 
-    pub(crate) async fn run_round<S: Stream<MsgStoreSync<Hash, HeaderId, Header>>>(&mut self, store_peer: &StoreSync<Hash, HeaderId, Header>, stream: &mut S, ecg_state: &ecg::UntypedState<HeaderId, Header>, their_tips: Vec<HeaderId>, their_known: HeaderBitmap)
+    pub(crate) async fn run_round<S: Stream<MsgStoreSync<Hash, HeaderId, Header>>>(&mut self, store_peer: &StoreSync<Hash, HeaderId, Header>, stream: &mut S, ecg_state: ecg::UntypedState<HeaderId, Header>, their_tips: Vec<HeaderId>, their_known: HeaderBitmap)
     where
-        HeaderId: Copy + Ord,
-        Header: Clone,
+        HeaderId: Debug + Copy + Ord,
+        Header: Debug + Clone,
     {
         // Process their tips.
-        self.handle_their_tips(ecg_state, their_tips);
+        self.handle_their_tips(&ecg_state, &their_tips);
 
         // Record which headers they say they already know.
-        self.handle_their_known(ecg_state, their_known);
+        self.handle_their_known(&ecg_state, their_known);
 
-        self.run_response_helper(store_peer, stream, ecg_state).await;
+        self.run_response_helper(store_peer, stream, ecg_state, their_tips).await;
     }
 
     fn prepare_operations(&mut self, ecg_state: &ecg::UntypedState<HeaderId, Header>) -> Vec<(Header, RawECGBody)>
@@ -335,24 +345,30 @@ impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
         }
     }
 
-    fn handle_their_tips(&mut self, ecg_state: &ecg::UntypedState<HeaderId, Header>, their_tips: Vec<HeaderId>)
+    fn handle_their_tips(&mut self, ecg_state: &ecg::UntypedState<HeaderId, Header>, their_tips: &[HeaderId])
     where
         HeaderId: Ord + Copy,
     {
-        their_tips.into_iter().for_each(|header_id| {
+        // If they don't have any operations, share all root nodes.
+        if their_tips.is_empty() {
+            let root_nodes = ecg_state.get_root_nodes_with_depth();
+            self.send_queue.extend(root_nodes);
+        }
+
+        their_tips.iter().for_each(|header_id| {
             // Check if we know the header.
-            if ecg_state.contains(&header_id) {
+            if ecg_state.contains(header_id) {
                 // Mark header and its ancestors as known.
-                self.mark_as_known(ecg_state, header_id);
+                self.mark_as_known(ecg_state, *header_id);
 
                 // Add children to send queue.
                 let children = ecg_state
-                    .get_children_with_depth(&header_id)
+                    .get_children_with_depth(header_id)
                     .expect("Unreachable since we have this header.");
                 self.send_queue.extend(children);
             } else {
                 // Record header as known by them but not us.
-                self.our_unknown.insert(header_id);
+                self.our_unknown.insert(*header_id);
             }
         });
     }

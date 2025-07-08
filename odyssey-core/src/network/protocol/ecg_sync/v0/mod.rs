@@ -511,6 +511,3 @@ impl<H: ECGHeader, T: CRDT> TryInto<MsgECGSyncData<H, T>> for MsgECGSync<H, T> {
     }
 }
 
-
-
-

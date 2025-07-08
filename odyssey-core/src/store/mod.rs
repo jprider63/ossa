@@ -359,11 +359,13 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
                 });
             }
             StateMachine::Syncing { ecg_state, .. } => {
+                debug!("Sending ECG sync requests to peers.");
                 // Request ECG updates from peers
                 peers.iter_mut().for_each(|p| {
                     // let ecg_status = p.1.ecg_status.clone();
                     let ecg_state = ecg_state.state().clone();
                     let message = StoreSyncCommand::ECGSyncRequest{ ecg_state };
+                    debug!("Sending ECG sync request to peer ({})", p.0);
                     send_command(p.1, message)
                 });
             }
@@ -430,12 +432,15 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
         // Respond immediately if peer thread is stale (or they requested it immediately with None).
         if let StateMachine::Syncing { ecg_state, .. } = &self.state_machine {
             let respond_immediately = if let Some(tips) = tips {
+                debug!("our_tips: {:?}", ecg_state.tips());
+                debug!("their_tips: {:?}", tips);
                 !ecg_state.tips().eq(&tips)
             } else {
                 true
             };
 
             if respond_immediately {
+                debug!("Responding immediately with ECG state.");
                 response_chan.send(ecg_state.state.clone()).expect("TODO");
 
                 return;
@@ -443,6 +448,7 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
         };
 
         // Register subscriber.
+        debug!("Registering subscriber for ECG state for peer: {peer}");
         self.ecg_subscribers.insert(peer, response_chan);
     }
 
@@ -653,7 +659,7 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
         let StateMachine::Syncing { ecg_state, decrypted_state, .. } = &self.state_machine else {
             unreachable!("We just set our state to syncing")
         };
-        update_listeners(&mut self.ecg_subscribers, &listeners, &decrypted_state.latest_state, &ecg_state);
+        update_listeners(&mut self.ecg_subscribers, listeners, &decrypted_state.latest_state, ecg_state);
 
         // Send pieces to any peers that are waiting.
         let subs = std::mem::take(&mut self.piece_subscribers);
@@ -1019,9 +1025,6 @@ where
                     UntypedStoreCommand::ReceivedInitialStatePieces { peer, ranges, pieces } => {
                         store.handle_received_initial_state_pieces(peer, ranges, pieces, &listeners);
                     }
-                    // UntypedStoreCommand::ReceivedUpdatedMeet { peer, meet } => {
-                    //     store.handle_received_updated_meet(peer, meet);
-                    // }
                     UntypedStoreCommand::ReceivedECGOperations { peer, operations } => {
                         todo!()
                     }
@@ -1134,7 +1137,7 @@ fn handle_piece_peer_request_helper<StoreId, Header: ecg::ECGHeader, T: CRDT, Ha
         StateMachine::DownloadingMetadata { .. } => None,
         StateMachine::DownloadingMerkle { .. } => None,
         StateMachine::DownloadingInitialState { initial_state, .. } => {
-            Some(handle_peer_request_range_helper(&initial_state, piece_ids))
+            Some(handle_peer_request_range_helper(initial_state, piece_ids))
         }
         StateMachine::Syncing { initial_state, .. } => {
             let pieces: Vec<_> = piece_ids.iter().cloned().flatten().map(|i| {

@@ -195,6 +195,11 @@ impl<HeaderId, Header> UntypedState<HeaderId, Header> {
         self.root_nodes.contains(h)
     }
 
+    pub fn get_root_nodes_with_depth<'a>(&'a self) -> impl Iterator<Item = (Reverse<u64>, HeaderId)> + 'a where HeaderId: Copy {
+        // All root nodes have depth 1.
+        self.root_nodes.iter().map(|h| (Reverse(1), *h))
+    }
+
 }
 
 #[derive(Debug)]
