@@ -60,6 +60,7 @@ pub struct DecryptedState<Header: ecg::ECGHeader, T: CRDT> {
     latest_state: T,
 
     /// Headers corresponding to the latest ECG application state.
+    // TODO: Remove this.
     latest_headers: BTreeSet<Header::HeaderId>,
 }
 
@@ -676,9 +677,9 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
     fn handle_received_ecg_operations<OT>(&mut self, peer: DeviceId, operations: Vec<(Header, RawECGBody)>, listeners: &[UnboundedSender<StateUpdate<Header, T>>])
     where
         OT: OdysseyType<ECGHeader = Header>, 
-        T: CRDT<Time = OT::Time>,
+        T: CRDT<Time = OT::Time> + Debug,
         T::Op: Serialize,
-        OT::ECGBody<T>: ECGBody<T, Header = OT::ECGHeader> + for<'d> Deserialize<'d>,
+        OT::ECGBody<T>: ECGBody<T, Header = OT::ECGHeader> + for<'d> Deserialize<'d> + Debug,
     {
         // Mark peer as ready.
         self.update_outgoing_peer_to_ready(&peer);
@@ -692,6 +693,7 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
         // Parse and apply all operations.
         operations.into_iter().for_each(|(header, raw_operations)| {
             let operations = serde_cbor::from_slice(&raw_operations).expect("TODO: Peer gave us improperly serialized operations");
+            debug!("Applying operations {operations:?}");
 
             // TODO: Get rid of this clone.
             let success = ecg_state.insert_header(header.clone(), raw_operations);
@@ -701,6 +703,7 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
                 apply_operations::<OT, _>(decrypted_state, ecg_state, &header, operations);
             }
         });
+        debug!("New decrypted state {:?}", decrypted_state.latest_state);
 
         // Update listeners (except peer).
         update_listeners(&mut self.ecg_subscribers, listeners, &decrypted_state.latest_state, ecg_state, Some(peer));
@@ -838,10 +841,10 @@ pub(crate) async fn run_handler<OT: OdysseyType, T>(
 where
     <OT as OdysseyType>::ECGHeader: Send + Sync + Clone + Serialize + for<'d> Deserialize<'d> + 'static,
     // <<OT as OdysseyType>::ECGHeader as ECGHeader>::Body: ECGBody<T> + Send,
-    <OT as OdysseyType>::ECGBody<T>: ECGBody<T, Header = OT::ECGHeader> + Send + Serialize + for<'d> Deserialize<'d>,
+    <OT as OdysseyType>::ECGBody<T>: ECGBody<T, Header = OT::ECGHeader> + Send + Serialize + for<'d> Deserialize<'d> + Debug,
     <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId: Send + Serialize + for<'d> Deserialize<'d>,
     T::Op: Serialize,
-    T: CRDT<Time = OT::Time> + Clone + Send + 'static + for<'d> Deserialize<'d>,
+    T: CRDT<Time = OT::Time> + Debug + Clone + Send + 'static + for<'d> Deserialize<'d>,
 {
     let mut listeners: Vec<UnboundedSender<StateUpdate<OT::ECGHeader, T>>> = vec![];
 

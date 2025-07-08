@@ -209,10 +209,10 @@ impl<OT: OdysseyType> Odyssey<OT> {
         _storage: S,
     ) -> StoreHandle<OT, T>
     where
-        T: CRDT<Time = OT::Time> + Clone + Send + 'static + Typeable + Serialize + for<'d> Deserialize<'d>,
+        T: CRDT<Time = OT::Time> + Clone + Debug + Send + 'static + Typeable + Serialize + for<'d> Deserialize<'d>,
         T::Op: Serialize,
         OT::ECGHeader: Send + Sync + Clone + 'static + Serialize + for<'d> Deserialize<'d>,
-        OT::ECGBody<T>: Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d>,
+        OT::ECGBody<T>: Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
         <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId: Send + Serialize + for<'d> Deserialize<'d>,
     {
         // Create store by generating nonce, etc.
@@ -247,9 +247,9 @@ impl<OT: OdysseyType> Odyssey<OT> {
     ) -> StoreHandle<OT, T>
     where
         OT::ECGHeader: Send + Sync + Clone + 'static,
-        OT::ECGBody<T>: Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d>,
+        OT::ECGBody<T>: Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
         <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId: Send,
-        T: CRDT<Time = OT::Time> + Clone + Send + 'static + for<'d> Deserialize<'d>,
+        T: CRDT<Time = OT::Time> + Clone + Debug + Send + 'static + for<'d> Deserialize<'d>,
         T::Op: Serialize,
     {
         // Check if store is already active.
@@ -354,10 +354,10 @@ impl<OT: OdysseyType> Odyssey<OT> {
     ) -> StoreHandle<OT, T>
     where
         OT::ECGHeader: Send + Sync + Clone + 'static + for<'d> Deserialize<'d> + Serialize,
-        OT::ECGBody<T>: Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d>,
+        OT::ECGBody<T>: Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
         <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId: Send + for<'d> Deserialize<'d> + Serialize,
         T::Op: Serialize,
-        T: CRDT<Time = OT::Time> + Clone + Send + 'static + for<'d> Deserialize<'d>,
+        T: CRDT<Time = OT::Time> + Debug + Clone + Send + 'static + for<'d> Deserialize<'d>,
     {
         // Initialize storage for this store.
 

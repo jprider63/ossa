@@ -42,6 +42,7 @@ pub struct Header<Hash> { // , T> {
     // phantom: PhantomData<T>,
 }
 
+#[derive(Debug)]
 pub struct Body<Hash, T: CRDT> {
     /// The operations in this ECG body.
     operations: Vec<T::Op>,
