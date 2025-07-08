@@ -77,7 +77,7 @@ pub trait ECGBody<T: CRDT> {
 pub(crate) type RawECGBody = Vec<u8>;
 
 #[derive(Clone, Debug)]
-struct NodeInfo<Header> {
+pub(crate) struct NodeInfo<Header> {
     /// The index of this node in the dependency graph.
     graph_index: daggy::NodeIndex,
     /// The (minimum) depth of this node in the dependency graph.
@@ -86,6 +86,16 @@ struct NodeInfo<Header> {
     header: Header,
     /// Raw serialized and potentially encrypted operations.
     operations: RawECGBody,
+}
+
+impl<Header> NodeInfo<Header> {
+    pub(crate) fn header(&self) -> &Header {
+        &self.header
+    }
+
+    pub(crate) fn operations(&self) -> &Vec<u8> {
+        &self.operations
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -191,6 +201,13 @@ impl<HeaderId, Header> UntypedState<HeaderId, Header> {
         HeaderId: Ord,
     {
         self.node_info_map.get(n).map(|i| &i.header)
+    }
+
+    pub(crate) fn get_node(&self, n: &HeaderId) -> Option<&NodeInfo<Header>>
+    where
+        HeaderId: Ord,
+    {
+        self.node_info_map.get(n)
     }
 
     pub(crate) fn is_root_node(&self, h: &HeaderId) -> bool

@@ -659,7 +659,7 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
         let StateMachine::Syncing { ecg_state, decrypted_state, .. } = &self.state_machine else {
             unreachable!("We just set our state to syncing")
         };
-        update_listeners(&mut self.ecg_subscribers, listeners, &decrypted_state.latest_state, ecg_state);
+        update_listeners(&mut self.ecg_subscribers, listeners, &decrypted_state.latest_state, ecg_state, Some(peer));
 
         // Send pieces to any peers that are waiting.
         let subs = std::mem::take(&mut self.piece_subscribers);
@@ -673,23 +673,44 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
         self.send_sync_requests();
     }
 
-    // fn handle_received_updated_meet(&mut self, peer: DeviceId, meet: Vec<Header::HeaderId>) {
-    //     // Mark peer as ready.
-    //     self.update_outgoing_peer_to_ready(&peer);
+    fn handle_received_ecg_operations<OT>(&mut self, peer: DeviceId, operations: Vec<(Header, RawECGBody)>, listeners: &[UnboundedSender<StateUpdate<Header, T>>])
+    where
+        OT: OdysseyType<ECGHeader = Header>, 
+        T: CRDT<Time = OT::Time>,
+        T::Op: Serialize,
+        OT::ECGBody<T>: ECGBody<T, Header = OT::ECGHeader> + for<'d> Deserialize<'d>,
+    {
+        // Mark peer as ready.
+        self.update_outgoing_peer_to_ready(&peer);
 
-    //     let Some(info) = self.peers.get_mut(&peer) else {
-    //         error!("Invariant violated. Attempted to update an unknown peer: {}", peer);
-    //         panic!();
-    //     };
+        warn!("TODO: Validate operations from peer");
 
-    //     // JP: Join current meet with new meet?
-    //     debug!("JP: Join current meet with new meet?");
-    //     info.ecg_status.meet = meet;
-    //     info.ecg_status.meet_needs_update = false;
-    // }
+        let StateMachine::Syncing { ref mut ecg_state, ref mut decrypted_state, .. } = &mut self.state_machine else {
+            unreachable!("We must be syncing");
+        };
+
+        // Parse and apply all operations.
+        operations.into_iter().for_each(|(header, raw_operations)| {
+            let operations = serde_cbor::from_slice(&raw_operations).expect("TODO: Peer gave us improperly serialized operations");
+
+            // TODO: Get rid of this clone.
+            let success = ecg_state.insert_header(header.clone(), raw_operations);
+            if !success {
+                error!("Failed to insert operations from peer.");
+            } else {
+                apply_operations::<OT, _>(decrypted_state, ecg_state, &header, operations);
+            }
+        });
+
+        // Update listeners (except peer).
+        update_listeners(&mut self.ecg_subscribers, listeners, &decrypted_state.latest_state, ecg_state, Some(peer));
+
+        // Sync with peer(s). Do this for all commands??
+        self.send_sync_requests();
+    }
 }
 
-fn update_listeners<Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone>(ecg_subscribers: &mut BTreeMap<DeviceId, oneshot::Sender<ecg::UntypedState<Header::HeaderId, Header>>>, listeners: &[UnboundedSender<StateUpdate<Header, T>>], latest_state: &T, ecg_state: &ecg::State<Header, T>) {
+fn update_listeners<Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone>(ecg_subscribers: &mut BTreeMap<DeviceId, oneshot::Sender<ecg::UntypedState<Header::HeaderId, Header>>>, listeners: &[UnboundedSender<StateUpdate<Header, T>>], latest_state: &T, ecg_state: &ecg::State<Header, T>, from_peer: Option<DeviceId>) {
     for l in listeners {
         let snapshot: StateUpdate<Header, T> = StateUpdate::Snapshot {
             snapshot: latest_state.clone(),
@@ -699,9 +720,16 @@ fn update_listeners<Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone>(ecg
     }
 
     // Send updated state to one-time subscribers.
+    // warn!("TODO: Do we always want to update ECG subscribers here? Ex: We may not want to when transitioning from downloading to syncing"); JP: Maybe this is ok since our peer_store won't have anything to share and will resubscribe.
     let subs = std::mem::take(ecg_subscribers);
-    for (_sub_peer, sub) in subs {
-        sub.send(ecg_state.state.clone()).expect("TODO");
+    for (sub_peer, sub) in subs {
+        // Skip notifying subscriber if they told us about this update.
+        if Some(sub_peer) != from_peer {
+            sub.send(ecg_state.state.clone()).expect("TODO");
+        } else {
+            // Need to add back subscriber.
+            ecg_subscribers.insert(sub_peer, sub);
+        }
     }
 }
 
@@ -782,6 +810,21 @@ where
     }
 }
 
+fn apply_operations<OT: OdysseyType, T>(decrypted_state: &mut DecryptedState<OT::ECGHeader, T>, ecg_state: &ecg::State<OT::ECGHeader, T>, operation_header: &OT::ECGHeader, operation_body: OT::ECGBody<T>)
+where 
+    T: CRDT<Time = OT::Time>,
+    T::Op: Serialize,
+    OT::ECGBody<T>: ECGBody<T, Header = OT::ECGHeader>,
+{
+    let causal_state = OT::to_causal_state(ecg_state);
+    for (time, operation) in
+        operation_body.zip_operations_with_time(&operation_header)
+    {
+        replace_with_or_abort(&mut decrypted_state.latest_state, |s| {
+            s.apply(causal_state, time, operation)
+        });
+    }
+}
 
 /// Run the handler that owns this store and manages its state. This handler is typically run in
 /// its own tokio thread.
@@ -863,15 +906,10 @@ where
                                 // Operation ID/time is function of tips, current operation, ...? How do we
                                 // do batching? (HeaderId(h) | Self, Index(u8)) ? This requires having all
                                 // the batched operations?
-                                let causal_state = OT::to_causal_state(&ecg_state);
-                                for (time, operation) in
-                                    operation_body.zip_operations_with_time(&operation_header)
-                                {
-                                    decrypted_state.latest_state = decrypted_state.latest_state.apply(causal_state, time, operation);
-                                }
+                                apply_operations::<OT, _>(&mut decrypted_state, &ecg_state, &operation_header, operation_body);
 
                                 // Send state to subscribers.
-                                update_listeners(&mut store.ecg_subscribers, &listeners, &decrypted_state.latest_state, &ecg_state);
+                                update_listeners(&mut store.ecg_subscribers, &listeners, &decrypted_state.latest_state, &ecg_state, None);
 
                                 StateMachine::Syncing { metadata, piece_hashes, initial_state, ecg_state, decrypted_state }
                             }
@@ -1027,7 +1065,7 @@ where
                         store.handle_received_initial_state_pieces(peer, ranges, pieces, &listeners);
                     }
                     UntypedStoreCommand::ReceivedECGOperations { peer, operations } => {
-                        todo!()
+                        store.handle_received_ecg_operations::<OT>(peer, operations, &listeners);
                     }
                     UntypedStoreCommand::SubscribeECG { peer, tips, response_chan } => {
                         store.handle_ecg_subscribe(peer, tips, response_chan);

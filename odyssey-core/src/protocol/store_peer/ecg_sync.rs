@@ -287,9 +287,8 @@ impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
             let skip = self.they_know(&header_id);
             if !skip {
                 // Send header to peer.
-                if let Some(header) = ecg_state.get_header(&header_id) {
-                    let body = todo!("TODO: Implement ECG body");
-                    operations.push((header.clone(), body));
+                if let Some(node) = ecg_state.get_node(&header_id) {
+                    operations.push((node.header().clone(), node.operations().clone()));
 
                     // Mark header as known by peer.
                     self.mark_as_known(ecg_state, header_id);
