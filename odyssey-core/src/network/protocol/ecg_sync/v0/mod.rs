@@ -243,7 +243,7 @@ fn handle_received_headers<Header: ECGHeader, T: CRDT>(
         // XXX
 
         // Add to state.
-        state.insert_header(header);
+        state.insert_header(header, todo!());
     }
 
     all_valid

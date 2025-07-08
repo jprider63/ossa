@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc::{UnboundedReceiver, UnboundedSender}, oneshot};
 use tracing::{debug, warn};
 
-use crate::{auth::DeviceId, network::protocol::{receive, send, MiniProtocol}, protocol::store_peer::ecg_sync::{ECGSyncInitiator, ECGSyncResponder}, store::{self, ecg, HandlePeerRequest, UntypedStoreCommand}, util::Stream};
+use crate::{auth::DeviceId, network::protocol::{receive, send, MiniProtocol}, protocol::store_peer::ecg_sync::{ECGSyncInitiator, ECGSyncResponder}, store::{self, ecg::{self, RawECGBody}, HandlePeerRequest, UntypedStoreCommand}, util::Stream};
 
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -59,7 +59,6 @@ pub(crate) struct MsgStoreSyncMerkleResponse<Hash> (StoreSyncResponse<Vec<Hash>>
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct MsgStoreSyncPieceResponse (StoreSyncResponse<Vec<Option<Vec<u8>>>>);
 
-pub(crate) type RawECGBody = Vec<u8>; // Serialized ECG body
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) enum MsgStoreECGSyncResponse<HeaderId, Header> {
     Response {

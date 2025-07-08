@@ -212,7 +212,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
         T: CRDT<Time = OT::Time> + Clone + Send + 'static + Typeable + Serialize + for<'d> Deserialize<'d>,
         T::Op: Serialize,
         OT::ECGHeader: Send + Sync + Clone + 'static + Serialize + for<'d> Deserialize<'d>,
-        OT::ECGBody<T>: Send + ECGBody<T, Header = OT::ECGHeader>,
+        OT::ECGBody<T>: Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d>,
         <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId: Send + Serialize + for<'d> Deserialize<'d>,
     {
         // Create store by generating nonce, etc.
@@ -247,7 +247,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
     ) -> StoreHandle<OT, T>
     where
         OT::ECGHeader: Send + Sync + Clone + 'static,
-        OT::ECGBody<T>: Send + ECGBody<T, Header = OT::ECGHeader>,
+        OT::ECGBody<T>: Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d>,
         <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId: Send,
         T: CRDT<Time = OT::Time> + Clone + Send + 'static + for<'d> Deserialize<'d>,
         T::Op: Serialize,
@@ -354,7 +354,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
     ) -> StoreHandle<OT, T>
     where
         OT::ECGHeader: Send + Sync + Clone + 'static + for<'d> Deserialize<'d> + Serialize,
-        OT::ECGBody<T>: Send + ECGBody<T, Header = OT::ECGHeader>,
+        OT::ECGBody<T>: Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d>,
         <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId: Send + for<'d> Deserialize<'d> + Serialize,
         T::Op: Serialize,
         T: CRDT<Time = OT::Time> + Clone + Send + 'static + for<'d> Deserialize<'d>,
@@ -434,7 +434,7 @@ pub trait OdysseyType: 'static {
     type Hash: util::Hash + Debug + Display + Copy + Ord + Send + Sync + 'static + Serialize + for<'a> Deserialize<'a> + Into<Self::StoreId>; // Hashable instead of AsRef???
     // type ECGHeader<T: CRDT<Time = Self::Time, Op: Serialize>>: store::ecg::ECGHeader + Debug + Send;
     type ECGHeader: store::ecg::ECGHeader<HeaderId: Send + Sync + Serialize + for<'a> Deserialize<'a>> + Debug + Send + Serialize + for<'a> Deserialize<'a>;
-    type ECGBody<T: CRDT>; // : CRDT<Time = Self::Time, Op: Serialize>;
+    type ECGBody<T: CRDT>; // : Serialize + for<'a> Deserialize<'a>; // : CRDT<Time = Self::Time, Op: Serialize>;
     type Time;
     type CausalState<T: CRDT<Time = Self::Time, Op: Serialize>>: CausalState<Time = Self::Time>;
     // type OperationId;

@@ -9,7 +9,7 @@ use std::{collections::{BTreeMap, BTreeSet}, ops::Range};
 use std::fmt::Debug;
 use typeable::{TypeId, Typeable};
 
-use crate::{auth::DeviceId, core::{OdysseyType, SharedState}, network::{multiplexer::{run_miniprotocol_async, SpawnMultiplexerTask}, protocol::MiniProtocol}, protocol::{manager::v0::PeerManagerCommand, store_peer::v0::{MsgStoreSyncRequest, RawECGBody, StoreSync, StoreSyncCommand}}, store::{ecg::{ECGBody, ECGHeader}, v0::{MERKLE_REQUEST_LIMIT, PIECE_REQUEST_LIMIT, PIECE_SIZE}}, util::{self, compress_consecutive_into_ranges}};
+use crate::{auth::DeviceId, core::{OdysseyType, SharedState}, network::{multiplexer::{run_miniprotocol_async, SpawnMultiplexerTask}, protocol::MiniProtocol}, protocol::{manager::v0::PeerManagerCommand, store_peer::v0::{MsgStoreSyncRequest, StoreSync, StoreSyncCommand}}, store::{ecg::{ECGBody, ECGHeader, RawECGBody}, v0::{MERKLE_REQUEST_LIMIT, PIECE_REQUEST_LIMIT, PIECE_SIZE}}, util::{self, compress_consecutive_into_ranges}};
 
 pub mod ecg;
 pub mod v0; // TODO: Move this to network::protocol
@@ -795,7 +795,7 @@ pub(crate) async fn run_handler<OT: OdysseyType, T>(
 where
     <OT as OdysseyType>::ECGHeader: Send + Sync + Clone + Serialize + for<'d> Deserialize<'d> + 'static,
     // <<OT as OdysseyType>::ECGHeader as ECGHeader>::Body: ECGBody<T> + Send,
-    <OT as OdysseyType>::ECGBody<T>: ECGBody<T, Header = OT::ECGHeader> + Send,
+    <OT as OdysseyType>::ECGBody<T>: ECGBody<T, Header = OT::ECGHeader> + Send + Serialize + for<'d> Deserialize<'d>,
     <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId: Send + Serialize + for<'d> Deserialize<'d>,
     T::Op: Serialize,
     T: CRDT<Time = OT::Time> + Clone + Send + 'static + for<'d> Deserialize<'d>,
@@ -852,7 +852,8 @@ where
                                 let mut decrypted_state = decrypted_state;
 
                                 // Update ECG state.
-                                let success = ecg_state.insert_header(operation_header.clone());
+                                let serialized_operations = serde_cbor::to_vec(&operation_body).expect("TODO");
+                                let success = ecg_state.insert_header(operation_header.clone(), serialized_operations);
                                 if !success {
                                     todo!("Invalid header"); // : {:?}", operation_header);
                                 }

@@ -47,7 +47,7 @@ use bitvec::array::BitArray;
 use tokio::sync::oneshot;
 use tracing::{debug, warn};
 
-use crate::{network::protocol::{receive, send}, protocol::store_peer::v0::{HeaderBitmap, MsgStoreECGSyncResponse, MsgStoreSync, MsgStoreSyncRequest, RawECGBody, StoreSync, MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS}, store::{ecg, UntypedStoreCommand}, util::{is_power_of_two, Stream}};
+use crate::{network::protocol::{receive, send}, protocol::store_peer::v0::{HeaderBitmap, MsgStoreECGSyncResponse, MsgStoreSync, MsgStoreSyncRequest, StoreSync, MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS}, store::{ecg::{self, RawECGBody}, UntypedStoreCommand}, util::{is_power_of_two, Stream}};
 
 
 // Has initiative

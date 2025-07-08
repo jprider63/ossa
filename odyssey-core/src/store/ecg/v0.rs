@@ -1,8 +1,7 @@
 use odyssey_crdt::{time::CausalState, CRDT};
 use rand::Rng;
 use serde::{
-    ser::{SerializeStruct, Serializer},
-    Deserialize, Serialize,
+    de::{MapAccess, Visitor}, ser::{SerializeStruct, Serializer}, Deserialize, Serialize
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -61,6 +60,58 @@ where
         let mut s = serializer.serialize_struct("Body", 1)?;
         s.serialize_field("operations", &self.operations)?;
         s.end()
+    }
+}
+
+impl<'d, Hash, T: CRDT> Deserialize<'d> for Body<Hash, T> 
+where
+    T::Op: Deserialize<'d>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'d>
+    {
+        struct SVisitor<Hash, T> (PhantomData<(Hash, T)>);
+
+        #[derive(Deserialize)]
+        #[serde(field_identifier, rename_all = "lowercase")]
+        enum Field { Operations }
+
+        impl<'d, Hash, T: CRDT> Visitor<'d> for SVisitor<Hash, T>
+        where
+            T::Op: Deserialize<'d>,
+        {
+            type Value = Body<Hash, T>;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("struct Body")
+            }
+
+            fn visit_map<M>(self, mut m: M) -> Result<Body<Hash, T>, M::Error>
+            where
+                M: MapAccess<'d>,
+            {
+                let mut operations = None;
+                while let Some(key) = m.next_key()? {
+                    match key {
+                        Field::Operations => {
+                            if operations.is_some() {
+                                return Err(serde::de::Error::duplicate_field("operations"));
+                            }
+                            operations = Some(m.next_value()?);
+                        }
+                    }
+                }
+
+                let operations = operations.ok_or_else(|| serde::de::Error::missing_field("operations"))?;
+                Ok(Body {
+                    operations,
+                    phantom: PhantomData,
+                })
+            }
+        }
+
+        deserializer.deserialize_struct("Body", &["operations"], SVisitor(PhantomData))
     }
 }
 

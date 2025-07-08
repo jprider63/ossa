@@ -73,6 +73,9 @@ pub trait ECGBody<T: CRDT> {
     fn get_operation_times(&self, header: &Self::Header) -> Vec<T::Time>;
 }
 
+// Serialized ECG body
+pub(crate) type RawECGBody = Vec<u8>;
+
 #[derive(Clone, Debug)]
 struct NodeInfo<Header> {
     /// The index of this node in the dependency graph.
@@ -81,6 +84,8 @@ struct NodeInfo<Header> {
     depth: u64,
     /// The header this node is storing.
     header: Header,
+    /// Raw serialized and potentially encrypted operations.
+    operations: RawECGBody,
 }
 
 #[derive(Clone, Debug)]
@@ -281,7 +286,7 @@ impl<Header: ECGHeader, T: CRDT> State<Header, T> {
         self.state.get_header_depth(n)
     }
 
-    pub fn insert_header(&mut self, header: Header) -> bool {
+    pub fn insert_header(&mut self, header: Header, operations: RawECGBody) -> bool {
         let header_id = header.get_header_id();
 
         // Validate header.
@@ -341,6 +346,7 @@ impl<Header: ECGHeader, T: CRDT> State<Header, T> {
             graph_index: graph_index.clone(),
             depth,
             header,
+            operations,
         };
         if let Err(_) = self.state.node_info_map.try_insert(header_id, node_info) {
             // TODO: Should be unreachable. Log this.
