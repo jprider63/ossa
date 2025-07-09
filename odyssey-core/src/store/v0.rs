@@ -117,16 +117,14 @@ pub struct MetadataBody<Hash> {
     /// Serialized (and encrypted) initial state of the store.
     //  TODO: Eventually merkelize the initial state in chunks.
     initial_state: Vec<u8>,
-    piece_size: u32, // TODO: Make this constant a 16 KB (2^14),
     piece_hashes: Vec<Hash>,
 }
 
 impl<H: Hash> MetadataBody<H> {
     pub(crate) fn new<T: Serialize>(initial_state: &T) -> MetadataBody<H> {
         let initial_state = serde_cbor::to_vec(initial_state).expect("TODO");
-        let piece_size = 1 << 18;
         let piece_hashes = initial_state
-            .chunks(piece_size as usize)
+            .chunks(PIECE_SIZE as usize)
             .map(|piece| {
                 let mut h = H::new();
                 H::update(&mut h, piece);
@@ -135,20 +133,12 @@ impl<H: Hash> MetadataBody<H> {
             .collect();
         MetadataBody {
             initial_state,
-            piece_size,
             piece_hashes,
         }
     }
 
     pub fn merkle_root(&self) -> H {
         util::merkle_root(&self.piece_hashes)
-    }
-
-    /// Validate a `MetadataBody` given its header.
-    pub fn validate<TypeId>(&self, header: &MetadataHeader<H>) -> bool {
-        panic!("TODO: Delete me?");
-
-        // self.initial_state.len() == header.initial_state_size && self.hash::<H>() == header.merkle_root
     }
 
     pub fn build(self) -> (Vec<H>, Vec<u8>) {
