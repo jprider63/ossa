@@ -7,6 +7,7 @@ use std::cmp::Reverse;
 use std::fmt::{self, Debug};
 use std::marker::PhantomData;
 use std::num::TryFromIntError;
+use tracing::warn;
 
 pub mod client;
 pub mod server;
@@ -243,7 +244,9 @@ fn handle_received_headers<Header: ECGHeader, T: CRDT>(
         // XXX
 
         // Add to state.
-        state.insert_header(header, todo!());
+        warn!("TODO: Actually sync operations");
+        let operations = vec![];
+        state.insert_header(header, operations);
     }
 
     all_valid

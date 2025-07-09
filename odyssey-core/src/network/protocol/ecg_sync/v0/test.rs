@@ -54,7 +54,7 @@ fn add_ops<T: CRDT>(st: &mut ecg::State<TestHeader<T>, T>, ops: &[(u32, &[u32])]
             parent_ids: parent_ids.to_vec(),
             phantom: PhantomData,
         };
-        assert!(st.insert_header(header, todo!()), "Failed to insert header");
+        assert!(st.insert_header(header, vec![]), "Failed to insert header");
     }
 }
 
