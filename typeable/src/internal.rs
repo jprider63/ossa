@@ -1,5 +1,6 @@
 /// Internal helper functions. Do not rely on this API. It is unstable.
 pub use sha2::{Digest, Sha256};
+use crate::Typeable;
 
 pub fn helper_counter(h: &mut Sha256, n: usize) {
     let c: u8 = n.try_into().expect(&format!("Too many inputs: {}", n));
@@ -31,6 +32,10 @@ pub fn helper_type_constructor(h: &mut Sha256, constructor: &'static str) {
     helper_string(h, constructor);
 }
 
-pub fn helper_type_args(h: &mut Sha256, type_args_count: u8) {
+pub fn helper_type_args_count(h: &mut Sha256, type_args_count: u8) {
     h.update([type_args_count]);
+}
+
+pub fn helper_type_ident<T: Typeable>(h: &mut Sha256) {
+    h.update(<T as Typeable>::type_ident().identifier());
 }

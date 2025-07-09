@@ -18,7 +18,7 @@ pub(crate) async fn ecg_sync_server<S: Stream<MsgECGSync<Header, T>>, StoreId, H
     state: &mut ecg::State<Header, T>,
 ) -> Result<(), ECGSyncError>
 where
-    Header: Clone + ECGHeader<T> + Debug,
+    Header: Clone + ECGHeader + Debug,
 {
     let request: MsgECGSyncRequest<Header, T> = conn.receive().await;
     // JP: Set (and check) max value for tips?

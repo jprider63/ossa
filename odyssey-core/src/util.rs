@@ -1,12 +1,13 @@
 use bytes::{Bytes, BytesMut};
 use futures;
 use futures::task::{Context, Poll};
-use rand::{rngs::OsRng, RngCore};
+use rand::{rngs::OsRng, TryRngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::any::type_name;
-use std::fmt::{self, Debug};
+use tracing::error;
+use std::fmt::{self, Debug, Display};
 use std::marker::PhantomData;
+use std::ops::{Add, Range};
 use std::pin::Pin;
 use tokio::sync::mpsc::{Receiver, Sender};
 use typeable::Typeable;
@@ -17,7 +18,7 @@ use crate::store::Nonce;
 /// Generate a random nonce.
 pub(crate) fn generate_nonce() -> Nonce {
     let mut nonce = [0; 32];
-    OsRng.fill_bytes(&mut nonce);
+    OsRng.try_fill_bytes(&mut nonce).expect("Nonce generation failed");
     nonce
 }
 
@@ -31,7 +32,7 @@ fn test() {
 }
 
 // TODO: Remove this trait
-pub trait Hash: PartialEq + AsRef<[u8]> {
+pub trait Hash: PartialEq + AsRef<[u8]> + Copy {
     type HashState;
 
     fn new() -> Self::HashState;
@@ -48,6 +49,15 @@ impl Debug for Sha256Hash {
         for b in self.0 {
             write!(f, "{:02X}", b)?;
         }
+        Ok(())
+    }
+}
+
+impl Display for Sha256Hash {
+    // bs58
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        let base58 = bs58::encode(self.0).into_string();
+        write!(f, "{base58}")?;
         Ok(())
     }
 }
@@ -77,6 +87,29 @@ impl Hash for Sha256Hash {
 
     fn finalize(state: Self::HashState) -> Self {
         Sha256Hash(state.finalize().into())
+    }
+}
+
+#[derive(Debug)]
+pub enum Sha256HashParseError {
+    Base58(bs58::decode::Error),
+    Hex(hex::FromHexError),
+}
+impl std::str::FromStr for Sha256Hash {
+    type Err = Sha256HashParseError;
+    fn from_str(s: &str) -> Result<Self, Sha256HashParseError> {
+        // "0xA01BE6E4A62BA7D0988FD6F1FE5DC964FD818628A96B472AA3472E6EFFB9A74F"
+        let mut store_id = [0; 32];
+        if s.len() == 66 {
+            // Parse as Hex (with 0x).
+            hex::decode_to_slice(&s[2..], &mut store_id).map_err(Sha256HashParseError::Hex)?;
+        } else if s.len() == 64 {
+            // Parse as Hex.
+            hex::decode_to_slice(s, &mut store_id).map_err(Sha256HashParseError::Hex)?;
+        } else {
+            bs58::decode(s).onto(&mut store_id).map_err(Sha256HashParseError::Base58)?;
+        }
+        Ok(Sha256Hash(store_id))
     }
 }
 
@@ -293,11 +326,13 @@ impl<T> futures::Sink<T> for Channel<T> {
 
 #[cfg(test)]
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+#[cfg(test)]
+use tokio_stream::wrappers::UnboundedReceiverStream;
 
 #[cfg(test)]
 pub struct UnboundChannel<T> {
     send: UnboundedSender<T>,
-    recv: UnboundedReceiver<T>,
+    recv: UnboundedReceiverStream<T>, // UnboundedReceiver<T>,
 }
 
 #[cfg(test)]
@@ -307,11 +342,11 @@ impl<T> UnboundChannel<T> {
         let (send2, recv2) = tokio::sync::mpsc::unbounded_channel();
         let c1 = UnboundChannel {
             send: send1,
-            recv: recv2,
+            recv: UnboundedReceiverStream::new(recv2),
         };
         let c2 = UnboundChannel {
             send: send2,
-            recv: recv1,
+            recv: UnboundedReceiverStream::new(recv1),
         };
         (c1, c2)
     }
@@ -333,14 +368,14 @@ impl<T> futures::Stream for UnboundChannel<T> {
         mut self: Pin<&mut Self>,
         ctx: &mut Context<'_>,
     ) -> Poll<Option<Result<T, ProtocolError>>> {
-        todo!()
-        // let p = futures::Stream::poll_next(Pin::new(&mut self.recv), ctx);
-        // p.map(|o| o.map(|t| Ok(t)))
+        // todo!()
+        let p = futures::Stream::poll_next(Pin::new(&mut self.recv), ctx);
+        p.map(|o| o.map(|t| Ok(t)))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        todo!()
-        // self.recv.size_hint()
+        // todo!()
+        self.recv.size_hint()
     }
 }
 
@@ -352,7 +387,8 @@ impl<T> futures::Sink<T> for UnboundChannel<T> {
         mut self: Pin<&mut Self>,
         ctx: &mut Context<'_>,
     ) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> {
-        todo!()
+        Poll::Ready(Ok(()))
+        // todo!()
         // let p = Pin::new(&mut self.send).poll_ready(ctx);
         // p.map(|r| {
         //     r.map_err(|e| {
@@ -363,19 +399,19 @@ impl<T> futures::Sink<T> for UnboundChannel<T> {
     }
 
     fn start_send(mut self: Pin<&mut Self>, x: T) -> Result<(), <Self as futures::Sink<T>>::Error> {
-        todo!()
-        // let p = Pin::new(&mut self.send).start_send(x);
-        // p.map_err(|e| {
-        //     log::error!("Send error: {:?}", e);
-        //     ProtocolError::StreamSendError(std::io::Error::other("start_send error"))
-        // })
+        let p = Pin::new(&mut self.send).send(x);
+        p.map_err(|e| {
+            error!("Send error: {:?}", e);
+            ProtocolError::StreamSendError(std::io::Error::other("start_send error"))
+        })
     }
 
     fn poll_flush(
         mut self: Pin<&mut Self>,
         ctx: &mut Context<'_>,
     ) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> {
-        todo!()
+        Poll::Ready(Ok(()))
+        // todo!()
         // let p = Pin::new(&mut self.send).poll_flush(ctx);
         // p.map(|r| {
         //     r.map_err(|e| {
@@ -389,7 +425,8 @@ impl<T> futures::Sink<T> for UnboundChannel<T> {
         mut self: Pin<&mut Self>,
         ctx: &mut Context<'_>,
     ) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> {
-        todo!()
+        Poll::Ready(Ok(()))
+        // todo!()
         // let p = Pin::new(&mut self.send).poll_close(ctx);
         // p.map(|r| {
         //     r.map_err(|e| {
@@ -397,5 +434,111 @@ impl<T> futures::Sink<T> for UnboundChannel<T> {
         //         ProtocolError::StreamSendError(std::io::Error::other("poll_close error"))
         //     })
         // })
+    }
+}
+
+pub(crate) fn merkle_root<H: Hash>(hashes: &[H]) -> H {
+    let mut h = H::new();
+    for hash in hashes.iter() {
+        H::update(&mut h, hash);
+    }
+    H::finalize(h)
+}
+
+pub(crate) fn validate_piece<H: Hash>(piece: &[u8], expected_hash: &H) -> bool {
+    let mut h = H::new();
+    H::update(&mut h, piece);
+    let h = H::finalize(h);
+
+    &h == expected_hash
+}
+
+pub(crate) struct CompressConsecutive<I, T> {
+    current: Option<Range<T>>,
+    inner: I,
+}
+
+/// Assumes inputs are sorted.
+pub(crate) fn compress_consecutive_into_ranges<I, T>(i: I) -> CompressConsecutive<I, T> {
+    CompressConsecutive {
+        current: None,
+        inner: i,
+    }
+}
+
+impl<I, T> Iterator for CompressConsecutive<I, T>
+where
+    I: Iterator<Item = T>,
+    T: Add<u64, Output = T> + PartialEq + Copy,
+{
+    type Item = Range<T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(x) = self.inner.next() {
+            match &self.current {
+                Some(r) => {
+                    // Consecutive.
+                    if r.end == x {
+                        self.current = Some(Range {start: r.start, end: x + 1u64});
+                    } else {
+                        let new = Some(Range {start: x, end: x + 1u64});
+                        let result = std::mem::replace(&mut self.current, new);
+                        return result;
+                    }
+                }
+                None => {
+                    self.current = Some(Range {start: x, end: x + 1u64});
+                }
+            };
+        }
+
+        // We're done, so return what we have.
+        let result = std::mem::replace(&mut self.current, None);
+        result
+    }
+}
+
+/// Check if the input is a power of two (inclusive of 0).
+pub(crate) fn is_power_of_two(x: u64) -> bool {
+    0 == (x & (x.wrapping_sub(1)))
+}
+
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_single_number() {
+        let numbers = vec![5];
+        let result: Vec<_> = compress_consecutive_into_ranges(numbers.into_iter()).collect();
+        assert_eq!(result, vec![Range { start: 5, end: 6 }]);
+    }
+
+    #[test]
+    fn test_consecutive_numbers() {
+        let numbers = vec![1, 2, 3, 4, 5];
+        let result: Vec<_> = compress_consecutive_into_ranges(numbers.into_iter()).collect();
+        assert_eq!(result, vec![Range { start: 1, end: 6 }]);
+    }
+
+    #[test]
+    fn test_split() {
+        let numbers = vec![1, 4];
+        let result: Vec<_> = compress_consecutive_into_ranges(numbers.into_iter()).collect();
+        assert_eq!(result, vec![
+            Range { start: 1, end: 2 },
+            Range { start: 4, end: 5 },
+        ]);
+    }
+
+    #[test]
+    fn test_mixed_numbers() {
+        let numbers = vec![1, 2, 3, 7, 8, 10, 11, 12, 15];
+        let result: Vec<_> = compress_consecutive_into_ranges(numbers.into_iter()).collect();
+        assert_eq!(result, vec![
+            Range { start: 1, end: 4 },
+            Range { start: 7, end: 9 },
+            Range { start: 10, end: 13 },
+            Range { start: 15, end: 16 },
+        ]);
     }
 }

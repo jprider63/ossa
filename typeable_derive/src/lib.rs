@@ -226,7 +226,7 @@ fn impl_typeable_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
 
                 let mut h = Sha256::new();
                 helper_type_constructor(&mut h, #name_lit);
-                helper_type_args(&mut h, #type_args_count);
+                helper_type_args_count(&mut h, #type_args_count);
 
                 #tag
                 #body

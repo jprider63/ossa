@@ -1,4 +1,8 @@
+#[cfg(feature = "im")]
+mod im;
 pub mod internal;
+#[cfg(feature = "serde")]
+mod serde;
 
 use internal::helper_string_non_ascii;
 use lazy_static::lazy_static;
@@ -6,7 +10,7 @@ use sha2::{Digest, Sha256};
 use std::fmt;
 pub use typeable_derive::Typeable;
 
-use crate::internal::{helper_type_args, helper_type_constructor, helper_usize};
+use crate::internal::{helper_type_args_count, helper_type_ident, helper_type_constructor, helper_usize};
 
 /// A unique identifier for a type. It is typically derived from the sha256 hash of the type's declaration.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -32,6 +36,12 @@ impl fmt::Display for TypeId {
     }
 }
 
+impl AsRef<[u8]> for TypeId {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
 /// A trait that specifies unique identifiers for types in a deterministic way that can be shared
 /// on multiple machines over the network.
 ///
@@ -43,7 +53,8 @@ impl fmt::Display for TypeId {
 /// implementations should cause the type identifier to change. In practice, this may require tag
 /// updates (ex. changing a tag from "v1" to "v2" when a type's implementation changes).
 ///
-/// The following is the grammar of how the type is hashed to create its identifier.
+/// The following is the grammar of how the type is hashed to create its identifier. Primitive
+/// types may have custom encodings that do not match this grammar.
 ///
 /// typeable :=
 ///   type_name type_arg_count tag type_body
@@ -85,7 +96,10 @@ pub trait Typeable {
 
 macro_rules! derive_typeable_primitive {
     ( $type_name: ident ) => {
-        mod $type_name {
+        derive_typeable_primitive!($type_name, $type_name);
+    };
+    ( $type_name: ident, $mod_name: ident ) => {
+        mod $mod_name {
             use super::*;
 
             lazy_static! {
@@ -119,22 +133,35 @@ derive_typeable_primitive!(i64);
 derive_typeable_primitive!(i128);
 derive_typeable_primitive!(f32);
 derive_typeable_primitive!(f64);
+derive_typeable_primitive!(String, string);
 
-impl<T, const N: usize> Typeable for [T; N] {
+impl<T: Typeable, const N: usize> Typeable for [T; N] {
     fn type_ident() -> TypeId {
         let mut h = Sha256::new();
         helper_string_non_ascii(&mut h, "[]");
-        helper_type_args(&mut h, 1);
+        helper_type_args_count(&mut h, 1);
         helper_usize(&mut h, N);
+        helper_type_ident::<T>(&mut h);
         TypeId(h.finalize().into())
     }
 }
 
-impl<T> Typeable for Vec<T> {
+impl<T: Typeable> Typeable for Vec<T> {
     fn type_ident() -> TypeId {
         let mut h = Sha256::new();
         helper_type_constructor(&mut h, "Vec");
-        helper_type_args(&mut h, 1);
+        helper_type_args_count(&mut h, 1);
+        helper_type_ident::<T>(&mut h);
+        TypeId(h.finalize().into())
+    }
+}
+
+impl<T: Typeable> Typeable for Option<T> {
+    fn type_ident() -> TypeId {
+        let mut h = Sha256::new();
+        helper_type_constructor(&mut h, "Option");
+        helper_type_args_count(&mut h, 1);
+        helper_type_ident::<T>(&mut h);
         TypeId(h.finalize().into())
     }
 }
