@@ -4,11 +4,11 @@ use daggy::petgraph::visit::{
 use daggy::stable_dag::StableDag;
 use daggy::Walker;
 use odyssey_crdt::CRDT;
-use tracing::{debug, error};
 use std::cmp::{self, Reverse};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use tracing::{debug, error};
 
 pub mod v0;
 
@@ -58,16 +58,15 @@ pub trait ECGBody<T: CRDT> {
     // fn new_header(&self, parents: BTreeSet<<Self::Header as ECGHeader>::HeaderId>) -> Self::Header
     fn new_header(&self, parents: BTreeSet<<Self::Header as ECGHeader>::HeaderId>) -> Self::Header;
     // fn new_header<HeaderId>(&self, parents: BTreeSet<HeaderId>) -> Self::Header
-    // where 
+    // where
     //     // Self::Header: ECGHeader;
     //     Self::Header: ECGHeader<HeaderId = HeaderId>;
-
 
     // TODO: Can we return the following instead? impl Iterator<(T::Time, Item = T::Time)>
     fn zip_operations_with_time(self, header: &Self::Header) -> Vec<(T::Time, T::Op)>;
     // where
-        // T: CRDT + Sized,
-        // <Self as ECGHeader>::Body: ECGBody<T>;
+    // T: CRDT + Sized,
+    // <Self as ECGHeader>::Body: ECGBody<T>;
 
     /// Retrieve the times for each operation in this ECG header and body.
     // TODO: Can we return the following instead? impl Iterator<Item = T::Time>
@@ -121,7 +120,7 @@ impl<HeaderId, Header> UntypedState<HeaderId, Header> {
 
     pub fn contains(&self, h: &HeaderId) -> bool
     where
-        HeaderId: Ord
+        HeaderId: Ord,
     {
         if let Some(_node_info) = self.node_info_map.get(h) {
             true
@@ -142,10 +141,7 @@ impl<HeaderId, Header> UntypedState<HeaderId, Header> {
             .try_collect()
     }
 
-    pub fn get_parents_with_depth(
-        &self,
-        h: &HeaderId,
-    ) -> Option<Vec<(u64, HeaderId)>>
+    pub fn get_parents_with_depth(&self, h: &HeaderId) -> Option<Vec<(u64, HeaderId)>>
     where
         HeaderId: Ord + Copy,
     {
@@ -167,10 +163,7 @@ impl<HeaderId, Header> UntypedState<HeaderId, Header> {
 
     /// Returns the children of the given node (with their depths) if it exists. If the returned array is
     /// empty, the node is a leaf node.
-    pub fn get_children_with_depth(
-        &self,
-        h: &HeaderId,
-    ) -> Option<Vec<(Reverse<u64>, HeaderId)>>
+    pub fn get_children_with_depth(&self, h: &HeaderId) -> Option<Vec<(Reverse<u64>, HeaderId)>>
     where
         HeaderId: Ord + Copy,
     {
@@ -218,11 +211,15 @@ impl<HeaderId, Header> UntypedState<HeaderId, Header> {
         self.root_nodes.contains(h)
     }
 
-    pub fn get_root_nodes_with_depth<'a>(&'a self) -> impl Iterator<Item = (Reverse<u64>, HeaderId)> + 'a where HeaderId: Copy {
+    pub fn get_root_nodes_with_depth<'a>(
+        &'a self,
+    ) -> impl Iterator<Item = (Reverse<u64>, HeaderId)> + 'a
+    where
+        HeaderId: Copy,
+    {
         // All root nodes have depth 1.
         self.root_nodes.iter().map(|h| (Reverse(1), *h))
     }
-
 }
 
 #[derive(Debug)]

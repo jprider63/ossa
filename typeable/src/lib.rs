@@ -10,7 +10,9 @@ use sha2::{Digest, Sha256};
 use std::fmt;
 pub use typeable_derive::Typeable;
 
-use crate::internal::{helper_type_args_count, helper_type_ident, helper_type_constructor, helper_usize};
+use crate::internal::{
+    helper_type_args_count, helper_type_constructor, helper_type_ident, helper_usize,
+};
 
 /// A unique identifier for a type. It is typically derived from the sha256 hash of the type's declaration.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]

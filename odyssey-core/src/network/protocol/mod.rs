@@ -15,13 +15,17 @@ use tokio_util::{
 };
 use tracing::{debug, error, info, trace};
 
-use crate::{auth::DeviceId, core::{OdysseyType, StoreStatuses}, network::multiplexer};
 use crate::protocol::v0::{
     MsgStoreMetadataHeader, StoreMetadataHeaderRequest, StoreMetadataHeaderResponse,
 };
 use crate::protocol::Version;
 use crate::store::v0::MetadataHeader;
 use crate::util::Stream;
+use crate::{
+    auth::DeviceId,
+    core::{OdysseyType, StoreStatuses},
+    network::multiplexer,
+};
 
 pub mod ecg_sync;
 pub mod keep_alive;
@@ -61,7 +65,10 @@ impl HandshakeInfo {
 }
 
 // TODO: Actually setup TLS connection and get their DeviceId.
-pub(crate) async fn run_handshake_server<S: Stream<MsgHandshake>>(stream: &mut S, device_id: &DeviceId) -> Result<HandshakeInfo, HandshakeError> {
+pub(crate) async fn run_handshake_server<S: Stream<MsgHandshake>>(
+    stream: &mut S,
+    device_id: &DeviceId,
+) -> Result<HandshakeInfo, HandshakeError> {
     // TODO: Implement this and make it abstract.
 
     // Get their DeviceId.
@@ -81,7 +88,10 @@ pub(crate) async fn run_handshake_server<S: Stream<MsgHandshake>>(stream: &mut S
     })
 }
 
-pub(crate) async fn run_handshake_client<S: Stream<MsgHandshake>>(stream: &mut S, device_id: &DeviceId) -> Result<HandshakeInfo, HandshakeError> {
+pub(crate) async fn run_handshake_client<S: Stream<MsgHandshake>>(
+    stream: &mut S,
+    device_id: &DeviceId,
+) -> Result<HandshakeInfo, HandshakeError> {
     // TODO: Implement this and make it abstract.
 
     // Send our DeviceId.
@@ -103,10 +113,7 @@ pub(crate) async fn run_handshake_client<S: Stream<MsgHandshake>>(stream: &mut S
 
 // TODO: Generalize the argument.
 // pub(crate) async fn run_store_metadata_server<'a, StoreId:Deserialize<'a>>(stream: &mut codec::Framed<TcpStream, LengthDelimitedCodec>) -> () {
-pub(crate) async fn run_store_metadata_server<
-    StoreId,
-    S: Stream<MsgStoreMetadataHeader<StoreId>>,
->(
+pub(crate) async fn run_store_metadata_server<StoreId, S: Stream<MsgStoreMetadataHeader<StoreId>>>(
     stream: &mut S,
 ) -> Result<(), ProtocolError>
 where
@@ -131,10 +138,7 @@ where
 }
 
 // pub async fn run_store_metadata_client<TypeId, StoreId, S:Stream<MsgStoreMetadataHeader<TypeId, StoreId>>>(stream: &mut codec::Framed<TcpStream, LengthDelimitedCodec>, request: &StoreMetadataHeaderRequest<StoreId>) -> Result<StoreMetadataHeaderResponse<TypeId, StoreId>, ProtocolError>
-pub async fn run_store_metadata_client<
-    StoreId,
-    S: Stream<MsgStoreMetadataHeader<StoreId>>,
->(
+pub async fn run_store_metadata_client<StoreId, S: Stream<MsgStoreMetadataHeader<StoreId>>>(
     stream: &mut S,
     request: StoreMetadataHeaderRequest<StoreId>,
 ) -> Result<StoreMetadataHeaderResponse<StoreId>, ProtocolError>

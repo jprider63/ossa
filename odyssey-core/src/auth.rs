@@ -53,7 +53,5 @@ pub fn generate_identity() -> Identity {
     let mut rng = OsRng;
     let auth_key = ed25519_dalek::SigningKey::generate(&mut rng);
 
-    Identity { 
-        auth_key 
-    }
+    Identity { auth_key }
 }

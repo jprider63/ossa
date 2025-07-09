@@ -3,13 +3,38 @@ use odyssey_crdt::CRDT;
 use rand::{seq::SliceRandom as _, thread_rng};
 use replace_with::replace_with_or_abort;
 use serde::{Deserialize, Serialize};
-use tokio::{sync::{mpsc::{UnboundedReceiver, UnboundedSender}, oneshot::{self, Sender}}, task::JoinHandle};
-use tracing::{debug, error, warn};
-use std::{collections::{BTreeMap, BTreeSet}, ops::Range};
 use std::fmt::Debug;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    ops::Range,
+};
+use tokio::{
+    sync::{
+        mpsc::{UnboundedReceiver, UnboundedSender},
+        oneshot::{self, Sender},
+    },
+    task::JoinHandle,
+};
+use tracing::{debug, error, warn};
 use typeable::{TypeId, Typeable};
 
-use crate::{auth::DeviceId, core::{OdysseyType, SharedState}, network::{multiplexer::{run_miniprotocol_async, SpawnMultiplexerTask}, protocol::MiniProtocol}, protocol::{manager::v0::PeerManagerCommand, store_peer::v0::{MsgStoreSyncRequest, StoreSync, StoreSyncCommand}}, store::{ecg::{ECGBody, ECGHeader, RawECGBody}, v0::{MERKLE_REQUEST_LIMIT, PIECE_REQUEST_LIMIT, PIECE_SIZE}}, util::{self, compress_consecutive_into_ranges}};
+use crate::{
+    auth::DeviceId,
+    core::{OdysseyType, SharedState},
+    network::{
+        multiplexer::{run_miniprotocol_async, SpawnMultiplexerTask},
+        protocol::MiniProtocol,
+    },
+    protocol::{
+        manager::v0::PeerManagerCommand,
+        store_peer::v0::{MsgStoreSyncRequest, StoreSync, StoreSyncCommand},
+    },
+    store::{
+        ecg::{ECGBody, ECGHeader, RawECGBody},
+        v0::{MERKLE_REQUEST_LIMIT, PIECE_REQUEST_LIMIT, PIECE_SIZE},
+    },
+    util::{self, compress_consecutive_into_ranges},
+};
 
 pub mod ecg;
 pub mod v0; // TODO: Move this to network::protocol
@@ -22,8 +47,15 @@ pub struct State<StoreId, Header: ecg::ECGHeader, T: CRDT, Hash> {
     state_machine: StateMachine<StoreId, Header, T, Hash>,
     metadata_subscribers: BTreeMap<DeviceId, oneshot::Sender<Option<v0::MetadataHeader<Hash>>>>,
     merkle_subscribers: BTreeMap<DeviceId, (Vec<Range<u64>>, oneshot::Sender<Option<Vec<Hash>>>)>,
-    piece_subscribers: BTreeMap<DeviceId, (Vec<Range<u64>>, oneshot::Sender<Option<Vec<Option<Vec<u8>>>>>)>,
-    ecg_subscribers: BTreeMap<DeviceId, oneshot::Sender<ecg::UntypedState<Header::HeaderId, Header>>>,
+    piece_subscribers: BTreeMap<
+        DeviceId,
+        (
+            Vec<Range<u64>>,
+            oneshot::Sender<Option<Vec<Option<Vec<u8>>>>>,
+        ),
+    >,
+    ecg_subscribers:
+        BTreeMap<DeviceId, oneshot::Sender<ecg::UntypedState<Header::HeaderId, Header>>>,
     // listeners: Vec<UnboundedSender<StateUpdate<Header, T>>>,
 }
 
@@ -50,8 +82,8 @@ pub enum StateMachine<StoreId, Header: ecg::ECGHeader, T: CRDT, Hash> {
         initial_state: Vec<u8>, // Or just T?
         ecg_state: ecg::State<Header, T>,
         decrypted_state: DecryptedState<Header, T>, // Temporary
-        // decrypted_state: Option<DecryptedState<Header, T>>, // JP: Is this actually used?
-                                                               // Does it make sense?
+                                                    // decrypted_state: Option<DecryptedState<Header, T>>, // JP: Is this actually used?
+                                                    // Does it make sense?
     },
 }
 
@@ -118,12 +150,12 @@ pub(crate) enum PeerStatus<T> {
     /// The thread that syncs the store with the peer is syncing.
     Syncing(T), // JP: Running instead?
 
-//     /// Peers that we are connected to, but are not syncing this store. It's possible that these connections have dropped.
-//     Known(), // TODO: Last known IP address, port, statistics (latency, bandwidth, ...). JP: Should some of this be stored globally?
-//     /// Peers that we are connected to, but are not syncing this store. It's possible that these connections have dropped.
-//     Connected(), 
-//     /// Peers that we are connected to and are syncing this store. It's possible that these connections have dropped.
-//     Active(), 
+                //     /// Peers that we are connected to, but are not syncing this store. It's possible that these connections have dropped.
+                //     Known(), // TODO: Last known IP address, port, statistics (latency, bandwidth, ...). JP: Should some of this be stored globally?
+                //     /// Peers that we are connected to, but are not syncing this store. It's possible that these connections have dropped.
+                //     Connected(),
+                //     /// Peers that we are connected to and are syncing this store. It's possible that these connections have dropped.
+                //     Active(),
 }
 
 impl<T> PeerStatus<T> {
@@ -144,7 +176,13 @@ impl<T> PeerStatus<T> {
     }
 }
 
-impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone, Hash: util::Hash + Debug + Into<StoreId>> State<StoreId, Header, T, Hash> {
+impl<
+        StoreId: Copy + Eq,
+        Header: ecg::ECGHeader + Clone + Debug,
+        T: CRDT + Clone,
+        Hash: util::Hash + Debug + Into<StoreId>,
+    > State<StoreId, Header, T, Hash>
+{
     /// Initialize a new store with the given state. This initializes the header, including
     /// generating a random nonce.
     pub fn new_syncing(initial_state: T) -> State<StoreId, Header, T, Hash>
@@ -179,9 +217,7 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
 
     /// Create a new store with the given store id that is downloading the store's header.
     pub(crate) fn new_downloading(store_id: StoreId) -> Self {
-        let state_machine = StateMachine::DownloadingMetadata {
-            store_id
-        };
+        let state_machine = StateMachine::DownloadingMetadata { store_id };
 
         State {
             peers: BTreeMap::new(),
@@ -195,18 +231,10 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
 
     pub fn store_id(&self) -> StoreId {
         match &self.state_machine {
-            StateMachine::DownloadingMetadata{store_id} => {
-                *store_id
-            }
-            StateMachine::DownloadingMerkle { metadata, .. } => {
-                metadata.store_id()
-            }
-            StateMachine::DownloadingInitialState { metadata, .. } => {
-                metadata.store_id()
-            }
-            StateMachine::Syncing { metadata, .. } => {
-                metadata.store_id()
-            }
+            StateMachine::DownloadingMetadata { store_id } => *store_id,
+            StateMachine::DownloadingMerkle { metadata, .. } => metadata.store_id(),
+            StateMachine::DownloadingInitialState { metadata, .. } => metadata.store_id(),
+            StateMachine::Syncing { metadata, .. } => metadata.store_id(),
         }
     }
 
@@ -223,16 +251,25 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
             //     }
             // })
             // .or_insert(PeerStatus::Known);
-            .or_insert(PeerInfo { incoming_status: PeerStatus::Known, outgoing_status: PeerStatus::Known}); // , ecg_status});
+            .or_insert(PeerInfo {
+                incoming_status: PeerStatus::Known,
+                outgoing_status: PeerStatus::Known,
+            }); // , ecg_status});
     }
 
     /// Helper to update a known peer to initializing.
-    fn update_peer_to_initializing<A>(&mut self, peer: &DeviceId, direction_lambda: fn(&mut PeerInfo<Header::HeaderId, Header>) -> &mut PeerStatus<A>)
-    where
-        A: Debug
+    fn update_peer_to_initializing<A>(
+        &mut self,
+        peer: &DeviceId,
+        direction_lambda: fn(&mut PeerInfo<Header::HeaderId, Header>) -> &mut PeerStatus<A>,
+    ) where
+        A: Debug,
     {
         let Some(info) = self.peers.get_mut(peer) else {
-            error!("Invariant violated. Attempted to initialize an unknown peer: {}", peer);
+            error!(
+                "Invariant violated. Attempted to initialize an unknown peer: {}",
+                peer
+            );
             panic!();
         };
         let status = direction_lambda(info);
@@ -255,12 +292,19 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
     }
 
     /// Helper to update a known peer to syncing.
-    fn update_peer_to_syncing<A>(&mut self, peer: &DeviceId, direction_lambda: fn(&mut PeerInfo<Header::HeaderId, Header>) -> &mut PeerStatus<A>, sender_m: A)
-    where
-        A: Debug
+    fn update_peer_to_syncing<A>(
+        &mut self,
+        peer: &DeviceId,
+        direction_lambda: fn(&mut PeerInfo<Header::HeaderId, Header>) -> &mut PeerStatus<A>,
+        sender_m: A,
+    ) where
+        A: Debug,
     {
         let Some(info) = self.peers.get_mut(peer) else {
-            error!("Invariant violated. Attempted to initialize an unknown peer: {}", peer);
+            error!(
+                "Invariant violated. Attempted to initialize an unknown peer: {}",
+                peer
+            );
             panic!();
         };
         let status = direction_lambda(info);
@@ -269,11 +313,17 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
                 *status = PeerStatus::Syncing(sender_m);
             }
             PeerStatus::Known => {
-                error!("Invariant violated. Attempted to initialize an unknown peer: {} - {:?}", peer, status);
+                error!(
+                    "Invariant violated. Attempted to initialize an unknown peer: {} - {:?}",
+                    peer, status
+                );
                 panic!();
             }
             PeerStatus::Syncing(_) => {
-                error!("Invariant violated. Attempted to sync an already syncing peer: {} - {:?}", peer, status);
+                error!(
+                    "Invariant violated. Attempted to sync an already syncing peer: {} - {:?}",
+                    peer, status
+                );
                 panic!();
             }
         }
@@ -283,13 +333,20 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
         self.update_peer_to_syncing(peer, |info| &mut info.incoming_status, ());
     }
 
-    fn update_peer_to_syncing_outgoing(&mut self, peer: &DeviceId, sender: OutgoingPeerStatus<Header::HeaderId, Header>) {
+    fn update_peer_to_syncing_outgoing(
+        &mut self,
+        peer: &DeviceId,
+        sender: OutgoingPeerStatus<Header::HeaderId, Header>,
+    ) {
         self.update_peer_to_syncing(peer, |info| &mut info.outgoing_status, sender);
     }
 
     fn update_outgoing_peer_to_ready(&mut self, peer: &DeviceId) {
         let Some(info) = self.peers.get_mut(peer) else {
-            error!("Invariant violated. Attempted to update an unknown peer: {}", peer);
+            error!(
+                "Invariant violated. Attempted to update an unknown peer: {}",
+                peer
+            );
             panic!();
         };
         match info.outgoing_status {
@@ -298,7 +355,10 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
                 panic!();
             }
             PeerStatus::Known => {
-                error!("Invariant violated. Attempted to update a peer that is not syncing: {} - {:?}", peer, info.outgoing_status);
+                error!(
+                    "Invariant violated. Attempted to update a peer that is not syncing: {} - {:?}",
+                    peer, info.outgoing_status
+                );
                 panic!();
             }
             PeerStatus::Syncing(ref mut status) => {
@@ -309,18 +369,25 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
 
     /// Send sync requests to peers.
     fn send_sync_requests(&mut self) {
-        fn send_command<Hash, Header>(i: &mut PeerInfo<Hash, Header>, message: StoreSyncCommand<Hash, Header>) {
+        fn send_command<Hash, Header>(
+            i: &mut PeerInfo<Hash, Header>,
+            message: StoreSyncCommand<Hash, Header>,
+        ) {
             let PeerStatus::Syncing(ref mut s) = i.outgoing_status else {
                 unreachable!("Already checked that the peer is ready.");
             };
 
             // Mark as outstanding.
             s.is_outstanding = true;
-            s.sender_peer.send(message).expect("TODO");               
+            s.sender_peer.send(message).expect("TODO");
         }
 
         // Get peers (of this store) without outstanding requests.
-        let mut peers: Vec<_> = self.peers.iter_mut().filter(|(_,i)| i.is_ready_for_sync()).collect();
+        let mut peers: Vec<_> = self
+            .peers
+            .iter_mut()
+            .filter(|(_, i)| i.is_ready_for_sync())
+            .collect();
         // TODO: Rank and (weighted) randomize the peers.
         let mut rng = thread_rng();
         peers.shuffle(&mut rng);
@@ -336,26 +403,50 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
             }
             StateMachine::DownloadingMerkle { piece_hashes, .. } => {
                 // TODO: Keep track of (and filter out) which ones are currently requested.
-                let needed_hashes = piece_hashes.iter().enumerate().filter_map(|h| if h.1.is_none() { Some(h.0 as u64) } else { None }).chunks(MERKLE_REQUEST_LIMIT as usize);
+                let needed_hashes = piece_hashes
+                    .iter()
+                    .enumerate()
+                    .filter_map(|h| {
+                        if h.1.is_none() {
+                            Some(h.0 as u64)
+                        } else {
+                            None
+                        }
+                    })
+                    .chunks(MERKLE_REQUEST_LIMIT as usize);
                 let mut needed_hashes: Vec<_> = needed_hashes.into_iter().collect();
 
                 // Randomize which peer to request the hashes from.
                 needed_hashes.shuffle(&mut rng);
 
                 peers.iter_mut().zip(needed_hashes).for_each(|(p, hashes)| {
-                    let message = StoreSyncCommand::MerkleRequest(compress_consecutive_into_ranges(hashes).collect());
+                    let message = StoreSyncCommand::MerkleRequest(
+                        compress_consecutive_into_ranges(hashes).collect(),
+                    );
                     send_command(p.1, message);
                 });
             }
             StateMachine::DownloadingInitialState { initial_state, .. } => {
-                let needed_pieces = initial_state.iter().enumerate().filter_map(|h| if h.1.is_none() { Some(h.0 as u64) } else { None }).chunks(PIECE_REQUEST_LIMIT as usize);
+                let needed_pieces = initial_state
+                    .iter()
+                    .enumerate()
+                    .filter_map(|h| {
+                        if h.1.is_none() {
+                            Some(h.0 as u64)
+                        } else {
+                            None
+                        }
+                    })
+                    .chunks(PIECE_REQUEST_LIMIT as usize);
                 let mut needed_pieces: Vec<_> = needed_pieces.into_iter().collect();
 
                 // Randomize which peer to request the pieces from.
                 needed_pieces.shuffle(&mut rng);
 
                 peers.iter_mut().zip(needed_pieces).for_each(|(p, pieces)| {
-                    let message = StoreSyncCommand::InitialStatePieceRequest(compress_consecutive_into_ranges(pieces).collect());
+                    let message = StoreSyncCommand::InitialStatePieceRequest(
+                        compress_consecutive_into_ranges(pieces).collect(),
+                    );
                     send_command(p.1, message);
                 });
             }
@@ -365,7 +456,7 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
                 peers.iter_mut().for_each(|p| {
                     // let ecg_status = p.1.ecg_status.clone();
                     let ecg_state = ecg_state.state().clone();
-                    let message = StoreSyncCommand::ECGSyncRequest{ ecg_state };
+                    let message = StoreSyncCommand::ECGSyncRequest { ecg_state };
                     debug!("Sending ECG sync request to peer ({})", p.0);
                     send_command(p.1, message)
                 });
@@ -374,7 +465,11 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
     }
 
     // Handle a sync request for this store from a peer.
-    fn handle_metadata_peer_request(&mut self, peer: DeviceId, response_chan: Sender<HandlePeerResponse<MetadataHeader<Hash>>>) {
+    fn handle_metadata_peer_request(
+        &mut self,
+        peer: DeviceId,
+        response_chan: Sender<HandlePeerResponse<MetadataHeader<Hash>>>,
+    ) {
         if let Some(metadata) = self.metadata() {
             // We have the metadata so share it with the peer.
             response_chan.send(Ok(*metadata)).expect("TODO");
@@ -388,11 +483,15 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
         }
     }
 
-    fn handle_merkle_peer_request(&mut self, peer: DeviceId, piece_ids: Vec<Range<u64>>, response_chan: Sender<HandlePeerResponse<Vec<Hash>>>) {
-
-        let hashes = self.piece_hashes().map(|piece_hashes| {
-            handle_merkle_peer_request_helper(piece_hashes, &piece_ids)
-        });
+    fn handle_merkle_peer_request(
+        &mut self,
+        peer: DeviceId,
+        piece_ids: Vec<Range<u64>>,
+        response_chan: Sender<HandlePeerResponse<Vec<Hash>>>,
+    ) {
+        let hashes = self
+            .piece_hashes()
+            .map(|piece_hashes| handle_merkle_peer_request_helper(piece_hashes, &piece_ids));
 
         if let Some(piece_hashes) = hashes {
             // We have the hashes so share it with the peer.
@@ -407,7 +506,12 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
         }
     }
 
-    fn handle_piece_peer_request(&mut self, peer: DeviceId, piece_ids: Vec<Range<u64>>, response_chan: Sender<HandlePeerResponse<Vec<Option<Vec<u8>>>>>) {
+    fn handle_piece_peer_request(
+        &mut self,
+        peer: DeviceId,
+        piece_ids: Vec<Range<u64>>,
+        response_chan: Sender<HandlePeerResponse<Vec<Option<Vec<u8>>>>>,
+    ) {
         let pieces = handle_piece_peer_request_helper(&self.state_machine, &piece_ids);
 
         if let Some(pieces) = pieces {
@@ -422,7 +526,6 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
             self.piece_subscribers.insert(peer, (piece_ids, send_chan)); // JP: Safe to drop old one?
         }
     }
-
 
     fn handle_ecg_subscribe(
         &mut self,
@@ -457,7 +560,7 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
     //     // JP: Instead of receiving the meet, receive the frontier of what they need? Or have an
     //     // enum where that's one option (but what if a new branch from the root is added)??
     //     let (meet, tips) = request;
-    //     // Send everything after the meet (that they don't have). Update meet? 
+    //     // Send everything after the meet (that they don't have). Update meet?
 
     //     // Traverse backwards from our tip + stop once we get to something they have
     //     todo!();
@@ -490,11 +593,7 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
         let subs = std::mem::take(&mut self.metadata_subscribers);
         for (sub_peer, sub) in subs {
             let peer_knows = sub_peer == peer;
-            let msg = if peer_knows {
-                None
-            } else {
-                Some(metadata)
-            };
+            let msg = if peer_knows { None } else { Some(metadata) };
             sub.send(msg).expect("TODO");
         }
 
@@ -504,40 +603,31 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
 
     fn metadata(&self) -> Option<&MetadataHeader<Hash>> {
         match &self.state_machine {
-            StateMachine::DownloadingMetadata { .. } => {
-                None
-            }
-            StateMachine::DownloadingMerkle { metadata, .. } => {
-                Some(metadata)
-            }
-            StateMachine::DownloadingInitialState { metadata, .. } => {
-                Some(metadata)
-            }
-            StateMachine::Syncing { metadata, .. } => {
-                Some(metadata)
-            }
+            StateMachine::DownloadingMetadata { .. } => None,
+            StateMachine::DownloadingMerkle { metadata, .. } => Some(metadata),
+            StateMachine::DownloadingInitialState { metadata, .. } => Some(metadata),
+            StateMachine::Syncing { metadata, .. } => Some(metadata),
         }
     }
 
     fn piece_hashes(&self) -> Option<&Vec<Hash>> {
         match &self.state_machine {
-            StateMachine::DownloadingMetadata { .. } => {
-                None
-            }
+            StateMachine::DownloadingMetadata { .. } => None,
             StateMachine::DownloadingMerkle { .. } => {
                 // We shouldn't share pieces until we've verified them.
                 None
             }
-            StateMachine::DownloadingInitialState { piece_hashes, .. } => {
-                Some(piece_hashes)
-            }
-            StateMachine::Syncing { piece_hashes, .. } => {
-                Some(piece_hashes)
-            }
+            StateMachine::DownloadingInitialState { piece_hashes, .. } => Some(piece_hashes),
+            StateMachine::Syncing { piece_hashes, .. } => Some(piece_hashes),
         }
     }
 
-    fn handle_received_merkle_hashes(&mut self, peer: DeviceId, piece_ids: Vec<Range<u64>>, their_piece_hashes: Vec<Hash>) {
+    fn handle_received_merkle_hashes(
+        &mut self,
+        peer: DeviceId,
+        piece_ids: Vec<Range<u64>>,
+        their_piece_hashes: Vec<Hash>,
+    ) {
         warn!("TODO: Keep track if you received different hashes from different peers.");
 
         // Mark peer as ready.
@@ -550,15 +640,22 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
         }
 
         // Update state.
-        let piece_hashes = if let StateMachine::DownloadingMerkle { ref mut piece_hashes, .. } = &mut self.state_machine {
+        let piece_hashes = if let StateMachine::DownloadingMerkle {
+            ref mut piece_hashes,
+            ..
+        } = &mut self.state_machine
+        {
             piece_hashes
         } else {
             // We're not downloading anymore so we're done.
             return;
         };
-        piece_ids.into_iter().zip(their_piece_hashes).for_each(|(i, hash)| {
-            piece_hashes[i as usize] = Some(hash);
-        });
+        piece_ids
+            .into_iter()
+            .zip(their_piece_hashes)
+            .for_each(|(i, hash)| {
+                piece_hashes[i as usize] = Some(hash);
+            });
 
         // Check if we're done.
         let piece_hashes_m: Option<Vec<_>> = piece_hashes.iter().cloned().collect();
@@ -576,16 +673,22 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
 
         // Update state.
         self.state_machine = match self.state_machine {
-            StateMachine::DownloadingMerkle { metadata, ..} => {
+            StateMachine::DownloadingMerkle { metadata, .. } => {
                 let initial_state = vec![None; metadata.piece_count() as usize];
-                StateMachine::DownloadingInitialState { metadata, piece_hashes, initial_state }
+                StateMachine::DownloadingInitialState {
+                    metadata,
+                    piece_hashes,
+                    initial_state,
+                }
             }
             _ => unreachable!("We already checked that we're downloading merkle"),
         };
 
         // Send piece hashes to any peers that are waiting.
         let subs = std::mem::take(&mut self.merkle_subscribers);
-        let piece_hashes = self.piece_hashes().expect("Unreachable: We just set the piece hashes");
+        let piece_hashes = self
+            .piece_hashes()
+            .expect("Unreachable: We just set the piece hashes");
         for (sub_peer, (piece_ids, sub)) in subs {
             let peer_knows = sub_peer == peer;
             let msg = if peer_knows {
@@ -600,8 +703,13 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
         self.send_sync_requests();
     }
 
-    fn handle_received_initial_state_pieces(&mut self, peer: DeviceId, piece_ids: Vec<Range<u64>>, their_pieces: Vec<Option<Vec<u8>>>, listeners: &[UnboundedSender<StateUpdate<Header, T>>])
-    where
+    fn handle_received_initial_state_pieces(
+        &mut self,
+        peer: DeviceId,
+        piece_ids: Vec<Range<u64>>,
+        their_pieces: Vec<Option<Vec<u8>>>,
+        listeners: &[UnboundedSender<StateUpdate<Header, T>>],
+    ) where
         T: for<'d> Deserialize<'d>,
     {
         // Mark peer as ready.
@@ -614,23 +722,31 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
         }
 
         // Update state.
-        let (initial_state, piece_hashes) = if let StateMachine::DownloadingInitialState { ref mut initial_state, ref piece_hashes, .. } = &mut self.state_machine {
+        let (initial_state, piece_hashes) = if let StateMachine::DownloadingInitialState {
+            ref mut initial_state,
+            ref piece_hashes,
+            ..
+        } = &mut self.state_machine
+        {
             (initial_state, piece_hashes)
         } else {
             return;
         };
-        piece_ids.into_iter().zip(their_pieces).for_each(|(i, their_piece)| {
-            if let Some(their_piece) = their_piece {
-                let piece = &mut initial_state[i as usize];
-                // Only set piece if it's currently None and if it validates.
-                let expected_hash = piece_hashes[i as usize];
-                if piece.is_none() && util::validate_piece(&their_piece, &expected_hash){
-                    *piece = Some(their_piece);
+        piece_ids
+            .into_iter()
+            .zip(their_pieces)
+            .for_each(|(i, their_piece)| {
+                if let Some(their_piece) = their_piece {
+                    let piece = &mut initial_state[i as usize];
+                    // Only set piece if it's currently None and if it validates.
+                    let expected_hash = piece_hashes[i as usize];
+                    if piece.is_none() && util::validate_piece(&their_piece, &expected_hash) {
+                        *piece = Some(their_piece);
 
-                    // TODO: Credit peer with this piece.
+                        // TODO: Credit peer with this piece.
+                    }
                 }
-            }
-        });
+            });
 
         // Check if we're done. Exit if we're not.
         if initial_state.iter().any(|o| o.is_none()) {
@@ -638,35 +754,59 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
         }
 
         // Update state.
-        replace_with_or_abort(&mut self.state_machine, |sm| {
-            match sm {
-                StateMachine::DownloadingInitialState { metadata, piece_hashes, initial_state } => {
-                    let ecg_state = ecg::State::new();
-                    let initial_state: Vec<u8> = initial_state.into_iter().flatten().flatten().collect::<Vec<u8>>();
-                    let Ok(latest_state) = serde_cbor::de::from_slice::<T>(&initial_state) else {
-                        todo!("TODO: The store is invalid. Initial state does not parse.");
-                    };
-                    let decrypted_state = DecryptedState {
-                        latest_state,
-                        latest_headers: BTreeSet::new(),
-                    };
-                    StateMachine::Syncing { metadata, piece_hashes, initial_state, ecg_state, decrypted_state, }
+        replace_with_or_abort(&mut self.state_machine, |sm| match sm {
+            StateMachine::DownloadingInitialState {
+                metadata,
+                piece_hashes,
+                initial_state,
+            } => {
+                let ecg_state = ecg::State::new();
+                let initial_state: Vec<u8> = initial_state
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .collect::<Vec<u8>>();
+                let Ok(latest_state) = serde_cbor::de::from_slice::<T>(&initial_state) else {
+                    todo!("TODO: The store is invalid. Initial state does not parse.");
+                };
+                let decrypted_state = DecryptedState {
+                    latest_state,
+                    latest_headers: BTreeSet::new(),
+                };
+                StateMachine::Syncing {
+                    metadata,
+                    piece_hashes,
+                    initial_state,
+                    ecg_state,
+                    decrypted_state,
                 }
-                _ => unreachable!("We already checked that we're downloading the initial state"),
             }
+            _ => unreachable!("We already checked that we're downloading the initial state"),
         });
 
         // Update listeners.
-        let StateMachine::Syncing { ecg_state, decrypted_state, .. } = &self.state_machine else {
+        let StateMachine::Syncing {
+            ecg_state,
+            decrypted_state,
+            ..
+        } = &self.state_machine
+        else {
             unreachable!("We just set our state to syncing")
         };
-        update_listeners(&mut self.ecg_subscribers, listeners, &decrypted_state.latest_state, ecg_state, Some(peer));
+        update_listeners(
+            &mut self.ecg_subscribers,
+            listeners,
+            &decrypted_state.latest_state,
+            ecg_state,
+            Some(peer),
+        );
 
         // Send pieces to any peers that are waiting.
         let subs = std::mem::take(&mut self.piece_subscribers);
         for (_sub_peer, (piece_ids, sub)) in subs {
             // JP: Do we need to keep sub_peer here?
-            let msg = handle_piece_peer_request_helper(&self.state_machine, &piece_ids).expect("Unreachable: We just set our state to syncing");
+            let msg = handle_piece_peer_request_helper(&self.state_machine, &piece_ids)
+                .expect("Unreachable: We just set our state to syncing");
             sub.send(Some(msg)).expect("TODO");
         }
 
@@ -674,9 +814,13 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
         self.send_sync_requests();
     }
 
-    fn handle_received_ecg_operations<OT>(&mut self, peer: DeviceId, operations: Vec<(Header, RawECGBody)>, listeners: &[UnboundedSender<StateUpdate<Header, T>>])
-    where
-        OT: OdysseyType<ECGHeader = Header>, 
+    fn handle_received_ecg_operations<OT>(
+        &mut self,
+        peer: DeviceId,
+        operations: Vec<(Header, RawECGBody)>,
+        listeners: &[UnboundedSender<StateUpdate<Header, T>>],
+    ) where
+        OT: OdysseyType<ECGHeader = Header>,
         T: CRDT<Time = OT::Time> + Debug,
         T::Op: Serialize,
         OT::ECGBody<T>: ECGBody<T, Header = OT::ECGHeader> + for<'d> Deserialize<'d> + Debug,
@@ -686,13 +830,19 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
 
         warn!("TODO: Validate operations from peer");
 
-        let StateMachine::Syncing { ref mut ecg_state, ref mut decrypted_state, .. } = &mut self.state_machine else {
+        let StateMachine::Syncing {
+            ref mut ecg_state,
+            ref mut decrypted_state,
+            ..
+        } = &mut self.state_machine
+        else {
             unreachable!("We must be syncing");
         };
 
         // Parse and apply all operations.
         operations.into_iter().for_each(|(header, raw_operations)| {
-            let operations = serde_cbor::from_slice(&raw_operations).expect("TODO: Peer gave us improperly serialized operations");
+            let operations = serde_cbor::from_slice(&raw_operations)
+                .expect("TODO: Peer gave us improperly serialized operations");
             debug!("Applying operations {operations:?}");
 
             // TODO: Get rid of this clone.
@@ -706,14 +856,29 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
         debug!("New decrypted state {:?}", decrypted_state.latest_state);
 
         // Update listeners (except peer).
-        update_listeners(&mut self.ecg_subscribers, listeners, &decrypted_state.latest_state, ecg_state, Some(peer));
+        update_listeners(
+            &mut self.ecg_subscribers,
+            listeners,
+            &decrypted_state.latest_state,
+            ecg_state,
+            Some(peer),
+        );
 
         // Sync with peer(s). Do this for all commands??
         self.send_sync_requests();
     }
 }
 
-fn update_listeners<Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone>(ecg_subscribers: &mut BTreeMap<DeviceId, oneshot::Sender<ecg::UntypedState<Header::HeaderId, Header>>>, listeners: &[UnboundedSender<StateUpdate<Header, T>>], latest_state: &T, ecg_state: &ecg::State<Header, T>, from_peer: Option<DeviceId>) {
+fn update_listeners<Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone>(
+    ecg_subscribers: &mut BTreeMap<
+        DeviceId,
+        oneshot::Sender<ecg::UntypedState<Header::HeaderId, Header>>,
+    >,
+    listeners: &[UnboundedSender<StateUpdate<Header, T>>],
+    latest_state: &T,
+    ecg_state: &ecg::State<Header, T>,
+    from_peer: Option<DeviceId>,
+) {
     for l in listeners {
         let snapshot: StateUpdate<Header, T> = StateUpdate::Snapshot {
             snapshot: latest_state.clone(),
@@ -742,9 +907,10 @@ fn update_listeners<Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone>(ecg
 async fn manage_peers<OT: OdysseyType, T: CRDT<Time = OT::Time> + Clone + Send + 'static>(
     store: &mut State<OT::StoreId, OT::ECGHeader, T, OT::Hash>,
     shared_state: &SharedState<OT::StoreId>,
-    send_commands: &UnboundedSender<UntypedStoreCommand<OT::Hash, <OT::ECGHeader as ECGHeader>::HeaderId, OT::ECGHeader>>,
-)
-where
+    send_commands: &UnboundedSender<
+        UntypedStoreCommand<OT::Hash, <OT::ECGHeader as ECGHeader>::HeaderId, OT::ECGHeader>,
+    >,
+) where
     T::Op: Serialize,
     OT::ECGHeader: Clone + Serialize + for<'d> Deserialize<'d> + Send + Sync,
     <OT::ECGHeader as ECGHeader>::HeaderId: Serialize + for<'d> Deserialize<'d> + Send,
@@ -753,14 +919,21 @@ where
 {
     // For now, sync with all (connected?) peers.
     // Don't connect to peers we're already syncing with.
-    let peers: Vec<_> = store.peers.iter().filter(|p| p.1.outgoing_status.is_known()).collect();
+    let peers: Vec<_> = store
+        .peers
+        .iter()
+        .filter(|p| p.1.outgoing_status.is_known())
+        .collect();
     let peers: Vec<_> = {
         // Acquire lock on shared state.
         let peer_states = shared_state.peer_state.read().await;
-        peers.into_iter().filter_map(|(peer_id, _)| {
-            let chan = peer_states.get(peer_id)?;
-            Some((*peer_id, chan.clone()))
-        }).collect()
+        peers
+            .into_iter()
+            .filter_map(|(peer_id, _)| {
+                let chan = peer_states.get(peer_id)?;
+                Some((*peer_id, chan.clone()))
+            })
+            .collect()
     };
     for (peer_id, command_chan) in peers {
         // Mark task as initializing.
@@ -774,8 +947,9 @@ where
             // JP: Should run with initiative?
             tokio::spawn(async move {
                 // Tell store we're running and send it our channel.
-                let (send_peer, recv_peer) =
-                    tokio::sync::mpsc::unbounded_channel::<StoreSyncCommand<<OT::ECGHeader as ECGHeader>::HeaderId, OT::ECGHeader>>();
+                let (send_peer, recv_peer) = tokio::sync::mpsc::unbounded_channel::<
+                    StoreSyncCommand<<OT::ECGHeader as ECGHeader>::HeaderId, OT::ECGHeader>,
+                >();
 
                 let register_cmd = UntypedStoreCommand::RegisterOutgoingPeerSyncing {
                     peer: peer_id,
@@ -796,7 +970,7 @@ where
                 //
                 // In the store task, sync state:
                 // Based on status,
-                //   if we're still downloading the metadata, request the peer to send it 
+                //   if we're still downloading the metadata, request the peer to send it
                 //   if we are downloading the initial state, send a download request for a piece(s) we need. How do we do timeouts here though? Perhaps in the StorePeer task?
                 //   if we're syncing:
                 //      run ECG sync to find the meet
@@ -814,16 +988,18 @@ where
     }
 }
 
-fn apply_operations<OT: OdysseyType, T>(decrypted_state: &mut DecryptedState<OT::ECGHeader, T>, ecg_state: &ecg::State<OT::ECGHeader, T>, operation_header: &OT::ECGHeader, operation_body: OT::ECGBody<T>)
-where 
+fn apply_operations<OT: OdysseyType, T>(
+    decrypted_state: &mut DecryptedState<OT::ECGHeader, T>,
+    ecg_state: &ecg::State<OT::ECGHeader, T>,
+    operation_header: &OT::ECGHeader,
+    operation_body: OT::ECGBody<T>,
+) where
     T: CRDT<Time = OT::Time>,
     T::Op: Serialize,
     OT::ECGBody<T>: ECGBody<T, Header = OT::ECGHeader>,
 {
     let causal_state = OT::to_causal_state(ecg_state);
-    for (time, operation) in
-        operation_body.zip_operations_with_time(&operation_header)
-    {
+    for (time, operation) in operation_body.zip_operations_with_time(&operation_header) {
         replace_with_or_abort(&mut decrypted_state.latest_state, |s| {
             s.apply(causal_state, time, operation)
         });
@@ -835,15 +1011,21 @@ where
 pub(crate) async fn run_handler<OT: OdysseyType, T>(
     mut store: State<OT::StoreId, OT::ECGHeader, T, OT::Hash>,
     mut recv_commands: UnboundedReceiver<StoreCommand<OT::ECGHeader, OT::ECGBody<T>, T>>,
-    send_commands_untyped: UnboundedSender<UntypedStoreCommand<OT::Hash, <OT::ECGHeader as ECGHeader>::HeaderId, OT::ECGHeader>>,
-    mut recv_commands_untyped: UnboundedReceiver<UntypedStoreCommand<OT::Hash, <OT::ECGHeader as ECGHeader>::HeaderId, OT::ECGHeader>>,
+    send_commands_untyped: UnboundedSender<
+        UntypedStoreCommand<OT::Hash, <OT::ECGHeader as ECGHeader>::HeaderId, OT::ECGHeader>,
+    >,
+    mut recv_commands_untyped: UnboundedReceiver<
+        UntypedStoreCommand<OT::Hash, <OT::ECGHeader as ECGHeader>::HeaderId, OT::ECGHeader>,
+    >,
     shared_state: SharedState<OT::StoreId>,
-)
-where
-    <OT as OdysseyType>::ECGHeader: Send + Sync + Clone + Serialize + for<'d> Deserialize<'d> + 'static,
+) where
+    <OT as OdysseyType>::ECGHeader:
+        Send + Sync + Clone + Serialize + for<'d> Deserialize<'d> + 'static,
     // <<OT as OdysseyType>::ECGHeader as ECGHeader>::Body: ECGBody<T> + Send,
-    <OT as OdysseyType>::ECGBody<T>: ECGBody<T, Header = OT::ECGHeader> + Send + Serialize + for<'d> Deserialize<'d> + Debug,
-    <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId: Send + Serialize + for<'d> Deserialize<'d>,
+    <OT as OdysseyType>::ECGBody<T>:
+        ECGBody<T, Header = OT::ECGHeader> + Send + Serialize + for<'d> Deserialize<'d> + Debug,
+    <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId:
+        Send + Serialize + for<'d> Deserialize<'d>,
     T::Op: Serialize,
     T: CRDT<Time = OT::Time> + Debug + Clone + Send + 'static + for<'d> Deserialize<'d>,
 {
@@ -1083,8 +1265,8 @@ where
 
 pub(crate) enum StoreCommand<Header: ECGHeader, Body, T> {
     Apply {
-        operation_header: Header,     // <Hash, T>,
-        operation_body: Body, // <Hash, T>,
+        operation_header: Header, // <Hash, T>,
+        operation_body: Body,     // <Hash, T>,
     },
     // TODO: Support unsubscribe.
     SubscribeState {
@@ -1104,16 +1286,13 @@ pub enum StateUpdate<Header: ECGHeader, T> {
     },
 }
 
-// trait UntypedCRDT: CRDT<Op = dyn Any, Time = dyn Any> {} // Any + Sized + 'static +  
-// trait UntypedECGHeader: ECGHeader<dyn Any> {} // Any + Sized + 'static + 
-// 
+// trait UntypedCRDT: CRDT<Op = dyn Any, Time = dyn Any> {} // Any + Sized + 'static +
+// trait UntypedECGHeader: ECGHeader<dyn Any> {} // Any + Sized + 'static +
+//
 // struct UntypedStoreCommand(StoreCommand<dyn UntypedECGHeader, dyn UntypedCRDT>);
 // struct UntypedStoreCommand(StoreCommand<dyn UntypedECGHeader, dyn Any>);
 
-type HandlePeerResponse<Response> = Result<
-        Response,
-        oneshot::Receiver<Option<Response>>,
-    >;
+type HandlePeerResponse<Response> = Result<Response, oneshot::Receiver<Option<Response>>>;
 
 /// Untyped variant of `StoreCommand` since existentials don't work.
 // #[derive(Debug)]
@@ -1160,7 +1339,7 @@ pub(crate) enum UntypedStoreCommand<Hash, HeaderId, Header> {
         peer: DeviceId,
         tips: Option<BTreeSet<HeaderId>>,
         response_chan: oneshot::Sender<ecg::UntypedState<HeaderId, Header>>,
-    }
+    },
 }
 
 pub(crate) struct HandlePeerRequest<Request, Response> {
@@ -1170,11 +1349,17 @@ pub(crate) struct HandlePeerRequest<Request, Response> {
     pub(crate) response_chan: oneshot::Sender<HandlePeerResponse<Response>>,
 }
 
-fn handle_merkle_peer_request_helper<H: Copy>(piece_hashes: &[H], piece_ids: &[Range<u64>]) -> Vec<H> {
+fn handle_merkle_peer_request_helper<H: Copy>(
+    piece_hashes: &[H],
+    piece_ids: &[Range<u64>],
+) -> Vec<H> {
     handle_peer_request_range_helper(piece_hashes, piece_ids)
 }
 
-fn handle_piece_peer_request_helper<StoreId, Header: ecg::ECGHeader, T: CRDT, Hash>(state_machine: &StateMachine<StoreId, Header, T, Hash>, piece_ids: &[Range<u64>]) -> Option<Vec<Option<Vec<u8>>>> {
+fn handle_piece_peer_request_helper<StoreId, Header: ecg::ECGHeader, T: CRDT, Hash>(
+    state_machine: &StateMachine<StoreId, Header, T, Hash>,
+    piece_ids: &[Range<u64>],
+) -> Option<Vec<Option<Vec<u8>>>> {
     // TODO: Can we avoid these clones?
     match state_machine {
         StateMachine::DownloadingMetadata { .. } => None,
@@ -1183,20 +1368,37 @@ fn handle_piece_peer_request_helper<StoreId, Header: ecg::ECGHeader, T: CRDT, Ha
             Some(handle_peer_request_range_helper(initial_state, piece_ids))
         }
         StateMachine::Syncing { initial_state, .. } => {
-            let pieces: Vec<_> = piece_ids.iter().cloned().flatten().map(|i| {
-                warn!("TODO: Properly handle invalid requests"); // Return None if i >= metadata.piece_count()?
-                let start: usize = (i * PIECE_SIZE) as usize;
-                let end = std::cmp::min(((i + 1) * PIECE_SIZE) as usize, initial_state.len());
-                Some(initial_state[start..end].to_vec())
-            }).collect();
+            let pieces: Vec<_> = piece_ids
+                .iter()
+                .cloned()
+                .flatten()
+                .map(|i| {
+                    warn!("TODO: Properly handle invalid requests"); // Return None if i >= metadata.piece_count()?
+                    let start: usize = (i * PIECE_SIZE) as usize;
+                    let end = std::cmp::min(((i + 1) * PIECE_SIZE) as usize, initial_state.len());
+                    Some(initial_state[start..end].to_vec())
+                })
+                .collect();
             Some(pieces)
         }
     }
 }
 
-fn handle_peer_request_range_helper<T: Clone>(piece_hashes: &[T], piece_ids: &[Range<u64>]) -> Vec<T> {
+fn handle_peer_request_range_helper<T: Clone>(
+    piece_hashes: &[T],
+    piece_ids: &[Range<u64>],
+) -> Vec<T> {
     warn!("TODO: check ranges are in bounds or return error");
-    let hashes: Vec<_> = piece_ids.iter().cloned().flatten().map(|i| piece_hashes.get(i as usize).expect("TODO: Properly handle invalid requests").clone()).collect();
+    let hashes: Vec<_> = piece_ids
+        .iter()
+        .cloned()
+        .flatten()
+        .map(|i| {
+            piece_hashes
+                .get(i as usize)
+                .expect("TODO: Properly handle invalid requests")
+                .clone()
+        })
+        .collect();
     hashes
 }
-

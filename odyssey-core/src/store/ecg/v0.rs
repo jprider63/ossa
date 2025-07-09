@@ -1,7 +1,9 @@
 use odyssey_crdt::{time::CausalState, CRDT};
 use rand::Rng;
 use serde::{
-    de::{MapAccess, Visitor}, ser::{SerializeStruct, Serializer}, Deserialize, Serialize
+    de::{MapAccess, Visitor},
+    ser::{SerializeStruct, Serializer},
+    Deserialize, Serialize,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -23,7 +25,8 @@ pub struct HeaderId<Hash>(Hash);
 #[derive(Clone, Debug, Deserialize, Serialize)]
 // #[derive(Clone, Typeable)]
 // #[tag = "v1"]
-pub struct Header<Hash> { // , T> {
+pub struct Header<Hash> {
+    // , T> {
     /// A nonce to randomize the header.
     nonce: u8,
 
@@ -37,7 +40,6 @@ pub struct Header<Hash> { // , T> {
     /// The hash of (batched) operations in the corresponding body.
     /// TODO: Eventually this should be of the encrypted body..
     operations_hash: Hash,
-
     // // TODO: DeviceId and UserId of device signing? Maybe whole auth chain?
     // phantom: PhantomData<T>,
 }
@@ -64,19 +66,21 @@ where
     }
 }
 
-impl<'d, Hash, T: CRDT> Deserialize<'d> for Body<Hash, T> 
+impl<'d, Hash, T: CRDT> Deserialize<'d> for Body<Hash, T>
 where
     T::Op: Deserialize<'d>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
-        D: serde::Deserializer<'d>
+        D: serde::Deserializer<'d>,
     {
-        struct SVisitor<Hash, T> (PhantomData<(Hash, T)>);
+        struct SVisitor<Hash, T>(PhantomData<(Hash, T)>);
 
         #[derive(Deserialize)]
         #[serde(field_identifier, rename_all = "lowercase")]
-        enum Field { Operations }
+        enum Field {
+            Operations,
+        }
 
         impl<'d, Hash, T: CRDT> Visitor<'d> for SVisitor<Hash, T>
         where
@@ -104,7 +108,8 @@ where
                     }
                 }
 
-                let operations = operations.ok_or_else(|| serde::de::Error::missing_field("operations"))?;
+                let operations =
+                    operations.ok_or_else(|| serde::de::Error::missing_field("operations"))?;
                 Ok(Body {
                     operations,
                     phantom: PhantomData,
@@ -183,7 +188,7 @@ where
 
 const MAX_OPERATION_COUNT: usize = 256;
 
-impl<Hash, T: CRDT<Time = OperationId<HeaderId<Hash>>>> ECGBody<T> for Body<Hash, T> 
+impl<Hash, T: CRDT<Time = OperationId<HeaderId<Hash>>>> ECGBody<T> for Body<Hash, T>
 where
     <T as CRDT>::Op: Serialize,
     Hash: Clone + Copy + Debug + Ord + util::Hash + Serialize,
@@ -213,8 +218,7 @@ where
             .expect("Unreachable: Length is bound by MAX_OPERATION_COUNT.")
     }
 
-    fn new_header(&self, parents: BTreeSet<<Self::Header as ECGHeader>::HeaderId>) -> Self::Header
-    {
+    fn new_header(&self, parents: BTreeSet<<Self::Header as ECGHeader>::HeaderId>) -> Self::Header {
         let mut rng = rand::thread_rng();
         let nonce = rng.gen();
 
@@ -232,7 +236,10 @@ where
         }
     }
 
-    fn zip_operations_with_time(self, header: &Self::Header) -> Vec<(<T as CRDT>::Time, <T as CRDT>::Op)> {
+    fn zip_operations_with_time(
+        self,
+        header: &Self::Header,
+    ) -> Vec<(<T as CRDT>::Time, <T as CRDT>::Op)> {
         let times = self.get_operation_times(header);
         let ops = self.operations();
         times.into_iter().zip(ops).collect()
@@ -337,7 +344,10 @@ impl<T: CRDT> ECGBody<T> for TestBody<T> {
             .expect("Unreachable: Length is bound by MAX_OPERATION_COUNT.")
     }
 
-    fn zip_operations_with_time(self, header: &Self::Header) -> Vec<(<T as CRDT>::Time, <T as CRDT>::Op)> {
+    fn zip_operations_with_time(
+        self,
+        header: &Self::Header,
+    ) -> Vec<(<T as CRDT>::Time, <T as CRDT>::Op)> {
         todo!()
     }
 

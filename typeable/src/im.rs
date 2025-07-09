@@ -1,11 +1,10 @@
-
-use crate::{Typeable, TypeId};
+use crate::{TypeId, Typeable};
 use im::{OrdMap, OrdSet};
 use sha2::{Digest, Sha256};
 
-use crate::internal::{helper_type_args_count, helper_type_ident, helper_type_constructor};
+use crate::internal::{helper_type_args_count, helper_type_constructor, helper_type_ident};
 
-impl<K: Typeable, V: Typeable> Typeable for OrdMap<K,V> {
+impl<K: Typeable, V: Typeable> Typeable for OrdMap<K, V> {
     fn type_ident() -> TypeId {
         let mut h = Sha256::new();
         helper_type_constructor(&mut h, "im__OrdMap");

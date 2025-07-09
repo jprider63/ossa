@@ -1,7 +1,15 @@
 use serde::{Deserialize, Serialize};
-use tokio::{net::TcpStream, sync::{mpsc::UnboundedReceiver, watch}};
+use tokio::{
+    net::TcpStream,
+    sync::{mpsc::UnboundedReceiver, watch},
+};
 
-use crate::{auth::DeviceId, core::{OdysseyType, StoreStatuses}, protocol::manager::v0::PeerManagerCommand, store::ecg::ECGHeader};
+use crate::{
+    auth::DeviceId,
+    core::{OdysseyType, StoreStatuses},
+    protocol::manager::v0::PeerManagerCommand,
+    store::ecg::ECGHeader,
+};
 
 pub mod heartbeat;
 pub mod manager;
@@ -15,8 +23,16 @@ pub(crate) struct MiniProtocolArgs<StoreId, Hash, HeaderId, Header> {
 }
 
 impl<StoreId, Hash, HeaderId, Header> MiniProtocolArgs<StoreId, Hash, HeaderId, Header> {
-    pub(crate) fn new(peer_id: DeviceId, active_stores: watch::Receiver<StoreStatuses<StoreId, Hash, HeaderId, Header>>, manager_channel: UnboundedReceiver<PeerManagerCommand<StoreId>>) -> Self {
-        Self { peer_id, active_stores, manager_channel }
+    pub(crate) fn new(
+        peer_id: DeviceId,
+        active_stores: watch::Receiver<StoreStatuses<StoreId, Hash, HeaderId, Header>>,
+        manager_channel: UnboundedReceiver<PeerManagerCommand<StoreId>>,
+    ) -> Self {
+        Self {
+            peer_id,
+            active_stores,
+            manager_channel,
+        }
     }
 }
 
@@ -31,13 +47,31 @@ impl Version {
         *self as u8
     }
 
-    pub async fn run_miniprotocols_server<O: OdysseyType>(&self, stream: TcpStream, args: MiniProtocolArgs<O::StoreId, O::Hash, <O::ECGHeader as ECGHeader>::HeaderId, O::ECGHeader>) {
+    pub async fn run_miniprotocols_server<O: OdysseyType>(
+        &self,
+        stream: TcpStream,
+        args: MiniProtocolArgs<
+            O::StoreId,
+            O::Hash,
+            <O::ECGHeader as ECGHeader>::HeaderId,
+            O::ECGHeader,
+        >,
+    ) {
         match self {
             Version::V0 => v0::run_miniprotocols_server::<O>(stream, args).await,
         }
     }
 
-    pub async fn run_miniprotocols_client<O: OdysseyType>(&self, stream: TcpStream, args: MiniProtocolArgs<O::StoreId, O::Hash, <O::ECGHeader as ECGHeader>::HeaderId, O::ECGHeader>) {
+    pub async fn run_miniprotocols_client<O: OdysseyType>(
+        &self,
+        stream: TcpStream,
+        args: MiniProtocolArgs<
+            O::StoreId,
+            O::Hash,
+            <O::ECGHeader as ECGHeader>::HeaderId,
+            O::ECGHeader,
+        >,
+    ) {
         match self {
             Version::V0 => v0::run_miniprotocols_client::<O>(stream, args).await,
         }

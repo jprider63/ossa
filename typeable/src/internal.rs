@@ -1,6 +1,6 @@
+use crate::Typeable;
 /// Internal helper functions. Do not rely on this API. It is unstable.
 pub use sha2::{Digest, Sha256};
-use crate::Typeable;
 
 pub fn helper_counter(h: &mut Sha256, n: usize) {
     let c: u8 = n.try_into().expect(&format!("Too many inputs: {}", n));

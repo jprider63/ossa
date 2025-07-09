@@ -1,7 +1,6 @@
-
 use crate::TypeId;
-use serde::ser::{Serialize, Serializer};
 use serde::de::{Deserialize, Deserializer};
+use serde::ser::{Serialize, Serializer};
 
 impl Serialize for TypeId {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -20,5 +19,3 @@ impl<'de> Deserialize<'de> for TypeId {
         Ok(TypeId(Deserialize::deserialize(deserializer)?))
     }
 }
-
-

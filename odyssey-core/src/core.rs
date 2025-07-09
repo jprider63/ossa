@@ -3,7 +3,6 @@ use odyssey_crdt::time::CausalState;
 // use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use odyssey_crdt::CRDT;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{watch, RwLock};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Debug, Display};
 use std::marker::PhantomData;
@@ -13,6 +12,7 @@ use std::thread;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tokio::sync::{watch, RwLock};
 use tokio::task::JoinHandle;
 use tokio_util::codec::{self, LengthDelimitedCodec};
 use tracing::{debug, error, info, warn};
@@ -23,8 +23,8 @@ use crate::network::protocol::{run_handshake_client, run_handshake_server, Hands
 use crate::protocol::manager::v0::PeerManagerCommand;
 use crate::protocol::MiniProtocolArgs;
 use crate::storage::Storage;
-use crate::store::{self, StateUpdate, StoreCommand, UntypedStoreCommand};
 use crate::store::ecg::{self, ECGBody, ECGHeader};
+use crate::store::{self, StateUpdate, StoreCommand, UntypedStoreCommand};
 use crate::util::{self, TypedStream};
 
 pub struct Odyssey<OT: OdysseyType> {
@@ -34,13 +34,16 @@ pub struct Odyssey<OT: OdysseyType> {
     tokio_runtime: Runtime,
     /// Active stores.
     // stores: BTreeMap<OT::StoreId,ActiveStore>,
-    active_stores: watch::Sender<StoreStatuses<OT::StoreId, OT::Hash, <OT::ECGHeader as ECGHeader>::HeaderId, OT::ECGHeader>>, // JP: Make this encode more state that other's may want to subscribe to?
+    active_stores: watch::Sender<
+        StoreStatuses<OT::StoreId, OT::Hash, <OT::ECGHeader as ECGHeader>::HeaderId, OT::ECGHeader>,
+    >, // JP: Make this encode more state that other's may want to subscribe to?
     shared_state: SharedState<OT::StoreId>, // JP: Could have another thread own and manage this state
-                                  // instead?
+    // instead?
     phantom: PhantomData<OT>,
     identity_keys: Identity,
 }
-pub type StoreStatuses<StoreId, Hash, HeaderId, Header> = BTreeMap<StoreId, StoreStatus<Hash, HeaderId, Header>>; // Rename this MiniProtocolArgs?
+pub type StoreStatuses<StoreId, Hash, HeaderId, Header> =
+    BTreeMap<StoreId, StoreStatus<Hash, HeaderId, Header>>; // Rename this MiniProtocolArgs?
 
 // pub enum StoreStatus<O: OdysseyType, T: CRDT<Time = O::Time>>
 // where
@@ -51,8 +54,8 @@ pub enum StoreStatus<Hash, HeaderId, Header> {
     // Store's async handler is running.
     Running {
         store_handle: JoinHandle<()>, // JP: Does this belong here? The state is owned here, but
-                                      // the miniprotocols probably don't need to block waiting on
-                                      // it...
+        // the miniprotocols probably don't need to block waiting on
+        // it...
         // send_command_chan: UnboundedSender<StoreCommand<O::ECGHeader, T>>,
         // https://www.reddit.com/r/rust/comments/1exjiab/the_amazing_pattern_i_discovered_hashmap_with/
         // send_command_chan: UnboundedSender<StoreCommand<store::ecg::v0::Header<dyn Hash, dyn CRDT>, dyn CRDT>>,
@@ -61,18 +64,18 @@ pub enum StoreStatus<Hash, HeaderId, Header> {
     },
 }
 
-#[derive(Clone,Debug)]
+#[derive(Clone, Debug)]
 /// Odyssey state that is shared across multiple tasks.
 pub(crate) struct SharedState<StoreId> {
-    pub(crate) peer_state: Arc<RwLock<BTreeMap<DeviceId, UnboundedSender<PeerManagerCommand<StoreId>>>>>,
+    pub(crate) peer_state:
+        Arc<RwLock<BTreeMap<DeviceId, UnboundedSender<PeerManagerCommand<StoreId>>>>>,
 }
-
 
 impl<Hash, HeaderId, Header> StoreStatus<Hash, HeaderId, Header> {
     pub(crate) fn is_initializing(&self) -> bool {
         match self {
             StoreStatus::Initializing => true,
-            StoreStatus::Running {..} => false,
+            StoreStatus::Running { .. } => false,
         }
     }
 
@@ -80,10 +83,14 @@ impl<Hash, HeaderId, Header> StoreStatus<Hash, HeaderId, Header> {
         !self.is_initializing()
     }
 
-    pub(crate) fn command_channel(&self) -> Option<&UnboundedSender<UntypedStoreCommand<Hash, HeaderId, Header>>> {
+    pub(crate) fn command_channel(
+        &self,
+    ) -> Option<&UnboundedSender<UntypedStoreCommand<Hash, HeaderId, Header>>> {
         match self {
             StoreStatus::Initializing => None,
-            StoreStatus::Running {send_command_chan, ..} => Some(send_command_chan),
+            StoreStatus::Running {
+                send_command_chan, ..
+            } => Some(send_command_chan),
         }
     }
 }
@@ -152,7 +159,6 @@ impl<OT: OdysseyType> Odyssey<OT> {
                     // let device_id = DeviceId::new(identity_keys.auth_key().verifying_key());
                     let shared_state = shared_state.clone();
 
-
                     let future_handle = tokio::spawn(async move {
                         // let (read_stream, write_stream) = tcpstream.split();
                         let stream = codec::Framed::new(tcpstream, LengthDelimitedCodec::new());
@@ -173,22 +179,34 @@ impl<OT: OdysseyType> Odyssey<OT> {
                             }
                         };
 
-                        info!("Handshake complete with peer: {}", handshake_result.peer_id());
+                        info!(
+                            "Handshake complete with peer: {}",
+                            handshake_result.peer_id()
+                        );
                         // Store peer in state.
-                        if let Some(recv) = initiate_peer(handshake_result.peer_id(), &shared_state).await {
+                        if let Some(recv) =
+                            initiate_peer(handshake_result.peer_id(), &shared_state).await
+                        {
                             // Start miniprotocols.
-                            let args = MiniProtocolArgs::new(handshake_result.peer_id(), active_stores, recv);
-                            handshake_result.version().run_miniprotocols_server::<OT>(stream, args).await;
+                            let args = MiniProtocolArgs::new(
+                                handshake_result.peer_id(),
+                                active_stores,
+                                recv,
+                            );
+                            handshake_result
+                                .version()
+                                .run_miniprotocols_server::<OT>(stream, args)
+                                .await;
                         } else {
-                            info!("Disconnecting. Already connected to peer: {}", handshake_result.peer_id());
+                            info!(
+                                "Disconnecting. Already connected to peer: {}",
+                                handshake_result.peer_id()
+                            );
                         }
                     });
-
                 }
             });
         });
-
-
 
         // TODO: Store identity key
 
@@ -203,20 +221,27 @@ impl<OT: OdysseyType> Odyssey<OT> {
         }
     }
 
-    pub fn create_store<T, S: Storage>(
-        &self,
-        initial_state: T,
-        _storage: S,
-    ) -> StoreHandle<OT, T>
+    pub fn create_store<T, S: Storage>(&self, initial_state: T, _storage: S) -> StoreHandle<OT, T>
     where
-        T: CRDT<Time = OT::Time> + Clone + Debug + Send + 'static + Typeable + Serialize + for<'d> Deserialize<'d>,
+        T: CRDT<Time = OT::Time>
+            + Clone
+            + Debug
+            + Send
+            + 'static
+            + Typeable
+            + Serialize
+            + for<'d> Deserialize<'d>,
         T::Op: Serialize,
         OT::ECGHeader: Send + Sync + Clone + 'static + Serialize + for<'d> Deserialize<'d>,
-        OT::ECGBody<T>: Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
-        <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId: Send + Serialize + for<'d> Deserialize<'d>,
+        OT::ECGBody<T>:
+            Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
+        <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId:
+            Send + Serialize + for<'d> Deserialize<'d>,
     {
         // Create store by generating nonce, etc.
-        let store = store::State::<OT::StoreId, OT::ECGHeader, T, OT::Hash>::new_syncing(initial_state.clone());
+        let store = store::State::<OT::StoreId, OT::ECGHeader, T, OT::Hash>::new_syncing(
+            initial_state.clone(),
+        );
         let store_id = store.store_id();
 
         // Check if this store id already exists and try again if there's a conflict.
@@ -247,7 +272,8 @@ impl<OT: OdysseyType> Odyssey<OT> {
     ) -> StoreHandle<OT, T>
     where
         OT::ECGHeader: Send + Sync + Clone + 'static,
-        OT::ECGBody<T>: Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
+        OT::ECGBody<T>:
+            Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
         <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId: Send,
         T: CRDT<Time = OT::Time> + Clone + Debug + Send + 'static + for<'d> Deserialize<'d>,
         T::Op: Serialize,
@@ -275,7 +301,6 @@ impl<OT: OdysseyType> Odyssey<OT> {
         debug!("Joined store: {}", store_id);
         store_handler
 
-
         // - Add it to our active store set with the appropriate status.
         //
         // Update our peers + sync with them? This is automatic?
@@ -296,7 +321,6 @@ impl<OT: OdysseyType> Odyssey<OT> {
     fn device_id(&self) -> DeviceId {
         DeviceId::new(self.identity_keys.auth_key().verifying_key())
     }
-
 
     // Connect to a peer over ipv4.
     pub fn connect_to_peer_ipv4(&self, address: SocketAddrV4) {
@@ -331,15 +355,24 @@ impl<OT: OdysseyType> Odyssey<OT> {
                 }
             };
 
-            info!("Handshake complete with peer: {}", handshake_result.peer_id());
+            info!(
+                "Handshake complete with peer: {}",
+                handshake_result.peer_id()
+            );
             // Store peer in state.
             if let Some(recv) = initiate_peer(handshake_result.peer_id(), &shared_state).await {
                 // Start miniprotocols.
                 debug!("Start miniprotocols");
                 let args = MiniProtocolArgs::new(handshake_result.peer_id(), active_stores, recv);
-                handshake_result.version().run_miniprotocols_client::<OT>(stream, args).await;
+                handshake_result
+                    .version()
+                    .run_miniprotocols_client::<OT>(stream, args)
+                    .await;
             } else {
-                info!("Disconnecting. Already connected to peer: {}", handshake_result.peer_id());
+                info!(
+                    "Disconnecting. Already connected to peer: {}",
+                    handshake_result.peer_id()
+                );
             }
         });
 
@@ -354,19 +387,26 @@ impl<OT: OdysseyType> Odyssey<OT> {
     ) -> StoreHandle<OT, T>
     where
         OT::ECGHeader: Send + Sync + Clone + 'static + for<'d> Deserialize<'d> + Serialize,
-        OT::ECGBody<T>: Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
-        <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId: Send + for<'d> Deserialize<'d> + Serialize,
+        OT::ECGBody<T>:
+            Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
+        <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId:
+            Send + for<'d> Deserialize<'d> + Serialize,
         T::Op: Serialize,
         T: CRDT<Time = OT::Time> + Debug + Clone + Send + 'static + for<'d> Deserialize<'d>,
     {
         // Initialize storage for this store.
 
         // Create channels to handle requests and send updates.
-        let (send_commands, recv_commands) =
-            tokio::sync::mpsc::unbounded_channel::<store::StoreCommand<OT::ECGHeader, OT::ECGBody<T>, T>>();
-        let (send_commands_untyped, recv_commands_untyped) =
-            tokio::sync::mpsc::unbounded_channel::<store::UntypedStoreCommand<OT::Hash, <OT::ECGHeader as ECGHeader>::HeaderId, OT::ECGHeader>>();
-
+        let (send_commands, recv_commands) = tokio::sync::mpsc::unbounded_channel::<
+            store::StoreCommand<OT::ECGHeader, OT::ECGBody<T>, T>,
+        >();
+        let (send_commands_untyped, recv_commands_untyped) = tokio::sync::mpsc::unbounded_channel::<
+            store::UntypedStoreCommand<
+                OT::Hash,
+                <OT::ECGHeader as ECGHeader>::HeaderId,
+                OT::ECGHeader,
+            >,
+        >();
 
         // Add to DHT
 
@@ -375,15 +415,25 @@ impl<OT: OdysseyType> Odyssey<OT> {
         let shared_state = self.shared_state.clone();
         let send_commands_untyped_ = send_commands_untyped.clone();
         let future_handle = self.tokio_runtime.spawn(async move {
-            store::run_handler::<OT, T>(store, recv_commands, send_commands_untyped_, recv_commands_untyped, shared_state).await;
+            store::run_handler::<OT, T>(
+                store,
+                recv_commands,
+                send_commands_untyped_,
+                recv_commands_untyped,
+                shared_state,
+            )
+            .await;
         });
 
         // Register this store.
         self.active_stores.send_if_modified(|active_stores| {
-            let _ = active_stores.insert(store_id, StoreStatus::Running {
-                store_handle: future_handle,
-                send_command_chan: send_commands_untyped,
-            });
+            let _ = active_stores.insert(
+                store_id,
+                StoreStatus::Running {
+                    store_handle: future_handle,
+                    send_command_chan: send_commands_untyped,
+                },
+            );
             true
         });
 
@@ -393,11 +443,13 @@ impl<OT: OdysseyType> Odyssey<OT> {
             phantom: PhantomData,
         }
     }
-
 }
 
 /// Initiates a peer by creating a channel to send commands and by inserting it into the shared state. On success, returns the receiver. If the peer already exists, fails with `None`.
-async fn initiate_peer<StoreId>(peer_id: DeviceId, shared_state: &SharedState<StoreId>) -> Option<UnboundedReceiver<PeerManagerCommand<StoreId>>> {
+async fn initiate_peer<StoreId>(
+    peer_id: DeviceId,
+    shared_state: &SharedState<StoreId>,
+) -> Option<UnboundedReceiver<PeerManagerCommand<StoreId>>> {
     let (send, recv) = tokio::sync::mpsc::unbounded_channel();
     let inserted = {
         let mut w = shared_state.peer_state.write().await;
@@ -405,12 +457,10 @@ async fn initiate_peer<StoreId>(peer_id: DeviceId, shared_state: &SharedState<St
     };
     if inserted {
         Some(recv)
-    }
-    else {
+    } else {
         // JP: Record if we're already connected to the peer?
         None
     }
-
 }
 
 #[derive(Clone, Copy)]
@@ -430,10 +480,34 @@ where
 
 /// Trait to define newtype wrapers that instantiate type families required by Odyssey.
 pub trait OdysseyType: 'static {
-    type StoreId: Debug + Display + Eq + Copy + Ord + Send + Sync + 'static + Serialize + for<'a> Deserialize<'a> + AsRef<[u8]>; // Hashable instead of AsRef???
-    type Hash: util::Hash + Debug + Display + Copy + Ord + Send + Sync + 'static + Serialize + for<'a> Deserialize<'a> + Into<Self::StoreId>; // Hashable instead of AsRef???
-    // type ECGHeader<T: CRDT<Time = Self::Time, Op: Serialize>>: store::ecg::ECGHeader + Debug + Send;
-    type ECGHeader: store::ecg::ECGHeader<HeaderId: Send + Sync + Serialize + for<'a> Deserialize<'a>> + Debug + Send + Serialize + for<'a> Deserialize<'a>;
+    type StoreId: Debug
+        + Display
+        + Eq
+        + Copy
+        + Ord
+        + Send
+        + Sync
+        + 'static
+        + Serialize
+        + for<'a> Deserialize<'a>
+        + AsRef<[u8]>; // Hashable instead of AsRef???
+    type Hash: util::Hash
+        + Debug
+        + Display
+        + Copy
+        + Ord
+        + Send
+        + Sync
+        + 'static
+        + Serialize
+        + for<'a> Deserialize<'a>
+        + Into<Self::StoreId>; // Hashable instead of AsRef???
+                               // type ECGHeader<T: CRDT<Time = Self::Time, Op: Serialize>>: store::ecg::ECGHeader + Debug + Send;
+    type ECGHeader: store::ecg::ECGHeader<HeaderId: Send + Sync + Serialize + for<'a> Deserialize<'a>>
+        + Debug
+        + Send
+        + Serialize
+        + for<'a> Deserialize<'a>;
     type ECGBody<T: CRDT>; // : Serialize + for<'a> Deserialize<'a>; // : CRDT<Time = Self::Time, Op: Serialize>;
     type Time;
     type CausalState<T: CRDT<Time = Self::Time, Op: Serialize>>: CausalState<Time = Self::Time>;
@@ -445,7 +519,6 @@ pub trait OdysseyType: 'static {
         st: &store::ecg::State<Self::ECGHeader, T>,
     ) -> &Self::CausalState<T>;
 }
-
 
 impl<O: OdysseyType, T: CRDT<Time = O::Time>> StoreHandle<O, T>
 where
@@ -477,15 +550,16 @@ where
         }
 
         // Create ECG header and body.
-        let body =
-            <<O as OdysseyType>::ECGBody<T> as ECGBody<T>>::new_body(op);
+        let body = <<O as OdysseyType>::ECGBody<T> as ECGBody<T>>::new_body(op);
         let header = body.new_header(parents);
         let times = body.get_operation_times(&header);
 
-        self.send_command_chan.send(StoreCommand::Apply {
-            operation_header: header,
-            operation_body: body,
-        }).expect("TODO");
+        self.send_command_chan
+            .send(StoreCommand::Apply {
+                operation_header: header,
+                operation_body: body,
+            })
+            .expect("TODO");
 
         times
     }
@@ -493,7 +567,8 @@ where
     pub fn subscribe_to_state(&mut self) -> UnboundedReceiver<StateUpdate<O::ECGHeader, T>> {
         let (send_state, recv_state) = tokio::sync::mpsc::unbounded_channel();
         self.send_command_chan
-            .send(StoreCommand::SubscribeState { send_state }).expect("TODO");
+            .send(StoreCommand::SubscribeState { send_state })
+            .expect("TODO");
 
         recv_state
     }

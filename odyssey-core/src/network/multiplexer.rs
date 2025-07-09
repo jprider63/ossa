@@ -3,12 +3,12 @@ use bytes::{Buf, Bytes, BytesMut};
 use futures;
 use futures::task::{Context, Poll};
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc::UnboundedReceiver;
-use tokio::sync::oneshot;
 use std::cmp::min;
 use std::collections::{BTreeMap, BTreeSet};
 use std::marker::PhantomData;
 use std::pin::Pin;
+use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::oneshot;
 use tokio::{
     io::{simplex, AsyncReadExt, AsyncWriteExt, SimplexStream, WriteHalf},
     net::TcpStream,
@@ -49,28 +49,33 @@ impl Party {
     }
 
     pub(crate) fn is_server(&self) -> bool {
-         match self {
-             Party::Client => false,
-             Party::Server => true,
-         }
+        match self {
+            Party::Client => false,
+            Party::Server => true,
+        }
     }
-     pub(crate) fn dual(&self) -> Party {
-         match self {
-             Party::Client => Party::Server,
-             Party::Server => Party::Client,
-         }
-     }
+    pub(crate) fn dual(&self) -> Party {
+        match self {
+            Party::Client => Party::Server,
+            Party::Server => Party::Client,
+        }
+    }
 }
 
 pub(crate) struct Multiplexer {
     party: Party,
     command_recv: UnboundedReceiver<MultiplexerCommand>,
-
 }
 
 impl Multiplexer {
-    pub(crate) fn new(party: Party, command_recv: UnboundedReceiver<MultiplexerCommand>) -> Multiplexer {
-        Multiplexer { party, command_recv }
+    pub(crate) fn new(
+        party: Party,
+        command_recv: UnboundedReceiver<MultiplexerCommand>,
+    ) -> Multiplexer {
+        Multiplexer {
+            party,
+            command_recv,
+        }
     }
 
     /// Run the multiplexer with these initial mini protocols.
@@ -78,7 +83,9 @@ impl Multiplexer {
     pub(crate) async fn run_with_miniprotocols<O: OdysseyType>(
         mut self,
         mut stream: TcpStream,
-        miniprotocols: Vec<MiniProtocols<O::StoreId, O::Hash, <O::ECGHeader as ECGHeader>::HeaderId, O::ECGHeader>>,
+        miniprotocols: Vec<
+            MiniProtocols<O::StoreId, O::Hash, <O::ECGHeader as ECGHeader>::HeaderId, O::ECGHeader>,
+        >,
     ) {
         debug!("run_with_miniprotocols: {:?}", self.party);
 
@@ -96,7 +103,12 @@ impl Multiplexer {
             let (sender, receiver) = mpsc::channel(PROTOCOL_INCOMING_CAPACITY);
 
             // Spawn async for the miniprotocol.
-            let handle = tokio::spawn(p.run_async::<O>(self.party.is_client(), protocol_id, outgoing_channel_send, receiver));
+            let handle = tokio::spawn(p.run_async::<O>(
+                self.party.is_client(),
+                protocol_id,
+                outgoing_channel_send,
+                receiver,
+            ));
 
             let mp = MiniprotocolState { handle, sender };
             state.stream_map.insert(protocol_id, mp);
@@ -333,7 +345,11 @@ pub(crate) async fn run_miniprotocol_async<P: MiniProtocol, O: OdysseyType>(
 ) {
     // Serialize/deserialize byte channel
     let stream = MuxStream::new(stream_id, sender, receiver);
-    debug!("Launching miniprotocol: {} ({}, {stream_id:?})", if is_client {"Client"} else {"Server"}, std::any::type_name_of_val(&p));
+    debug!(
+        "Launching miniprotocol: {} ({}, {stream_id:?})",
+        if is_client { "Client" } else { "Server" },
+        std::any::type_name_of_val(&p)
+    );
 
     if is_client {
         p.run_client(stream).await
@@ -342,8 +358,8 @@ pub(crate) async fn run_miniprotocol_async<P: MiniProtocol, O: OdysseyType>(
     }
 }
 
-
-pub(crate) type SpawnMultiplexerTask = dyn FnOnce(bool, StreamId, Sender<(u32, Bytes)>, Receiver<BytesMut>) -> JoinHandle<()> + Send;
+pub(crate) type SpawnMultiplexerTask =
+    dyn FnOnce(bool, StreamId, Sender<(u32, Bytes)>, Receiver<BytesMut>) -> JoinHandle<()> + Send;
 pub(crate) enum MultiplexerCommand {
     CreateStream {
         stream_id: StreamId,

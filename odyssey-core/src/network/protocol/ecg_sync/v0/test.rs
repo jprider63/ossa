@@ -29,7 +29,8 @@ fn run_ecg_sync<Header: ECGHeader + Send + Clone + Debug, T: CRDT + Send>(
         // let channel: Channel<Result<BytesMut, std::io::Error>> = Channel::new();
         // let channel: Channel<Result<bytes::Bytes, std::io::Error>> = Channel::new();
         // let channel: Channel<Result<MsgECGSync<_>, std::io::Error>> = Channel::new();
-        let (channel1, channel2): (UnboundChannel<MsgECGSync<_, _>>, _) = UnboundChannel::new_pair();
+        let (channel1, channel2): (UnboundChannel<MsgECGSync<_, _>>, _) =
+            UnboundChannel::new_pair();
         let mut conn1 = ConnectionManager::new(channel1);
         let mut conn2 = ConnectionManager::new(channel2);
 

@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 use tracing::warn;
-use typeable::{Typeable, TypeId};
+use typeable::{TypeId, Typeable};
 
-use crate::{protocol, util};
 use crate::util::{generate_nonce, Hash};
+use crate::{protocol, util};
 
 // pub struct Store<Id, T> {
 //     id: Id,
@@ -84,7 +84,10 @@ impl<H: Hash> MetadataHeader<H> {
 
     /// Compute the store id for the `MetadataHeader`.
     /// This function must be updated any time `MetadataHeader` is updated.
-    pub fn store_id<StoreId>(&self) -> StoreId where H: Into<StoreId> {
+    pub fn store_id<StoreId>(&self) -> StoreId
+    where
+        H: Into<StoreId>,
+    {
         let mut h = H::new();
         H::update(&mut h, self.nonce);
         H::update(&mut h, [self.protocol_version.as_byte()]);
@@ -95,7 +98,10 @@ impl<H: Hash> MetadataHeader<H> {
     }
 
     /// Validate the metadata with respect to the store id.
-    pub fn validate_store_id<StoreId: Eq>(&self, store_id: StoreId) -> bool where H: Into<StoreId> {
+    pub fn validate_store_id<StoreId: Eq>(&self, store_id: StoreId) -> bool
+    where
+        H: Into<StoreId>,
+    {
         warn!("TODO: Check other properties like upper bounds on constants, etc");
         store_id == self.store_id()
     }
@@ -111,7 +117,7 @@ pub struct MetadataBody<Hash> {
     /// Serialized (and encrypted) initial state of the store.
     //  TODO: Eventually merkelize the initial state in chunks.
     initial_state: Vec<u8>,
-    piece_size: u32, // TODO: Make this constant a 16 KB (2^14), 
+    piece_size: u32, // TODO: Make this constant a 16 KB (2^14),
     piece_hashes: Vec<Hash>,
 }
 
@@ -119,11 +125,14 @@ impl<H: Hash> MetadataBody<H> {
     pub(crate) fn new<T: Serialize>(initial_state: &T) -> MetadataBody<H> {
         let initial_state = serde_cbor::to_vec(initial_state).expect("TODO");
         let piece_size = 1 << 18;
-        let piece_hashes = initial_state.chunks(piece_size as usize).map(|piece| {
-            let mut h = H::new();
-            H::update(&mut h, piece);
-            H::finalize(h)
-        }).collect();
+        let piece_hashes = initial_state
+            .chunks(piece_size as usize)
+            .map(|piece| {
+                let mut h = H::new();
+                H::update(&mut h, piece);
+                H::finalize(h)
+            })
+            .collect();
         MetadataBody {
             initial_state,
             piece_size,

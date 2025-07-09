@@ -4,12 +4,12 @@ use futures::task::{Context, Poll};
 use rand::{rngs::OsRng, TryRngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tracing::error;
 use std::fmt::{self, Debug, Display};
 use std::marker::PhantomData;
 use std::ops::{Add, Range};
 use std::pin::Pin;
 use tokio::sync::mpsc::{Receiver, Sender};
+use tracing::error;
 use typeable::Typeable;
 
 use crate::network::protocol::ProtocolError;
@@ -18,7 +18,9 @@ use crate::store::Nonce;
 /// Generate a random nonce.
 pub(crate) fn generate_nonce() -> Nonce {
     let mut nonce = [0; 32];
-    OsRng.try_fill_bytes(&mut nonce).expect("Nonce generation failed");
+    OsRng
+        .try_fill_bytes(&mut nonce)
+        .expect("Nonce generation failed");
     nonce
 }
 
@@ -107,7 +109,9 @@ impl std::str::FromStr for Sha256Hash {
             // Parse as Hex.
             hex::decode_to_slice(s, &mut store_id).map_err(Sha256HashParseError::Hex)?;
         } else {
-            bs58::decode(s).onto(&mut store_id).map_err(Sha256HashParseError::Base58)?;
+            bs58::decode(s)
+                .onto(&mut store_id)
+                .map_err(Sha256HashParseError::Base58)?;
         }
         Ok(Sha256Hash(store_id))
     }
@@ -479,15 +483,24 @@ where
                 Some(r) => {
                     // Consecutive.
                     if r.end == x {
-                        self.current = Some(Range {start: r.start, end: x + 1u64});
+                        self.current = Some(Range {
+                            start: r.start,
+                            end: x + 1u64,
+                        });
                     } else {
-                        let new = Some(Range {start: x, end: x + 1u64});
+                        let new = Some(Range {
+                            start: x,
+                            end: x + 1u64,
+                        });
                         let result = std::mem::replace(&mut self.current, new);
                         return result;
                     }
                 }
                 None => {
-                    self.current = Some(Range {start: x, end: x + 1u64});
+                    self.current = Some(Range {
+                        start: x,
+                        end: x + 1u64,
+                    });
                 }
             };
         }
@@ -524,21 +537,24 @@ mod test {
     fn test_split() {
         let numbers = vec![1, 4];
         let result: Vec<_> = compress_consecutive_into_ranges(numbers.into_iter()).collect();
-        assert_eq!(result, vec![
-            Range { start: 1, end: 2 },
-            Range { start: 4, end: 5 },
-        ]);
+        assert_eq!(
+            result,
+            vec![Range { start: 1, end: 2 }, Range { start: 4, end: 5 },]
+        );
     }
 
     #[test]
     fn test_mixed_numbers() {
         let numbers = vec![1, 2, 3, 7, 8, 10, 11, 12, 15];
         let result: Vec<_> = compress_consecutive_into_ranges(numbers.into_iter()).collect();
-        assert_eq!(result, vec![
-            Range { start: 1, end: 4 },
-            Range { start: 7, end: 9 },
-            Range { start: 10, end: 13 },
-            Range { start: 15, end: 16 },
-        ]);
+        assert_eq!(
+            result,
+            vec![
+                Range { start: 1, end: 4 },
+                Range { start: 7, end: 9 },
+                Range { start: 10, end: 13 },
+                Range { start: 15, end: 16 },
+            ]
+        );
     }
 }
