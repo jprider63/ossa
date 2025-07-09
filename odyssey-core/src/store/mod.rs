@@ -698,7 +698,7 @@ impl<StoreId: Copy + Eq, Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone
             // TODO: Get rid of this clone.
             let success = ecg_state.insert_header(header.clone(), raw_operations);
             if !success {
-                error!("Failed to insert operations from peer.");
+                debug!("Failed to insert operations from peer.");
             } else {
                 apply_operations::<OT, _>(decrypted_state, ecg_state, &header, operations);
             }
@@ -730,6 +730,7 @@ fn update_listeners<Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone>(ecg
         if Some(sub_peer) != from_peer {
             sub.send(ecg_state.state.clone()).expect("TODO");
         } else {
+            warn!("TODO: Add headers that they sent us to their_known.");
             // Need to add back subscriber.
             ecg_subscribers.insert(sub_peer, sub);
         }

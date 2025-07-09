@@ -150,10 +150,6 @@ pub(crate) fn mark_as_known_helper<HeaderId, Header>(
                 unreachable!("Precondition violated. Header must be known.");
             }
         }
-
-        // If we know header, we can remove it from our_unknown.
-        warn!("TODO: What do we do with unknown? Remove them up front after receiving every updated ecgstate?");
-        // self.our_unknown.remove(&header_id);
     }
 }
 

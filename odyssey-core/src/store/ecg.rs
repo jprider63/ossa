@@ -4,6 +4,7 @@ use daggy::petgraph::visit::{
 use daggy::stable_dag::StableDag;
 use daggy::Walker;
 use odyssey_crdt::CRDT;
+use tracing::{debug, error};
 use std::cmp::{self, Reverse};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
@@ -308,11 +309,13 @@ impl<Header: ECGHeader, T: CRDT> State<Header, T> {
 
         // Validate header.
         if !header.validate_header(header_id) {
+            debug!("Invalid header: {header_id:?}");
             return false;
         }
 
         // Check that the header is not already in the dependency_graph.
         if self.state.node_info_map.contains_key(&header_id) {
+            debug!("Already have header: {header_id:?}");
             return false;
         }
 
@@ -323,6 +326,7 @@ impl<Header: ECGHeader, T: CRDT> State<Header, T> {
             if !is_new_insert {
                 // TODO: Log that the state is corrupt. Invariant violated that
                 // `root_nodes` is a subset of `node_idx_map.keys()`.
+                error!("Invariant violated: Header already existed in root_nodes but not in node_info_map: {header_id:?}");
                 return false;
             }
 
@@ -352,6 +356,7 @@ impl<Header: ECGHeader, T: CRDT> State<Header, T> {
                 (parent_idxs, depth + 1)
             } else {
                 // They sent us a header when we don't know the parent.
+                error!("They sent us a header but we don't know its parents: {header_id:?}");
                 return false;
             }
         };
@@ -367,6 +372,7 @@ impl<Header: ECGHeader, T: CRDT> State<Header, T> {
         };
         if let Err(_) = self.state.node_info_map.try_insert(header_id, node_info) {
             // TODO: Should be unreachable. Log this.
+            error!("Unreachable: We already checked that it doesn't exist in node_info_map: {header_id:?}");
             return false;
         }
 
@@ -377,6 +383,7 @@ impl<Header: ECGHeader, T: CRDT> State<Header, T> {
                 .map(|parent_idx| (parent_idx, graph_index, ())),
         ) {
             // TODO: Unreachable? Log this.
+            error!("Invariant violated: Header already existed in dependency_graph but not in node_info_map: {header_id:?}");
             return false;
         }
 
