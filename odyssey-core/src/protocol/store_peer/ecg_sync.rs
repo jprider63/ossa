@@ -1,3 +1,5 @@
+// This is inspired by git's [skipping negotiator](https://github.com/git/git/commit/42cc7485a2ec49ecc440c921d2eb0cae4da80549). In the future, investigate whether alternatives like "Practical Rateless Set Reconciliation" are secure.
+//
 // What's the goal? Long term: Request all operations that responder has that initiator doesn't have (R \ I).
 // At this step, compute unknown frontier? (Only responder knows it? Or return it?)
 //
