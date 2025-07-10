@@ -1,3 +1,5 @@
+pub mod merkle_tree;
+
 use bytes::{Bytes, BytesMut};
 use futures;
 use futures::task::{Context, Poll};
@@ -9,7 +11,6 @@ use std::marker::PhantomData;
 use std::ops::{Add, Range};
 use std::pin::Pin;
 use tokio::sync::mpsc::{Receiver, Sender};
-use tracing::error;
 use typeable::Typeable;
 
 use crate::network::protocol::ProtocolError;
@@ -382,6 +383,9 @@ impl<T> futures::Stream for UnboundChannel<T> {
         self.recv.size_hint()
     }
 }
+
+#[cfg(test)]
+use tracing::error;
 
 #[cfg(test)]
 impl<T> futures::Sink<T> for UnboundChannel<T> {
