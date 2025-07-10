@@ -1,41 +1,80 @@
 
+use crate::util::Hash;
+
 /// Binary merkle tree.
+/// We aren't concerned about second pre-image attacks since the tree's size and structure are fixed.
+#[derive(Debug)]
 pub struct MerkleTree<N> {
-    leaf_count: u64, // Don't serialize this.
-    // Flattened nodes of the merkle tree. Bottom nodes first, from left to right. Empty nodes are excluded. Root node is excluded?
-    nodes: Vec<Vec<N>>,
+    // Layers of the tree, from bottom to top. Root node is excluded?
+    layers: Vec<Vec<N>>,
 }
 
-// TODO: Closed form solution?
-fn node_count_for_leaf_count(leaf_count: u64) -> u64 {
-    if leaf_count <= 1 {
-        0
-    } else {
-        // let mut sum = leaf_count;
-        leaf_count + node_count_for_leaf_count(leaf_count.div_ceil(2))
-    }
-}
+// // TODO: Closed form solution?
+// fn node_count_for_leaf_count(leaf_count: u64) -> u64 {
+//     if leaf_count <= 1 {
+//         0
+//     } else {
+//         // let mut sum = leaf_count;
+//         leaf_count + node_count_for_leaf_count(leaf_count.div_ceil(2))
+//     }
+// }
 
-impl<Hash> MerkleTree<Hash> {
-    pub(crate) fn new_with_leaves(leaves: Vec<Hash>) -> MerkleTree<Hash> {
-        let leaf_count = leaves.len() as u64;
-        let mut nodes = leaves;
-        let mut position = 0;
-        // JP: Probably not worth doing this.
-        // nodes.reserve_exact(node_count_for_leaf_count(leaf_count) as usize - nodes.len()); //
-
-        let mut prev_layer_count = leaf_count;
-        let mut layer_count = prev_layer_count.div_ceil(2);
-
-        for i in 0..layer_count {
-
+impl<H: Hash> MerkleTree<H> {
+    /// Precondition: Leaves must be non-empty.
+    fn from_leaves(leaves: Vec<H>) -> MerkleTree<H> {
+        if leaves.is_empty() {
+            panic!("Precondition violated: Leaves must be non-empty.");
         }
 
+        let mut layers = vec![];
+        layers.push(leaves);
+
+        loop {
+            let prev_layer = layers.last().unwrap();
+            if prev_layer.len() <= 1 {
+                break;
+            }
+            
+            let mut layer = vec![];
+            for i in 0..(prev_layer.len() / 2) {
+                let mut h = H::new();
+                let left = prev_layer[2*i];
+                H::update(&mut h, left);
+                if let Some(right) = prev_layer.get(2*i + 1) {
+                    H::update(&mut h, right);
+                }
+                let h = H::finalize(h);
+                layer.push(h);
+            }
+
+            layers.push(layer);
+        }
 
         MerkleTree {
-            leaf_count,
-            nodes,
+            layers
         }
+    }
+
+    pub fn from_chunks<I: Iterator<Item = A>, A: AsRef<[u8]>>(chunks: I) -> MerkleTree<H> {
+        let leaves: Vec<H> = chunks.map(|c| {
+            let mut h = H::new();
+            H::update(&mut h, c);
+            H::finalize(h)
+        }).collect();
+
+        if leaves.is_empty() {
+            let empty: [&[u8]; 1] = [&[]];
+            return MerkleTree::from_chunks(empty.iter());
+        }
+
+        MerkleTree::from_leaves(leaves)
+    }
+
+    pub fn merkle_root(&self) -> H {
+        self.layers
+            .last()
+            .expect("Invariant violated: layers must be non-empty.")
+            [0]
     }
 
     // // Height, excluding root node layer.
@@ -47,11 +86,12 @@ impl<Hash> MerkleTree<Hash> {
 
 impl<N> MerkleTree<Option<N>> {
     pub(crate) fn new_with_capacity(leaf_count: u64) -> MerkleTree<Option<N>> {
-        let nodes = todo!();
-        Self {
-            leaf_count,
-            nodes,
-        }
+        todo!();
+        // let nodes = todo!(); // TODO
+        // Self {
+        //     leaf_count,
+        //     nodes,
+        // }
     }
 
     /*
@@ -72,7 +112,29 @@ impl<N> MerkleTree<Option<N>> {
 
 #[cfg(test)]
 mod test {
+    use std::str::FromStr;
+
     use super::*;
+
+    use crate::util::Sha256Hash;
+
+    #[test]
+    fn merkle_test() {
+        let chunks = vec![];
+        let root = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+        merkle_test_helper(chunks, root);
+
+    }
+
+    fn merkle_test_helper(chunks: Vec<&[u8]>, expected_root: &str) {
+        let expected_root = Sha256Hash::from_str(expected_root).unwrap();
+
+        let mt = MerkleTree::<Sha256Hash>::from_chunks(chunks.iter());
+        println!("{mt:?}");
+        let root = mt.merkle_root();
+
+        assert_eq!(root, expected_root);
+    }
 
     /*
     #[test]
@@ -96,7 +158,6 @@ mod test {
             assert_eq!(t.height(), height);
         }
     }
-    */
 
     #[test]
     fn node_count_for_leaf_count_tests() {
@@ -118,4 +179,5 @@ mod test {
             assert_eq!(expected_output, res);
         }
     }
+    */
 }
