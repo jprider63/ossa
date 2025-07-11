@@ -192,6 +192,7 @@ impl<
         T: Serialize + Typeable,
     {
         let init_body = MetadataBody::new(&initial_state);
+        debug!("Initialized body: {:?}", init_body);
         let store_header = MetadataHeader::generate::<T>(&init_body);
         let decrypted_state = DecryptedState {
             latest_state: initial_state,
@@ -486,6 +487,7 @@ impl<
         node_ids: Vec<Range<u64>>,
         response_chan: Sender<HandlePeerResponse<Vec<Hash>>>,
     ) {
+        debug!("Received merkle peer request for node_ids: {node_ids:?}");
         let hashes = self
             .merkle_tree()
             .map(|merkle_tree| handle_merkle_peer_request_helper(merkle_tree, &node_ids));
@@ -588,6 +590,7 @@ impl<
             ),
             metadata,
         };
+        debug!("Updated state machine"); // : {:?}", self.state_machine);
 
         // Send metadata to any peers that are waiting.
         let subs = std::mem::take(&mut self.metadata_subscribers);
