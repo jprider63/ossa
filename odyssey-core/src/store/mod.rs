@@ -18,6 +18,8 @@ use tokio::{
 use tracing::{debug, error, warn};
 use typeable::{TypeId, Typeable};
 
+use crate::store::v0::BLOCK_SIZE;
+use crate::util::merkle_tree::{MerkleTree, Potential};
 use crate::{
     auth::DeviceId,
     core::{OdysseyType, SharedState},
@@ -31,7 +33,7 @@ use crate::{
     },
     store::{
         ecg::{ECGBody, ECGHeader, RawECGBody},
-        v0::{MERKLE_REQUEST_LIMIT, PIECE_REQUEST_LIMIT, PIECE_SIZE},
+        v0::{MERKLE_REQUEST_LIMIT, BLOCK_REQUEST_LIMIT},
     },
     util::{self, compress_consecutive_into_ranges},
 };
@@ -69,16 +71,16 @@ pub enum StateMachine<StoreId, Header: ecg::ECGHeader, T: CRDT, Hash> {
     },
     DownloadingMerkle {
         metadata: MetadataHeader<Hash>,
-        piece_hashes: Vec<Option<Hash>>,
+        partial_merkle_tree: MerkleTree<Potential<Hash>>,
     },
     DownloadingInitialState {
         metadata: MetadataHeader<Hash>,
-        piece_hashes: Vec<Hash>,
+        merkle_tree: MerkleTree<Hash>,
         initial_state: Vec<Option<Vec<u8>>>,
     },
     Syncing {
         metadata: MetadataHeader<Hash>,
-        piece_hashes: Vec<Hash>,
+        merkle_tree: MerkleTree<Hash>,
         initial_state: Vec<u8>, // Or just T?
         ecg_state: ecg::State<Header, T>,
         decrypted_state: DecryptedState<Header, T>, // Temporary
@@ -196,11 +198,11 @@ impl<
             latest_headers: BTreeSet::new(),
         };
 
-        let (piece_hashes, initial_state) = init_body.build();
+        let (merkle_tree, initial_state) = init_body.build();
 
         let state_machine = StateMachine::Syncing {
             metadata: store_header,
-            piece_hashes,
+            merkle_tree,
             initial_state,
             ecg_state: ecg::State::new(),
             decrypted_state, // : Some(decrypted_state),
@@ -401,18 +403,10 @@ impl<
                     send_command(i, message);
                 });
             }
-            StateMachine::DownloadingMerkle { piece_hashes, .. } => {
+            StateMachine::DownloadingMerkle { partial_merkle_tree, .. } => {
                 // TODO: Keep track of (and filter out) which ones are currently requested.
-                let needed_hashes = piece_hashes
-                    .iter()
-                    .enumerate()
-                    .filter_map(|h| {
-                        if h.1.is_none() {
-                            Some(h.0 as u64)
-                        } else {
-                            None
-                        }
-                    })
+                let needed_hashes = partial_merkle_tree
+                    .missing_indices()
                     .chunks(MERKLE_REQUEST_LIMIT as usize);
                 let mut needed_hashes: Vec<_> = needed_hashes.into_iter().collect();
 
@@ -437,7 +431,7 @@ impl<
                             None
                         }
                     })
-                    .chunks(PIECE_REQUEST_LIMIT as usize);
+                    .chunks(BLOCK_REQUEST_LIMIT as usize);
                 let mut needed_pieces: Vec<_> = needed_pieces.into_iter().collect();
 
                 // Randomize which peer to request the pieces from.
@@ -490,8 +484,8 @@ impl<
         response_chan: Sender<HandlePeerResponse<Vec<Hash>>>,
     ) {
         let hashes = self
-            .piece_hashes()
-            .map(|piece_hashes| handle_merkle_peer_request_helper(piece_hashes, &piece_ids));
+            .merkle_tree()
+            .map(|merkle_tree| handle_merkle_peer_request_helper(merkle_tree, &piece_ids));
 
         if let Some(piece_hashes) = hashes {
             // We have the hashes so share it with the peer.
@@ -506,24 +500,24 @@ impl<
         }
     }
 
-    fn handle_piece_peer_request(
+    fn handle_block_peer_request(
         &mut self,
         peer: DeviceId,
-        piece_ids: Vec<Range<u64>>,
+        block_ids: Vec<Range<u64>>,
         response_chan: Sender<HandlePeerResponse<Vec<Option<Vec<u8>>>>>,
     ) {
-        let pieces = handle_piece_peer_request_helper(&self.state_machine, &piece_ids);
+        let blocks = handle_block_peer_request_helper(&self.state_machine, &block_ids);
 
-        if let Some(pieces) = pieces {
+        if let Some(blocks) = blocks {
             // We have the pieces so share it with the peer.
-            response_chan.send(Ok(pieces)).expect("TODO");
+            response_chan.send(Ok(blocks)).expect("TODO");
         } else {
             // We don't have the pieces so tell them to wait.
             let (send_chan, recv_chan) = oneshot::channel();
             response_chan.send(Err(recv_chan)).expect("TODO");
 
             // Register the wait channel.
-            self.piece_subscribers.insert(peer, (piece_ids, send_chan)); // JP: Safe to drop old one?
+            self.piece_subscribers.insert(peer, (block_ids, send_chan)); // JP: Safe to drop old one?
         }
     }
 
@@ -585,7 +579,7 @@ impl<
 
         // Update state.
         self.state_machine = StateMachine::DownloadingMerkle {
-            piece_hashes: vec![None; metadata.piece_count() as usize],
+            partial_merkle_tree: MerkleTree::new_with_capacity(metadata.merkle_root, metadata.block_count()),
             metadata,
         };
 
@@ -610,74 +604,78 @@ impl<
         }
     }
 
-    fn piece_hashes(&self) -> Option<&Vec<Hash>> {
+    fn merkle_tree(&self) -> Option<&MerkleTree<Hash>> {
         match &self.state_machine {
             StateMachine::DownloadingMetadata { .. } => None,
             StateMachine::DownloadingMerkle { .. } => {
-                // We shouldn't share pieces until we've verified them.
+                // We shouldn't share hashes until we've verified them.
+                // TODO: If we've verified some of the hashes, we can send those back.
                 None
             }
-            StateMachine::DownloadingInitialState { piece_hashes, .. } => Some(piece_hashes),
-            StateMachine::Syncing { piece_hashes, .. } => Some(piece_hashes),
+            StateMachine::DownloadingInitialState { merkle_tree, .. } => Some(merkle_tree),
+            StateMachine::Syncing { merkle_tree, .. } => Some(merkle_tree),
         }
     }
 
     fn handle_received_merkle_hashes(
         &mut self,
         peer: DeviceId,
-        piece_ids: Vec<Range<u64>>,
-        their_piece_hashes: Vec<Hash>,
+        node_ids: Vec<Range<u64>>,
+        their_node_hashes: Vec<Hash>,
     ) {
         warn!("TODO: Keep track if you received different hashes from different peers.");
 
         // Mark peer as ready.
         self.update_outgoing_peer_to_ready(&peer);
 
-        let piece_ids: Vec<_> = piece_ids.into_iter().flatten().collect();
-        if piece_ids.len() != their_piece_hashes.len() {
+        let node_ids: Vec<_> = node_ids.into_iter().flatten().collect();
+        if node_ids.len() != their_node_hashes.len() {
             warn!("TODO: Peer provided an invalid response");
             return;
         }
 
         // Update state.
-        let piece_hashes = if let StateMachine::DownloadingMerkle {
-            ref mut piece_hashes,
+        let partial_merkle_tree = if let StateMachine::DownloadingMerkle {
+            ref mut partial_merkle_tree,
             ..
         } = &mut self.state_machine
         {
-            piece_hashes
+            partial_merkle_tree
         } else {
             // We're not downloading anymore so we're done.
             return;
         };
-        piece_ids
+        node_ids
             .into_iter()
-            .zip(their_piece_hashes)
+            .zip(their_node_hashes)
             .for_each(|(i, hash)| {
-                piece_hashes[i as usize] = Some(hash);
+                let valid = partial_merkle_tree.set(i, hash);
+                if !valid {
+                    warn!("TODO: Peer sent us an invalid merkle hash.");
+                }
             });
 
         // Check if we're done.
-        let piece_hashes_m: Option<Vec<_>> = piece_hashes.iter().cloned().collect();
+        let piece_hashes_m = partial_merkle_tree.try_complete();
         let Some(piece_hashes) = piece_hashes_m else {
             return;
         };
 
-        // Validate piece hashes.
-        let is_valid = self.metadata().unwrap().merkle_root == util::merkle_root(&piece_hashes);
-        if !is_valid {
-            // TODO: Penalize/blacklist/disconnect peer?
-            warn!("TODO: Peer provided invalid piece hashes.");
-            return;
-        }
+        // // Validate piece hashes.
+        // let is_valid = self.metadata().unwrap().merkle_root == util::merkle_root(&piece_hashes);
+        // if !is_valid {
+        //     // TODO: Penalize/blacklist/disconnect peer?
+        //     warn!("TODO: Peer provided invalid piece hashes.");
+        //     return;
+        // }
 
         // Update state.
         self.state_machine = match self.state_machine {
             StateMachine::DownloadingMerkle { metadata, .. } => {
-                let initial_state = vec![None; metadata.piece_count() as usize];
+                let initial_state = vec![None; metadata.block_count() as usize];
                 StateMachine::DownloadingInitialState {
                     metadata,
-                    piece_hashes,
+                    merkle_tree: piece_hashes,
                     initial_state,
                 }
             }
@@ -687,7 +685,7 @@ impl<
         // Send piece hashes to any peers that are waiting.
         let subs = std::mem::take(&mut self.merkle_subscribers);
         let piece_hashes = self
-            .piece_hashes()
+            .merkle_tree()
             .expect("Unreachable: We just set the piece hashes");
         for (sub_peer, (piece_ids, sub)) in subs {
             let peer_knows = sub_peer == peer;
@@ -724,7 +722,7 @@ impl<
         // Update state.
         let (initial_state, piece_hashes) = if let StateMachine::DownloadingInitialState {
             ref mut initial_state,
-            ref piece_hashes,
+            merkle_tree: ref piece_hashes,
             ..
         } = &mut self.state_machine
         {
@@ -757,7 +755,7 @@ impl<
         replace_with_or_abort(&mut self.state_machine, |sm| match sm {
             StateMachine::DownloadingInitialState {
                 metadata,
-                piece_hashes,
+                merkle_tree: piece_hashes,
                 initial_state,
             } => {
                 let ecg_state = ecg::State::new();
@@ -775,7 +773,7 @@ impl<
                 };
                 StateMachine::Syncing {
                     metadata,
-                    piece_hashes,
+                    merkle_tree: piece_hashes,
                     initial_state,
                     ecg_state,
                     decrypted_state,
@@ -805,7 +803,7 @@ impl<
         let subs = std::mem::take(&mut self.piece_subscribers);
         for (_sub_peer, (piece_ids, sub)) in subs {
             // JP: Do we need to keep sub_peer here?
-            let msg = handle_piece_peer_request_helper(&self.state_machine, &piece_ids)
+            let msg = handle_block_peer_request_helper(&self.state_machine, &piece_ids)
                 .expect("Unreachable: We just set our state to syncing");
             sub.send(Some(msg)).expect("TODO");
         }
@@ -1076,7 +1074,7 @@ pub(crate) async fn run_handler<OT: OdysseyType, T>(
 
                             //     StateMachine::DownloadingInitialState { metadata, piece_hashes, initial_state }
                             // }
-                            StateMachine::Syncing { metadata, piece_hashes, initial_state , ecg_state, decrypted_state } => {
+                            StateMachine::Syncing { metadata, merkle_tree, initial_state , ecg_state, decrypted_state } => {
                                 let mut ecg_state = ecg_state;
                                 let mut decrypted_state = decrypted_state;
 
@@ -1097,7 +1095,7 @@ pub(crate) async fn run_handler<OT: OdysseyType, T>(
                                 // Send state to subscribers.
                                 update_listeners(&mut store.ecg_subscribers, &listeners, &decrypted_state.latest_state, &ecg_state, None);
 
-                                StateMachine::Syncing { metadata, piece_hashes, initial_state, ecg_state, decrypted_state }
+                                StateMachine::Syncing { metadata, merkle_tree, initial_state, ecg_state, decrypted_state }
                             }
                             _ => {
                                 warn!("JP: Does this ever happen?");
@@ -1119,7 +1117,7 @@ pub(crate) async fn run_handler<OT: OdysseyType, T>(
                                     0
                                 } else {
                                     let downloaded = initial_state.iter().filter(|p| p.is_some()).count() as u64;
-                                    100 * downloaded * PIECE_SIZE / metadata.initial_state_size
+                                    100 * downloaded * BLOCK_SIZE / metadata.initial_state_size
                                 };
                                 StateUpdate::Downloading { percent }
                             }
@@ -1236,7 +1234,7 @@ pub(crate) async fn run_handler<OT: OdysseyType, T>(
                         store.handle_merkle_peer_request(peer, request, response_chan);
                     }
                     UntypedStoreCommand::HandlePiecePeerRequest(HandlePeerRequest { peer, request, response_chan }) => {
-                        store.handle_piece_peer_request(peer, request, response_chan);
+                        store.handle_block_peer_request(peer, request, response_chan);
                     }
                     // UntypedStoreCommand::HandleECGSyncRequest(HandlePeerRequest { peer, request, response_chan }) => {
                     //     store.handle_ecg_sync_request(peer, request, response_chan);
@@ -1350,32 +1348,44 @@ pub(crate) struct HandlePeerRequest<Request, Response> {
 }
 
 fn handle_merkle_peer_request_helper<H: Copy>(
-    piece_hashes: &[H],
-    piece_ids: &[Range<u64>],
+    merkle_tree: &MerkleTree<H>,
+    node_ids: &[Range<u64>],
 ) -> Vec<H> {
-    handle_peer_request_range_helper(piece_hashes, piece_ids)
+    warn!("TODO: check ranges are in bounds or return error");
+    let hashes: Vec<_> = node_ids
+        .iter()
+        .cloned()
+        .flatten()
+        .map(|i| {
+            merkle_tree
+                .get(i)
+                .expect("TODO: Properly handle invalid requests")
+                .clone()
+        })
+        .collect();
+    hashes
 }
 
-fn handle_piece_peer_request_helper<StoreId, Header: ecg::ECGHeader, T: CRDT, Hash>(
+fn handle_block_peer_request_helper<StoreId, Header: ecg::ECGHeader, T: CRDT, Hash>(
     state_machine: &StateMachine<StoreId, Header, T, Hash>,
-    piece_ids: &[Range<u64>],
+    block_ids: &[Range<u64>],
 ) -> Option<Vec<Option<Vec<u8>>>> {
     // TODO: Can we avoid these clones?
     match state_machine {
         StateMachine::DownloadingMetadata { .. } => None,
         StateMachine::DownloadingMerkle { .. } => None,
         StateMachine::DownloadingInitialState { initial_state, .. } => {
-            Some(handle_peer_request_range_helper(initial_state, piece_ids))
+            Some(handle_peer_request_range_helper(initial_state, block_ids))
         }
         StateMachine::Syncing { initial_state, .. } => {
-            let pieces: Vec<_> = piece_ids
+            let pieces: Vec<_> = block_ids
                 .iter()
                 .cloned()
                 .flatten()
                 .map(|i| {
                     warn!("TODO: Properly handle invalid requests"); // Return None if i >= metadata.piece_count()?
-                    let start: usize = (i * PIECE_SIZE) as usize;
-                    let end = std::cmp::min(((i + 1) * PIECE_SIZE) as usize, initial_state.len());
+                    let start: usize = (i * BLOCK_SIZE) as usize;
+                    let end = std::cmp::min(((i + 1) * BLOCK_SIZE) as usize, initial_state.len());
                     Some(initial_state[start..end].to_vec())
                 })
                 .collect();
@@ -1385,16 +1395,16 @@ fn handle_piece_peer_request_helper<StoreId, Header: ecg::ECGHeader, T: CRDT, Ha
 }
 
 fn handle_peer_request_range_helper<T: Clone>(
-    piece_hashes: &[T],
-    piece_ids: &[Range<u64>],
+    slice: &[T],
+    ids: &[Range<u64>],
 ) -> Vec<T> {
     warn!("TODO: check ranges are in bounds or return error");
-    let hashes: Vec<_> = piece_ids
+    let hashes: Vec<_> = ids
         .iter()
         .cloned()
         .flatten()
         .map(|i| {
-            piece_hashes
+            slice
                 .get(i as usize)
                 .expect("TODO: Properly handle invalid requests")
                 .clone()

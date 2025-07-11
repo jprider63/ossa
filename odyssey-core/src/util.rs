@@ -445,6 +445,7 @@ impl<T> futures::Sink<T> for UnboundChannel<T> {
     }
 }
 
+/*
 pub(crate) fn merkle_root<H: Hash>(hashes: &[H]) -> H {
     let mut h = H::new();
     for hash in hashes.iter() {
@@ -460,6 +461,7 @@ pub(crate) fn validate_piece<H: Hash>(piece: &[u8], expected_hash: &H) -> bool {
 
     &h == expected_hash
 }
+*/
 
 pub(crate) struct CompressConsecutive<I, T> {
     current: Option<Range<T>>,

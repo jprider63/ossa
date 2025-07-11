@@ -41,9 +41,12 @@ fn is_leaf(leaf_count: u64, index: u64) -> bool {
     index >= leaf_count - 1
 }
 
-impl<H: Hash + Debug> MerkleTree<H> {
+impl<H> MerkleTree<H> {
     /// Precondition: Leaves must be non-empty.
-    fn from_leaves(leaves: Vec<H>) -> MerkleTree<H> {
+    fn from_leaves(leaves: Vec<H>) -> MerkleTree<H>
+    where
+        H: Hash + Debug,
+    {
         if leaves.is_empty() {
             panic!("Precondition violated: Leaves must be non-empty.");
         }
@@ -58,13 +61,13 @@ impl<H: Hash + Debug> MerkleTree<H> {
         for layer in (0..bottom_layer).rev() {
             let start = (1 << layer) - 1; // 2^layer - 1;
             let end = cmp::min((1 << (layer + 1)) - 1, capacity);
-            for i in start..end {
-                let i = i as usize;
+            for i_64 in start..end {
+                let i: usize = i_64.try_into().expect("TODO");
 
                 #[cfg(test)]
                 assert_eq!(nodes[i], None);
 
-                let h = if is_leaf(leaf_count, i as u64) {
+                let h = if is_leaf(leaf_count, i_64) {
                     leaves.next().unwrap()
                 } else {
                     let left = nodes[2*i + 1].unwrap();
@@ -88,7 +91,10 @@ impl<H: Hash + Debug> MerkleTree<H> {
         }
     }
 
-    pub fn from_chunks<I: Iterator<Item = A>, A: AsRef<[u8]>>(chunks: I) -> MerkleTree<H> {
+    pub fn from_chunks<I: Iterator<Item = A>, A: AsRef<[u8]>>(chunks: I) -> MerkleTree<H>
+    where
+        H: Hash + Debug,
+    {
         let leaves: Vec<H> = chunks.map(|c| {
             let mut h = H::new();
             H::update(&mut h, c);
@@ -103,10 +109,14 @@ impl<H: Hash + Debug> MerkleTree<H> {
         MerkleTree::from_leaves(leaves)
     }
 
-    pub fn merkle_root(&self) -> H {
+    pub fn merkle_root(&self) -> H
+    where
+        H: Copy,
+    {
         self.nodes[0]
     }
 
+    /*
     // If the index corresponds to a branch node, return the child indices. Otherwise, if the index
     // corresponds to a leaf node, return `None`.
     fn child_indices(&self, index: u64) -> Option<(u64, u64)> {
@@ -119,23 +129,29 @@ impl<H: Hash + Debug> MerkleTree<H> {
             None
         }
     }
+    */
 
-    // // Height, excluding root node layer.
-    // fn height(&self) -> u64 {
-    //     // Compute the ceiling of the log2.
-    //     self.leaf_count.next_power_of_two().ilog2() as u64
-    // }
+    /// Gets the node at the given index.
+    pub fn get(&self, index: u64) -> Option<&H> {
+        let index: usize = index.try_into().expect("TODO");
+        self.nodes.get(index)
+    }
+
+    fn leaf_count(&self) -> u64 {
+        (self.nodes.len() as u64 + 1) / 2
+    }
 }
 
-impl<N> MerkleTree<Option<N>> {
-    pub(crate) fn new_with_capacity(leaf_count: u64) -> MerkleTree<Option<N>> {
-        let nodes = (0..node_count_for_leaf_count(leaf_count)).map(|_| None).collect();
+impl<N> MerkleTree<Potential<N>> {
+    pub(crate) fn new_with_capacity(merkle_root: N, leaf_count: u64) -> MerkleTree<Potential<N>> {
+        let mut nodes: Vec<_> = (0..node_count_for_leaf_count(leaf_count)).map(|_| Potential::None).collect();
+        nodes[0] = Potential::Verified(merkle_root);
+
         Self {
             nodes,
         }
     }
 
-    /*
     pub(crate) fn missing_indices<'a>(&'a self) -> impl Iterator<Item = u64> + 'a {
         self.nodes
             .iter()
@@ -148,7 +164,118 @@ impl<N> MerkleTree<Option<N>> {
                 }
             })
     }
-    */
+
+    /// Sets the potential value for the node in the merkle tree. Returns false if the proposed value is invalid (Could result in false positives if the sibling node was sent by another peer).
+    pub(crate) fn set(&mut self, index: u64, potential_value: N) -> bool
+    where
+        N: Hash,
+    {
+        let index: usize = index.try_into().unwrap();
+        let Some(node) = self.nodes.get_mut(index) else {
+            return false;
+        };
+        match node {
+            Potential::None => {
+                *node = Potential::Unverified(potential_value);
+            }
+            Potential::Unverified(_prev) => {
+                // Keep the old value, but don't penalize them either way.
+                return true;
+            }
+            Potential::Verified(prev) => {
+                return prev == &potential_value;
+            }
+        }
+
+        if index == 0 {
+            unreachable!("We always initialize the root so we will have already returned.");
+        }
+        let parent_index = (index - 1) / 2;
+        match self.validate_children(parent_index as u64) {
+            Some(v) => v,
+            None => true,
+        }
+    }
+
+
+    // Precondition: Child nodes must not be verified.
+    fn validate_children(&mut self, index: u64) -> Option<bool>
+    where
+        N: Hash,
+    {
+        if is_leaf(self.leaf_count(), index) {
+            return None;
+        }
+
+        let index: usize = index.try_into().unwrap();
+        let Potential::Verified(expected_hash) = self.nodes[index] else {
+            return None;
+        };
+        let left_index = 2*index + 1;
+        let right_index = 2*index + 2;
+        let (left, right) = match (&self.nodes[left_index], &self.nodes[right_index]) {
+            (Potential::None, _) => return None,
+            (_, Potential::None) => return None,
+            (Potential::Unverified(left), Potential::Unverified(right)) => (*left, *right),
+            _ => unreachable!("Invariant: Sibling nodes must both be verified. Precondition: Child nodes must not be verified.")
+        };
+        let is_valid = {
+                let mut h = N::new();
+                N::update(&mut h, left);
+                N::update(&mut h, right);
+                expected_hash == N::finalize(h)
+        };
+
+        if is_valid {
+            self.nodes[left_index] = Potential::Verified(left);
+            self.nodes[right_index] = Potential::Verified(right);
+
+            // Recursively check children if valid.
+            self.validate_children(left_index as u64);
+            self.validate_children(right_index as u64);
+
+            Some(true)
+        } else {
+            self.nodes[left_index] = Potential::None;
+            self.nodes[right_index] = Potential::None;
+
+            Some(false)
+        }
+    }
+
+    /// Tries to complete the merkle tree by checking if all nodes have been verified.
+    pub(crate) fn try_complete(&self) -> Option<MerkleTree<N>>
+    where
+        N: Copy,
+    {
+        let nodes = self.nodes.iter().map(|n| {
+            match n {
+                Potential::Verified(v) => Some(*v),
+                _ => None,
+            }
+        }).collect::<Option<Vec<_>>>()?;
+
+        Some(MerkleTree {
+            nodes,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub enum Potential<T> {
+    None,
+    Unverified(T), // Track who sent it?
+    Verified(T),
+}
+
+impl<T> Potential<T> {
+    fn is_none(&self) -> bool {
+        if let Potential::None = self {
+            true
+        } else {
+            false
+        }
+    }
 }
 
 #[cfg(test)]
