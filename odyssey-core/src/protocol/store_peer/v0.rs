@@ -242,8 +242,11 @@ impl<Hash, HeaderId, Header> StoreSync<Hash, HeaderId, Header> {
     ) where
         Hash: Debug,
         SResp: Into<MsgStoreSync<Hash, HeaderId, Header>> + Debug,
+        Req: Debug,
         Resp: Debug,
     {
+        debug!("Received request from peer: {:?}", request);
+
         // Send request to store.
         let (response_chan, recv_chan) = oneshot::channel();
         let cmd = build_command(HandlePeerRequest {
@@ -382,6 +385,7 @@ impl<
                         }
                     }
                     StoreSyncCommand::MerkleRequest(ranges) => {
+                        debug!("Sending MerkleHashes request: {:?}", ranges);
                         send(
                             &mut stream,
                             MsgStoreSyncRequest::MerkleHashes {
@@ -393,6 +397,7 @@ impl<
 
                         let MsgStoreSyncMerkleResponse(result) =
                             receive(&mut stream).await.expect("TODO");
+                        debug!("Received merkle response: {:?}", result);
                         match result {
                             StoreSyncResponse::Response(nodes) => {
                                 // Send store the merkle hashes and tell store we're ready.

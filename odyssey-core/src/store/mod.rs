@@ -408,6 +408,8 @@ impl<
                 partial_merkle_tree,
                 ..
             } => {
+                debug!("send_sync_requests: DownloadingMerkle: {:?}", partial_merkle_tree);
+
                 // TODO: Keep track of (and filter out) which ones are currently requested.
                 let needed_hashes = partial_merkle_tree
                     .missing_indices()
