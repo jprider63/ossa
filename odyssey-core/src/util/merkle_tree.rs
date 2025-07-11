@@ -82,6 +82,9 @@ impl<H> MerkleTree<H> {
             }
         }
 
+        #[cfg(test)]
+        assert_eq!(leaves.next(), None);
+
         let Some(nodes) = nodes.into_iter().collect() else {
             unreachable!("Failed to initialize MerkleTree");
         };
@@ -139,6 +142,37 @@ impl<H> MerkleTree<H> {
 
     fn leaf_count(&self) -> u64 {
         (self.nodes.len() as u64 + 1) / 2
+    }
+
+    // Precondition: leaf_index < leaf_count
+    pub(crate) fn validate_chunk<A: AsRef<[u8]>>(&self, leaf_index: u64, chunk: A) -> bool
+    where
+        H: Hash,
+    {
+        let index = self.index_for_leaf(leaf_index);
+        let index: usize = index.try_into().unwrap();
+        let expected_hash = self.nodes[index];
+
+        let mut h = H::new();
+        H::update(&mut h, chunk);
+        let h = H::finalize(h);
+
+        expected_hash == h
+    }
+
+    fn index_for_leaf(&self, leaf_index: u64) -> u64 {
+        let leaf_count = self.leaf_count();
+        assert!(leaf_index < leaf_count);
+
+        let bottom_layer = leaf_count.next_power_of_two().ilog2() as u64;
+        let start = (1 << bottom_layer) - 1; // 2^layer - 1;
+        let mut index = start + leaf_index;
+        let nodes_count = self.nodes.len() as u64;
+        if index >= nodes_count {
+            let bottom_row_count = nodes_count.next_power_of_two() - nodes_count;
+            index -= bottom_row_count;
+        }
+        index
     }
 }
 

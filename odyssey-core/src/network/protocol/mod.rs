@@ -131,7 +131,7 @@ where
             initial_state_size: 0,
             merkle_root: todo!(), // [2;32],
         },
-        body: None,
+        // body: None,
     };
 
     send(stream, response).await
