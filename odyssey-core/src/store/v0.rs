@@ -37,7 +37,7 @@ use crate::{protocol, util};
 // }
 
 /// All block are 2^14 bytes (16KiB) (or less if last block).
-pub(crate) const BLOCK_SIZE: u64 = 1 << 14;
+pub(crate) const BLOCK_SIZE: u64 = 1 << 5;
 /// Limit on the number of merkle nodes a peer can request.
 pub(crate) const MERKLE_REQUEST_LIMIT: u64 = 16;
 /// Limit on the number of blocks a peer can request.
