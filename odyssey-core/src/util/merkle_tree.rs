@@ -1,57 +1,90 @@
 
+use std::{
+    cmp,
+    fmt::Debug,
+};
+
 use crate::util::Hash;
 
 /// Binary merkle tree.
-/// We aren't concerned about second pre-image attacks since the tree's size and structure are fixed.
+/// Second pre-image attacks aren't possible since the tree's size and shape are fixed. An attacker cannot swap a leaf with a branch node.
 #[derive(Debug)]
 pub struct MerkleTree<N> {
-    // Layers of the tree, from bottom to top. Root node is excluded?
-    layers: Vec<Vec<N>>,
+    // Flattened BFS representation of merkle tree. Root is at index 0.
+    nodes: Vec<N>,
 }
 
-// // TODO: Closed form solution?
-// fn node_count_for_leaf_count(leaf_count: u64) -> u64 {
-//     if leaf_count <= 1 {
+// fn prev_power_of_two(n: u64) -> u64 {
+//     // Handling the case of 0 input:
+//     if n == 0 {
 //         0
 //     } else {
-//         // let mut sum = leaf_count;
-//         leaf_count + node_count_for_leaf_count(leaf_count.div_ceil(2))
+//         // Mask by the highest bit.
+//         let highest_bit_set_idx = 63 - n.leading_zeros();
+//         (1 << highest_bit_set_idx) & n
 //     }
 // }
 
-impl<H: Hash> MerkleTree<H> {
+fn node_count_for_leaf_count(leaf_count: u64) -> u64 {
+    2 * leaf_count - 1
+}
+// // TODO: Closed form solution?
+//     if leaf_count <= 1 {
+//         leaf_count
+//     } else {
+//         let pow2 = prev_power_of_two(leaf_count);
+//         let remaining = leaf_count - pow2;
+//         2 * pow2 - 1 + node_count_for_leaf_count(remaining)
+//     }
+
+fn is_leaf(leaf_count: u64, index: u64) -> bool {
+    index >= leaf_count - 1
+}
+
+impl<H: Hash + Debug> MerkleTree<H> {
     /// Precondition: Leaves must be non-empty.
     fn from_leaves(leaves: Vec<H>) -> MerkleTree<H> {
         if leaves.is_empty() {
             panic!("Precondition violated: Leaves must be non-empty.");
         }
 
-        let mut layers = vec![];
-        layers.push(leaves);
+        let leaf_count = leaves.len() as u64;
+        let capacity = node_count_for_leaf_count(leaf_count);
+        let mut nodes: Vec<Option<_>> = (0..capacity).map(|_| None).collect();
 
-        loop {
-            let prev_layer = layers.last().unwrap();
-            if prev_layer.len() <= 1 {
-                break;
-            }
-            
-            let mut layer = vec![];
-            for i in 0..(prev_layer.len() / 2) {
-                let mut h = H::new();
-                let left = prev_layer[2*i];
-                H::update(&mut h, left);
-                if let Some(right) = prev_layer.get(2*i + 1) {
+        // Build the tree from the bottom up.
+        let mut leaves = leaves.into_iter();
+        let bottom_layer = leaf_count.next_power_of_two().ilog2() as u64 + 1;
+        for layer in (0..bottom_layer).rev() {
+            let start = (1 << layer) - 1; // 2^layer - 1;
+            let end = cmp::min((1 << (layer + 1)) - 1, capacity);
+            for i in start..end {
+                let i = i as usize;
+
+                #[cfg(test)]
+                assert_eq!(nodes[i], None);
+
+                let h = if is_leaf(leaf_count, i as u64) {
+                    leaves.next().unwrap()
+                } else {
+                    let left = nodes[2*i + 1].unwrap();
+                    let right = nodes[2*i + 2].unwrap();
+
+                    let mut h = H::new();
+                    H::update(&mut h, left);
                     H::update(&mut h, right);
-                }
-                let h = H::finalize(h);
-                layer.push(h);
+                    H::finalize(h)
+                };
+                nodes[i] = Some(h);
             }
-
-            layers.push(layer);
         }
 
+        let Some(nodes) = nodes.into_iter().collect() else {
+            unreachable!("Failed to initialize MerkleTree");
+        };
+
         MerkleTree {
-            layers
+            nodes,
         }
     }
 
@@ -71,10 +104,20 @@ impl<H: Hash> MerkleTree<H> {
     }
 
     pub fn merkle_root(&self) -> H {
-        self.layers
-            .last()
-            .expect("Invariant violated: layers must be non-empty.")
-            [0]
+        self.nodes[0]
+    }
+
+    // If the index corresponds to a branch node, return the child indices. Otherwise, if the index
+    // corresponds to a leaf node, return `None`.
+    fn child_indices(&self, index: u64) -> Option<(u64, u64)> {
+        let left = 2*index + 1;
+        let right = 2*index + 2;
+
+        if right < self.nodes.len() as u64 {
+            Some((left, right))
+        } else {
+            None
+        }
     }
 
     // // Height, excluding root node layer.
@@ -86,12 +129,10 @@ impl<H: Hash> MerkleTree<H> {
 
 impl<N> MerkleTree<Option<N>> {
     pub(crate) fn new_with_capacity(leaf_count: u64) -> MerkleTree<Option<N>> {
-        todo!();
-        // let nodes = todo!(); // TODO
-        // Self {
-        //     leaf_count,
-        //     nodes,
-        // }
+        let nodes = (0..node_count_for_leaf_count(leaf_count)).map(|_| None).collect();
+        Self {
+            nodes,
+        }
     }
 
     /*
@@ -120,13 +161,20 @@ mod test {
 
     #[test]
     fn merkle_test() {
-        let chunks = vec![];
+        let chunks: Vec<&[u8]> = vec![];
         let root = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
         merkle_test_helper(chunks, root);
 
+        let chunks: Vec<&[u8]> = vec![b""];
+        let root = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+        merkle_test_helper(chunks, root);
+
+        let chunks = vec![b"hello", b"world"];
+        let root = "7305DB9B2ABCCD706C256DB3D97E5FF48D677CFE4D3A5904AFB7DA0E3950E1E2";
+        merkle_test_helper(chunks, root);
     }
 
-    fn merkle_test_helper(chunks: Vec<&[u8]>, expected_root: &str) {
+    fn merkle_test_helper<A: AsRef<[u8]>>(chunks: Vec<A>, expected_root: &str) {
         let expected_root = Sha256Hash::from_str(expected_root).unwrap();
 
         let mt = MerkleTree::<Sha256Hash>::from_chunks(chunks.iter());
@@ -163,16 +211,16 @@ mod test {
     fn node_count_for_leaf_count_tests() {
         let pairs = [
             (0, 0),
-            (1, 0),
-            (2, 2),
-            (3, 5),
-            (4, 6),
-            (5, 10),
-            (6, 11),
-            (7, 13),
-            (8, 14),
-            (9, 19),
-            (10, 20),
+            (1, 1),
+            (2, 3),
+            (3, 4),
+            (4, 7),
+            (5, 8),
+            (6, 10),
+            (7, 11),
+            (8, 15),
+            (9, 16),
+            (10, 18),
         ];
         for (input, expected_output) in pairs {
             let res = node_count_for_leaf_count(input);
