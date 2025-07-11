@@ -621,9 +621,6 @@ impl<
         if metadata.block_count() <= 1 {
             self.update_state_to_downloading_initial_state(peer, listeners);
         }
-
-        // Sync with peer(s). Do this for all commands??
-        self.send_sync_requests();
     }
 
     fn metadata(&self) -> Option<&MetadataHeader<Hash>> {
@@ -691,10 +688,6 @@ impl<
 
         // Update state.
         self.update_state_to_downloading_initial_state(peer, listeners);
-
-        panic!("TODO: Bug - this short circuits so it won't always be called. Move this out front to caller");
-        // Sync with peer(s). Do this for all commands??
-        self.send_sync_requests();
     }
 
     fn handle_received_initial_state_blocks(
@@ -751,9 +744,6 @@ impl<
 
         // Update state.
         self.update_state_to_syncing(peer, listeners);
-
-        // Sync with peer(s). Do this for all commands??
-        self.send_sync_requests();
     }
 
     fn handle_received_ecg_operations<OT>(
@@ -805,9 +795,6 @@ impl<
             ecg_state,
             Some(peer),
         );
-
-        // Sync with peer(s). Do this for all commands??
-        self.send_sync_requests();
     }
 
     // Precondition: State is StateMachine::DownloadingMerkle.
@@ -1304,15 +1291,19 @@ pub(crate) async fn run_handler<OT: OdysseyType, T>(
                     }
                     UntypedStoreCommand::ReceivedMetadata { peer, metadata } => {
                         store.handle_received_metadata(peer, metadata, &listeners);
+                        store.send_sync_requests();
                     }
                     UntypedStoreCommand::ReceivedMerkleHashes { peer, ranges, nodes } => {
                         store.handle_received_merkle_hashes(peer, ranges, nodes, &listeners);
+                        store.send_sync_requests();
                     }
                     UntypedStoreCommand::ReceivedInitialStateBlocks { peer, ranges, blocks } => {
                         store.handle_received_initial_state_blocks(peer, ranges, blocks, &listeners);
+                        store.send_sync_requests();
                     }
                     UntypedStoreCommand::ReceivedECGOperations { peer, operations } => {
                         store.handle_received_ecg_operations::<OT>(peer, operations, &listeners);
+                        store.send_sync_requests();
                     }
                     UntypedStoreCommand::SubscribeECG { peer, tips, response_chan } => {
                         store.handle_ecg_subscribe(peer, tips, response_chan);
