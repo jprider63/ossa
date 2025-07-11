@@ -61,10 +61,10 @@ pub struct MetadataHeader<Hash> {
     /// Hash (merkle root) of the hashes of the initial state's blocks.
     pub merkle_root: Hash, // TODO: Make this an actual binary (or 512-ary) tree?
                            //
-    // TODO:
-    // Owner?
-    // Encryption options
-    // Access control options?
+                           // TODO:
+                           // Owner?
+                           // Encryption options
+                           // Access control options?
 }
 
 // TODO: Signature of MetadataHeader by `owner`.
@@ -115,7 +115,7 @@ impl<H: Hash + Debug> MetadataHeader<H> {
 }
 
 #[derive(Debug)] // , Deserialize, Serialize)]
-// TODO: Get rid of this? Or rename it? InitialStateBuilder?
+                 // TODO: Get rid of this? Or rename it? InitialStateBuilder?
 pub struct MetadataBody<Hash> {
     /// Serialized (and encrypted) initial state of the store.
     //  TODO: Eventually merkelize the initial state in chunks.

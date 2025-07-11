@@ -33,7 +33,7 @@ use crate::{
     },
     store::{
         ecg::{ECGBody, ECGHeader, RawECGBody},
-        v0::{MERKLE_REQUEST_LIMIT, BLOCK_REQUEST_LIMIT},
+        v0::{BLOCK_REQUEST_LIMIT, MERKLE_REQUEST_LIMIT},
     },
     util::{self, compress_consecutive_into_ranges},
 };
@@ -403,7 +403,10 @@ impl<
                     send_command(i, message);
                 });
             }
-            StateMachine::DownloadingMerkle { partial_merkle_tree, .. } => {
+            StateMachine::DownloadingMerkle {
+                partial_merkle_tree,
+                ..
+            } => {
                 // TODO: Keep track of (and filter out) which ones are currently requested.
                 let needed_hashes = partial_merkle_tree
                     .missing_indices()
@@ -579,7 +582,10 @@ impl<
 
         // Update state.
         self.state_machine = StateMachine::DownloadingMerkle {
-            partial_merkle_tree: MerkleTree::new_with_capacity(metadata.merkle_root, metadata.block_count()),
+            partial_merkle_tree: MerkleTree::new_with_capacity(
+                metadata.merkle_root,
+                metadata.block_count(),
+            ),
             metadata,
         };
 
@@ -1396,10 +1402,7 @@ fn handle_block_peer_request_helper<StoreId, Header: ecg::ECGHeader, T: CRDT, Ha
     }
 }
 
-fn handle_peer_request_range_helper<T: Clone>(
-    slice: &[T],
-    ids: &[Range<u64>],
-) -> Vec<T> {
+fn handle_peer_request_range_helper<T: Clone>(slice: &[T], ids: &[Range<u64>]) -> Vec<T> {
     warn!("TODO: check ranges are in bounds or return error");
     let hashes: Vec<_> = ids
         .iter()

@@ -1,8 +1,4 @@
-
-use std::{
-    cmp,
-    fmt::Debug,
-};
+use std::{cmp, fmt::Debug};
 
 use crate::util::Hash;
 
@@ -70,8 +66,8 @@ impl<H> MerkleTree<H> {
                 let h = if is_leaf(leaf_count, i_64) {
                     leaves.next().unwrap()
                 } else {
-                    let left = nodes[2*i + 1].unwrap();
-                    let right = nodes[2*i + 2].unwrap();
+                    let left = nodes[2 * i + 1].unwrap();
+                    let right = nodes[2 * i + 2].unwrap();
 
                     let mut h = H::new();
                     H::update(&mut h, left);
@@ -89,20 +85,20 @@ impl<H> MerkleTree<H> {
             unreachable!("Failed to initialize MerkleTree");
         };
 
-        MerkleTree {
-            nodes,
-        }
+        MerkleTree { nodes }
     }
 
     pub fn from_chunks<I: Iterator<Item = A>, A: AsRef<[u8]>>(chunks: I) -> MerkleTree<H>
     where
         H: Hash + Debug,
     {
-        let leaves: Vec<H> = chunks.map(|c| {
-            let mut h = H::new();
-            H::update(&mut h, c);
-            H::finalize(h)
-        }).collect();
+        let leaves: Vec<H> = chunks
+            .map(|c| {
+                let mut h = H::new();
+                H::update(&mut h, c);
+                H::finalize(h)
+            })
+            .collect();
 
         if leaves.is_empty() {
             let empty: [&[u8]; 1] = [&[]];
@@ -178,25 +174,22 @@ impl<H> MerkleTree<H> {
 
 impl<N> MerkleTree<Potential<N>> {
     pub(crate) fn new_with_capacity(merkle_root: N, leaf_count: u64) -> MerkleTree<Potential<N>> {
-        let mut nodes: Vec<_> = (0..node_count_for_leaf_count(leaf_count)).map(|_| Potential::None).collect();
+        let mut nodes: Vec<_> = (0..node_count_for_leaf_count(leaf_count))
+            .map(|_| Potential::None)
+            .collect();
         nodes[0] = Potential::Verified(merkle_root);
 
-        Self {
-            nodes,
-        }
+        Self { nodes }
     }
 
     pub(crate) fn missing_indices<'a>(&'a self) -> impl Iterator<Item = u64> + 'a {
-        self.nodes
-            .iter()
-            .enumerate()
-            .filter_map(|h| {
-                if h.1.is_none() {
-                    Some(h.0 as u64)
-                } else {
-                    None
-                }
-            })
+        self.nodes.iter().enumerate().filter_map(|h| {
+            if h.1.is_none() {
+                Some(h.0 as u64)
+            } else {
+                None
+            }
+        })
     }
 
     /// Sets the potential value for the node in the merkle tree. Returns false if the proposed value is invalid (Could result in false positives if the sibling node was sent by another peer).
@@ -231,7 +224,6 @@ impl<N> MerkleTree<Potential<N>> {
         }
     }
 
-
     // Precondition: Child nodes must not be verified.
     fn validate_children(&mut self, index: u64) -> Option<bool>
     where
@@ -245,8 +237,8 @@ impl<N> MerkleTree<Potential<N>> {
         let Potential::Verified(expected_hash) = self.nodes[index] else {
             return None;
         };
-        let left_index = 2*index + 1;
-        let right_index = 2*index + 2;
+        let left_index = 2 * index + 1;
+        let right_index = 2 * index + 2;
         let (left, right) = match (&self.nodes[left_index], &self.nodes[right_index]) {
             (Potential::None, _) => return None,
             (_, Potential::None) => return None,
@@ -254,10 +246,10 @@ impl<N> MerkleTree<Potential<N>> {
             _ => unreachable!("Invariant: Sibling nodes must both be verified. Precondition: Child nodes must not be verified.")
         };
         let is_valid = {
-                let mut h = N::new();
-                N::update(&mut h, left);
-                N::update(&mut h, right);
-                expected_hash == N::finalize(h)
+            let mut h = N::new();
+            N::update(&mut h, left);
+            N::update(&mut h, right);
+            expected_hash == N::finalize(h)
         };
 
         if is_valid {
@@ -282,16 +274,16 @@ impl<N> MerkleTree<Potential<N>> {
     where
         N: Copy,
     {
-        let nodes = self.nodes.iter().map(|n| {
-            match n {
+        let nodes = self
+            .nodes
+            .iter()
+            .map(|n| match n {
                 Potential::Verified(v) => Some(*v),
                 _ => None,
-            }
-        }).collect::<Option<Vec<_>>>()?;
+            })
+            .collect::<Option<Vec<_>>>()?;
 
-        Some(MerkleTree {
-            nodes,
-        })
+        Some(MerkleTree { nodes })
     }
 }
 
