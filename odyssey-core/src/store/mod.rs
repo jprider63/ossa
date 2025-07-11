@@ -437,9 +437,9 @@ impl<
                 // Randomize which peer to request the blocks from.
                 needed_blocks.shuffle(&mut rng);
 
-                peers.iter_mut().zip(needed_blocks).for_each(|(p, pieces)| {
-                    let message = StoreSyncCommand::InitialStatePieceRequest(
-                        compress_consecutive_into_ranges(pieces).collect(),
+                peers.iter_mut().zip(needed_blocks).for_each(|(p, blocks)| {
+                    let message = StoreSyncCommand::InitialStateBlockRequest(
+                        compress_consecutive_into_ranges(blocks).collect(),
                     );
                     send_command(p.1, message);
                 });
@@ -480,23 +480,23 @@ impl<
     fn handle_merkle_peer_request(
         &mut self,
         peer: DeviceId,
-        piece_ids: Vec<Range<u64>>,
+        node_ids: Vec<Range<u64>>,
         response_chan: Sender<HandlePeerResponse<Vec<Hash>>>,
     ) {
         let hashes = self
             .merkle_tree()
-            .map(|merkle_tree| handle_merkle_peer_request_helper(merkle_tree, &piece_ids));
+            .map(|merkle_tree| handle_merkle_peer_request_helper(merkle_tree, &node_ids));
 
-        if let Some(piece_hashes) = hashes {
+        if let Some(node_hashes) = hashes {
             // We have the hashes so share it with the peer.
-            response_chan.send(Ok(piece_hashes)).expect("TODO");
+            response_chan.send(Ok(node_hashes)).expect("TODO");
         } else {
             // We don't have the hashes so tell them to wait.
             let (send_chan, recv_chan) = oneshot::channel();
             response_chan.send(Err(recv_chan)).expect("TODO");
 
             // Register the wait channel.
-            self.merkle_subscribers.insert(peer, (piece_ids, send_chan)); // JP: Safe to drop old one?
+            self.merkle_subscribers.insert(peer, (node_ids, send_chan)); // JP: Safe to drop old one?
         }
     }
 
@@ -509,10 +509,10 @@ impl<
         let blocks = handle_block_peer_request_helper(&self.state_machine, &block_ids);
 
         if let Some(blocks) = blocks {
-            // We have the pieces so share it with the peer.
+            // We have the blocks so share it with the peer.
             response_chan.send(Ok(blocks)).expect("TODO");
         } else {
-            // We don't have the pieces so tell them to wait.
+            // We don't have the blocks so tell them to wait.
             let (send_chan, recv_chan) = oneshot::channel();
             response_chan.send(Err(recv_chan)).expect("TODO");
 
@@ -1235,7 +1235,7 @@ pub(crate) async fn run_handler<OT: OdysseyType, T>(
                     UntypedStoreCommand::HandleMerklePeerRequest(HandlePeerRequest { peer, request, response_chan }) => {
                         store.handle_merkle_peer_request(peer, request, response_chan);
                     }
-                    UntypedStoreCommand::HandlePiecePeerRequest(HandlePeerRequest { peer, request, response_chan }) => {
+                    UntypedStoreCommand::HandleBlockPeerRequest(HandlePeerRequest { peer, request, response_chan }) => {
                         store.handle_block_peer_request(peer, request, response_chan);
                     }
                     // UntypedStoreCommand::HandleECGSyncRequest(HandlePeerRequest { peer, request, response_chan }) => {
@@ -1244,11 +1244,11 @@ pub(crate) async fn run_handler<OT: OdysseyType, T>(
                     UntypedStoreCommand::ReceivedMetadata { peer, metadata } => {
                         store.handle_received_metadata(peer, metadata);
                     }
-                    UntypedStoreCommand::ReceivedMerkleHashes { peer, ranges, pieces } => {
-                        store.handle_received_merkle_hashes(peer, ranges, pieces);
+                    UntypedStoreCommand::ReceivedMerkleHashes { peer, ranges, nodes } => {
+                        store.handle_received_merkle_hashes(peer, ranges, nodes);
                     }
-                    UntypedStoreCommand::ReceivedInitialStatePieces { peer, ranges, pieces } => {
-                        store.handle_received_initial_state_blocks(peer, ranges, pieces, &listeners);
+                    UntypedStoreCommand::ReceivedInitialStateBlocks { peer, ranges, blocks } => {
+                        store.handle_received_initial_state_blocks(peer, ranges, blocks, &listeners);
                     }
                     UntypedStoreCommand::ReceivedECGOperations { peer, operations } => {
                         store.handle_received_ecg_operations::<OT>(peer, operations, &listeners);
@@ -1312,7 +1312,7 @@ pub(crate) enum UntypedStoreCommand<Hash, HeaderId, Header> {
     },
     HandleMetadataPeerRequest(HandlePeerRequest<(), v0::MetadataHeader<Hash>>),
     HandleMerklePeerRequest(HandlePeerRequest<Vec<Range<u64>>, Vec<Hash>>),
-    HandlePiecePeerRequest(HandlePeerRequest<Vec<Range<u64>>, Vec<Option<Vec<u8>>>>),
+    HandleBlockPeerRequest(HandlePeerRequest<Vec<Range<u64>>, Vec<Option<Vec<u8>>>>),
     // HandleECGSyncRequest(HandlePeerRequest<(Vec<HeaderId>, Vec<HeaderId>), Vec<(Header, RawECGBody)>>), // (Meet, Tips)
     RegisterIncomingPeerSyncing {
         peer: DeviceId,
@@ -1324,12 +1324,12 @@ pub(crate) enum UntypedStoreCommand<Hash, HeaderId, Header> {
     ReceivedMerkleHashes {
         peer: DeviceId,
         ranges: Vec<Range<u64>>,
-        pieces: Vec<Hash>,
+        nodes: Vec<Hash>,
     },
-    ReceivedInitialStatePieces {
+    ReceivedInitialStateBlocks {
         peer: DeviceId,
         ranges: Vec<Range<u64>>,
-        pieces: Vec<Option<Vec<u8>>>,
+        blocks: Vec<Option<Vec<u8>>>,
     },
     ReceivedECGOperations {
         peer: DeviceId,
@@ -1380,18 +1380,18 @@ fn handle_block_peer_request_helper<StoreId, Header: ecg::ECGHeader, T: CRDT, Ha
             Some(handle_peer_request_range_helper(initial_state, block_ids))
         }
         StateMachine::Syncing { initial_state, .. } => {
-            let pieces: Vec<_> = block_ids
+            let blocks: Vec<_> = block_ids
                 .iter()
                 .cloned()
                 .flatten()
                 .map(|i| {
-                    warn!("TODO: Properly handle invalid requests"); // Return None if i >= metadata.piece_count()?
+                    warn!("TODO: Properly handle invalid requests"); // Return None if i >= metadata.block_count()?
                     let start: usize = (i * BLOCK_SIZE) as usize;
                     let end = std::cmp::min(((i + 1) * BLOCK_SIZE) as usize, initial_state.len());
                     Some(initial_state[start..end].to_vec())
                 })
                 .collect();
-            Some(pieces)
+            Some(blocks)
         }
     }
 }

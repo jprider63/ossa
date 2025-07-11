@@ -25,7 +25,7 @@ pub(crate) enum MsgStoreSync<Hash, HeaderId, Header> {
     Request(MsgStoreSyncRequest<HeaderId>),
     MetadataHeaderResponse(MsgStoreSyncMetadataResponse<Hash>),
     MerkleResponse(MsgStoreSyncMerkleResponse<Hash>),
-    PiecesResponse(MsgStoreSyncPieceResponse),
+    BlocksResponse(MsgStoreSyncBlockResponse),
     ECGResponse(MsgStoreECGSyncResponse<HeaderId, Header>),
 }
 
@@ -41,7 +41,7 @@ pub(crate) enum MsgStoreSyncRequest<HeaderId> {
     MerkleHashes {
         ranges: Vec<Range<u64>>,
     },
-    InitialStatePieces {
+    InitialStateBlocks {
         ranges: Vec<Range<u64>>,
     },
     ECGInitialSync {
@@ -71,7 +71,7 @@ pub(crate) enum StoreSyncResponse<A> {
 pub(crate) struct MsgStoreSyncMerkleResponse<Hash>(StoreSyncResponse<Vec<Hash>>);
 
 #[derive(Debug, Serialize, Deserialize)]
-pub(crate) struct MsgStoreSyncPieceResponse(StoreSyncResponse<Vec<Option<Vec<u8>>>>);
+pub(crate) struct MsgStoreSyncBlockResponse(StoreSyncResponse<Vec<Option<Vec<u8>>>>);
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) enum MsgStoreECGSyncResponse<HeaderId, Header> {
@@ -99,7 +99,7 @@ impl<Hash, HeaderId, Header> TryInto<MsgStoreSyncRequest<HeaderId>>
             MsgStoreSync::Request(r) => Ok(r),
             MsgStoreSync::MetadataHeaderResponse(_) => Err(()),
             MsgStoreSync::MerkleResponse(_) => Err(()),
-            MsgStoreSync::PiecesResponse(_) => Err(()),
+            MsgStoreSync::BlocksResponse(_) => Err(()),
             MsgStoreSync::ECGResponse(_) => Err(()),
         }
     }
@@ -122,7 +122,7 @@ impl<Hash, HeaderId, Header> TryInto<MsgStoreSyncMetadataResponse<Hash>>
             MsgStoreSync::Request(_) => Err(()),
             MsgStoreSync::MetadataHeaderResponse(r) => Ok(r),
             MsgStoreSync::MerkleResponse(_) => Err(()),
-            MsgStoreSync::PiecesResponse(_) => Err(()),
+            MsgStoreSync::BlocksResponse(_) => Err(()),
             MsgStoreSync::ECGResponse(_) => Err(()),
         }
     }
@@ -145,30 +145,30 @@ impl<Hash, HeaderId, Header> TryInto<MsgStoreSyncMerkleResponse<Hash>>
             MsgStoreSync::Request(_) => Err(()),
             MsgStoreSync::MetadataHeaderResponse(_) => Err(()),
             MsgStoreSync::MerkleResponse(r) => Ok(r),
-            MsgStoreSync::PiecesResponse(_) => Err(()),
+            MsgStoreSync::BlocksResponse(_) => Err(()),
             MsgStoreSync::ECGResponse(_) => Err(()),
         }
     }
 }
 
 impl<Hash, HeaderId, Header> Into<MsgStoreSync<Hash, HeaderId, Header>>
-    for MsgStoreSyncPieceResponse
+    for MsgStoreSyncBlockResponse
 {
     fn into(self) -> MsgStoreSync<Hash, HeaderId, Header> {
-        MsgStoreSync::PiecesResponse(self)
+        MsgStoreSync::BlocksResponse(self)
     }
 }
 
-impl<Hash, HeaderId, Header> TryInto<MsgStoreSyncPieceResponse>
+impl<Hash, HeaderId, Header> TryInto<MsgStoreSyncBlockResponse>
     for MsgStoreSync<Hash, HeaderId, Header>
 {
     type Error = ();
-    fn try_into(self) -> Result<MsgStoreSyncPieceResponse, ()> {
+    fn try_into(self) -> Result<MsgStoreSyncBlockResponse, ()> {
         match self {
             MsgStoreSync::Request(_) => Err(()),
             MsgStoreSync::MetadataHeaderResponse(_) => Err(()),
             MsgStoreSync::MerkleResponse(_) => Err(()),
-            MsgStoreSync::PiecesResponse(r) => Ok(r),
+            MsgStoreSync::BlocksResponse(r) => Ok(r),
             MsgStoreSync::ECGResponse(_) => Err(()),
         }
     }
@@ -191,7 +191,7 @@ impl<Hash, HeaderId, Header> TryInto<MsgStoreECGSyncResponse<HeaderId, Header>>
             MsgStoreSync::Request(_) => Err(()),
             MsgStoreSync::MetadataHeaderResponse(_) => Err(()),
             MsgStoreSync::MerkleResponse(_) => Err(()),
-            MsgStoreSync::PiecesResponse(_) => Err(()),
+            MsgStoreSync::BlocksResponse(_) => Err(()),
             MsgStoreSync::ECGResponse(r) => Ok(r),
         }
     }
@@ -326,7 +326,7 @@ impl<Hash, HeaderId, Header> StoreSync<Hash, HeaderId, Header> {
 pub(crate) enum StoreSyncCommand<HeaderId, Header> {
     MetadataHeaderRequest,
     MerkleRequest(Vec<Range<u64>>),
-    InitialStatePieceRequest(Vec<Range<u64>>),
+    InitialStateBlockRequest(Vec<Range<u64>>),
     ECGSyncRequest {
         // ecg_status: ECGStatus<HeaderId>,
         ecg_state: ecg::UntypedState<HeaderId, Header>,
@@ -394,17 +394,17 @@ impl<
                         let MsgStoreSyncMerkleResponse(result) =
                             receive(&mut stream).await.expect("TODO");
                         match result {
-                            StoreSyncResponse::Response(pieces) => {
-                                // Send store the piece hashes and tell store we're ready.
+                            StoreSyncResponse::Response(nodes) => {
+                                // Send store the merkle hashes and tell store we're ready.
                                 let msg = UntypedStoreCommand::ReceivedMerkleHashes {
                                     peer: self.peer,
                                     ranges,
-                                    pieces,
+                                    nodes,
                                 };
                                 self.send_chan.send(msg).expect("TODO");
                             }
                             StoreSyncResponse::Wait => {
-                                // Wait for response (Must be Cancel or MerklePieces).
+                                // Wait for response (Must be Cancel or MerkleHashes).
                                 todo!();
                             }
                             StoreSyncResponse::Reject => {
@@ -413,24 +413,24 @@ impl<
                             }
                         }
                     }
-                    StoreSyncCommand::InitialStatePieceRequest(ranges) => {
+                    StoreSyncCommand::InitialStateBlockRequest(ranges) => {
                         send(
                             &mut stream,
-                            MsgStoreSyncRequest::InitialStatePieces {
+                            MsgStoreSyncRequest::InitialStateBlocks {
                                 ranges: ranges.clone(),
                             },
                         )
                         .await
                         .expect("TODO");
-                        let MsgStoreSyncPieceResponse(result) =
+                        let MsgStoreSyncBlockResponse(result) =
                             receive(&mut stream).await.expect("TODO");
                         match result {
-                            StoreSyncResponse::Response(pieces) => {
-                                // Send store the pieces and tell store we're ready.
-                                let msg = UntypedStoreCommand::ReceivedInitialStatePieces {
+                            StoreSyncResponse::Response(blocks) => {
+                                // Send store the blocks and tell store we're ready.
+                                let msg = UntypedStoreCommand::ReceivedInitialStateBlocks {
                                     peer: self.peer,
                                     ranges,
-                                    pieces,
+                                    blocks,
                                 };
                                 self.send_chan.send(msg).expect("TODO");
                             }
@@ -530,19 +530,19 @@ impl<
 
                         self.run_client_helper::<_, Vec<Range<u64>>, Vec<Hash>, MsgStoreSyncMerkleResponse<Hash>>(&mut stream, ranges, build_command, build_response).await;
                     }
-                    MsgStoreSyncRequest::InitialStatePieces { ranges } => {
+                    MsgStoreSyncRequest::InitialStateBlocks { ranges } => {
                         const fn build_command<Hash, HeaderId, Header>(
                             req: HandlePeerRequest<Vec<Range<u64>>, Vec<Option<Vec<u8>>>>,
                         ) -> UntypedStoreCommand<Hash, HeaderId, Header> {
-                            UntypedStoreCommand::HandlePiecePeerRequest(req)
+                            UntypedStoreCommand::HandleBlockPeerRequest(req)
                         }
                         const fn build_response(
                             h: StoreSyncResponse<Vec<Option<Vec<u8>>>>,
-                        ) -> MsgStoreSyncPieceResponse {
-                            MsgStoreSyncPieceResponse(h)
+                        ) -> MsgStoreSyncBlockResponse {
+                            MsgStoreSyncBlockResponse(h)
                         }
 
-                        self.run_client_helper::<_, Vec<Range<u64>>, Vec<Option<Vec<u8>>>, MsgStoreSyncPieceResponse>(&mut stream, ranges, build_command, build_response).await;
+                        self.run_client_helper::<_, Vec<Range<u64>>, Vec<Option<Vec<u8>>>, MsgStoreSyncBlockResponse>(&mut stream, ranges, build_command, build_response).await;
                     }
                     MsgStoreSyncRequest::ECGInitialSync { tips } => {
                         debug!("Received initial ECG sync request with tips: {tips:?}");

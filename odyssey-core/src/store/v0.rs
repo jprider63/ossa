@@ -40,7 +40,7 @@ use crate::{protocol, util};
 pub(crate) const BLOCK_SIZE: u64 = 1 << 14;
 /// Limit on the number of merkle nodes a peer can request.
 pub(crate) const MERKLE_REQUEST_LIMIT: u64 = 16;
-/// Limit on the number of pieces a peer can request.
+/// Limit on the number of blocks a peer can request.
 pub(crate) const BLOCK_REQUEST_LIMIT: u64 = 16;
 
 /// A store's Metadata header.
@@ -58,7 +58,7 @@ pub struct MetadataHeader<Hash> {
     /// Size in bytes of the initial state.
     pub initial_state_size: u64,
 
-    /// Hash (merkle root) of the hashes of the initial state's pieces.
+    /// Hash (merkle root) of the hashes of the initial state's blocks.
     pub merkle_root: Hash, // TODO: Make this an actual binary (or 512-ary) tree?
                            //
     // TODO:
