@@ -410,7 +410,10 @@ impl<
                 partial_merkle_tree,
                 ..
             } => {
-                debug!("send_sync_requests: DownloadingMerkle: {:?}", partial_merkle_tree);
+                debug!(
+                    "send_sync_requests: DownloadingMerkle: {:?}",
+                    partial_merkle_tree
+                );
 
                 // TODO: Keep track of (and filter out) which ones are currently requested.
                 let needed_hashes = partial_merkle_tree
@@ -805,7 +808,11 @@ impl<
     ) where
         T: for<'d> Deserialize<'d>,
     {
-        let StateMachine::DownloadingMerkle { ref partial_merkle_tree, .. } = &self.state_machine else {
+        let StateMachine::DownloadingMerkle {
+            ref partial_merkle_tree,
+            ..
+        } = &self.state_machine
+        else {
             panic!("Precondition violated. State mush be StateMachine::DownloadingMerkle");
         };
         // Check if we're done.
