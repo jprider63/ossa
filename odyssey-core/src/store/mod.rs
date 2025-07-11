@@ -69,10 +69,12 @@ pub enum StateMachine<StoreId, Header: ecg::ECGHeader, T: CRDT, Hash> {
     DownloadingMetadata {
         store_id: StoreId,
     },
+    /// Invariant: At least one partial_merkle_tree node is None.
     DownloadingMerkle {
         metadata: MetadataHeader<Hash>,
         partial_merkle_tree: MerkleTree<Potential<Hash>>,
     },
+    /// Invariant: At least one initial_state block is None.
     DownloadingInitialState {
         metadata: MetadataHeader<Hash>,
         merkle_tree: MerkleTree<Hash>,
@@ -415,6 +417,9 @@ impl<
                     .missing_indices()
                     .chunks(MERKLE_REQUEST_LIMIT as usize);
                 let mut needed_hashes: Vec<_> = needed_hashes.into_iter().collect();
+                if needed_hashes.is_empty() {
+                    panic!("Invariant violated: We have all merkle nodes but are in state DownloadingMerkle.");
+                }
 
                 // Randomize which peer to request the hashes from.
                 needed_hashes.shuffle(&mut rng);
@@ -439,6 +444,9 @@ impl<
                     })
                     .chunks(BLOCK_REQUEST_LIMIT as usize);
                 let mut needed_blocks: Vec<_> = needed_blocks.into_iter().collect();
+                if needed_blocks.is_empty() {
+                    panic!("Invariant violated: We have all blocks but are in state DownloadingInitialState.");
+                }
 
                 // Randomize which peer to request the blocks from.
                 needed_blocks.shuffle(&mut rng);
@@ -567,7 +575,14 @@ impl<
     //     todo!();
     // }
 
-    fn handle_received_metadata(&mut self, peer: DeviceId, metadata: MetadataHeader<Hash>) {
+    fn handle_received_metadata(
+        &mut self,
+        peer: DeviceId,
+        metadata: MetadataHeader<Hash>,
+        listeners: &[UnboundedSender<StateUpdate<Header, T>>],
+    ) where
+        T: for<'d> Deserialize<'d>,
+    {
         debug!("Recieved metadata from peer ({peer}): {metadata:?}");
 
         // Mark peer as ready.
@@ -602,6 +617,11 @@ impl<
             sub.send(msg).expect("TODO");
         }
 
+        // If there's only one block, we already know the entire merkle tree so move onto downloading blocks.
+        if metadata.block_count() <= 1 {
+            self.update_state_to_downloading_initial_state(peer, listeners);
+        }
+
         // Sync with peer(s). Do this for all commands??
         self.send_sync_requests();
     }
@@ -633,7 +653,10 @@ impl<
         peer: DeviceId,
         node_ids: Vec<Range<u64>>,
         their_node_hashes: Vec<Hash>,
-    ) {
+        listeners: &[UnboundedSender<StateUpdate<Header, T>>],
+    ) where
+        T: for<'d> Deserialize<'d>,
+    {
         warn!("TODO: Keep track if you received different hashes from different peers.");
 
         // Mark peer as ready.
@@ -663,51 +686,13 @@ impl<
                 let valid = partial_merkle_tree.set(i, hash);
                 if !valid {
                     warn!("TODO: Peer sent us an invalid merkle hash.");
-                }
+                } // TODO: Else credit peer with sending us these merkle nodes.
             });
 
-        // Check if we're done.
-        let merkle_tree_m = partial_merkle_tree.try_complete();
-        let Some(merkle_tree) = merkle_tree_m else {
-            return;
-        };
-
-        // // Validate piece hashes.
-        // let is_valid = self.metadata().unwrap().merkle_root == util::merkle_root(&piece_hashes);
-        // if !is_valid {
-        //     // TODO: Penalize/blacklist/disconnect peer?
-        //     warn!("TODO: Peer provided invalid piece hashes.");
-        //     return;
-        // }
-
         // Update state.
-        self.state_machine = match self.state_machine {
-            StateMachine::DownloadingMerkle { metadata, .. } => {
-                let initial_state = vec![None; metadata.block_count() as usize];
-                StateMachine::DownloadingInitialState {
-                    metadata,
-                    merkle_tree,
-                    initial_state,
-                }
-            }
-            _ => unreachable!("We already checked that we're downloading merkle"),
-        };
+        self.update_state_to_downloading_initial_state(peer, listeners);
 
-        // Send node hashes to any peers that are waiting.
-        let subs = std::mem::take(&mut self.merkle_subscribers);
-        let merkle_tree = self
-            .merkle_tree()
-            .expect("Unreachable: We just set the merkle tree");
-        for (sub_peer, (node_ids, sub)) in subs {
-            let peer_knows = sub_peer == peer;
-            let msg = if peer_knows {
-                None
-            } else {
-                Some(handle_merkle_peer_request_helper(merkle_tree, &node_ids))
-            };
-            sub.send(msg).expect("TODO");
-        }
-
+        panic!("TODO: Bug - this short circuits so it won't always be called. Move this out front to caller");
         // Sync with peer(s). Do this for all commands??
         self.send_sync_requests();
     }
@@ -765,61 +750,7 @@ impl<
         }
 
         // Update state.
-        replace_with_or_abort(&mut self.state_machine, |sm| match sm {
-            StateMachine::DownloadingInitialState {
-                metadata,
-                merkle_tree,
-                initial_state,
-            } => {
-                let ecg_state = ecg::State::new();
-                let initial_state: Vec<u8> = initial_state
-                    .into_iter()
-                    .flatten()
-                    .flatten()
-                    .collect::<Vec<u8>>();
-                let Ok(latest_state) = serde_cbor::de::from_slice::<T>(&initial_state) else {
-                    todo!("TODO: The store is invalid. Initial state does not parse.");
-                };
-                let decrypted_state = DecryptedState {
-                    latest_state,
-                    latest_headers: BTreeSet::new(),
-                };
-                StateMachine::Syncing {
-                    metadata,
-                    merkle_tree,
-                    initial_state,
-                    ecg_state,
-                    decrypted_state,
-                }
-            }
-            _ => unreachable!("We already checked that we're downloading the initial state"),
-        });
-
-        // Update listeners.
-        let StateMachine::Syncing {
-            ecg_state,
-            decrypted_state,
-            ..
-        } = &self.state_machine
-        else {
-            unreachable!("We just set our state to syncing")
-        };
-        update_listeners(
-            &mut self.ecg_subscribers,
-            listeners,
-            &decrypted_state.latest_state,
-            ecg_state,
-            Some(peer),
-        );
-
-        // Send blocks to any peers that are waiting.
-        let subs = std::mem::take(&mut self.block_subscribers);
-        for (_sub_peer, (block_ids, sub)) in subs {
-            // JP: Do we need to keep sub_peer here?
-            let msg = handle_block_peer_request_helper(&self.state_machine, &block_ids)
-                .expect("Unreachable: We just set our state to syncing");
-            sub.send(Some(msg)).expect("TODO");
-        }
+        self.update_state_to_syncing(peer, listeners);
 
         // Sync with peer(s). Do this for all commands??
         self.send_sync_requests();
@@ -877,6 +808,128 @@ impl<
 
         // Sync with peer(s). Do this for all commands??
         self.send_sync_requests();
+    }
+
+    // Precondition: State is StateMachine::DownloadingMerkle.
+    fn update_state_to_downloading_initial_state(
+        &mut self,
+        peer: DeviceId,
+        listeners: &[UnboundedSender<StateUpdate<Header, T>>],
+    ) where
+        T: for<'d> Deserialize<'d>,
+    {
+        let StateMachine::DownloadingMerkle { ref partial_merkle_tree, .. } = &self.state_machine else {
+            panic!("Precondition violated. State mush be StateMachine::DownloadingMerkle");
+        };
+        // Check if we're done.
+        let merkle_tree_m = partial_merkle_tree.try_complete();
+        let Some(merkle_tree) = merkle_tree_m else {
+            return;
+        };
+
+        // // Validate piece hashes.
+        // let is_valid = self.metadata().unwrap().merkle_root == util::merkle_root(&piece_hashes);
+        // if !is_valid {
+        //     // TODO: Penalize/blacklist/disconnect peer?
+        //     warn!("TODO: Peer provided invalid piece hashes.");
+        //     return;
+        // }
+
+        self.state_machine = match self.state_machine {
+            StateMachine::DownloadingMerkle { metadata, .. } => {
+                let initial_state = vec![None; metadata.block_count() as usize];
+                StateMachine::DownloadingInitialState {
+                    metadata,
+                    merkle_tree,
+                    initial_state,
+                }
+            }
+            _ => unreachable!("We already checked that we're downloading merkle"),
+        };
+
+        // Send node hashes to any peers that are waiting.
+        let subs = std::mem::take(&mut self.merkle_subscribers);
+        let merkle_tree = self
+            .merkle_tree()
+            .expect("Unreachable: We just set the merkle tree");
+        for (sub_peer, (node_ids, sub)) in subs {
+            let peer_knows = sub_peer == peer;
+            let msg = if peer_knows {
+                None
+            } else {
+                Some(handle_merkle_peer_request_helper(merkle_tree, &node_ids))
+            };
+            sub.send(msg).expect("TODO");
+        }
+
+        // If there's no initial state, we already know all the blocks so move onto syncing.
+        if self.metadata().unwrap().initial_state_size == 0 {
+            self.update_state_to_syncing(peer, listeners);
+        }
+    }
+
+    fn update_state_to_syncing(
+        &mut self,
+        peer: DeviceId,
+        listeners: &[UnboundedSender<StateUpdate<Header, T>>],
+    ) where
+        T: for<'d> Deserialize<'d>,
+    {
+        replace_with_or_abort(&mut self.state_machine, |sm| match sm {
+            StateMachine::DownloadingInitialState {
+                metadata,
+                merkle_tree,
+                initial_state,
+            } => {
+                let ecg_state = ecg::State::new();
+                let initial_state: Vec<u8> = initial_state
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .collect::<Vec<u8>>();
+                let Ok(latest_state) = serde_cbor::de::from_slice::<T>(&initial_state) else {
+                    todo!("TODO: The store is invalid. Initial state does not parse.");
+                };
+                let decrypted_state = DecryptedState {
+                    latest_state,
+                    latest_headers: BTreeSet::new(),
+                };
+                StateMachine::Syncing {
+                    metadata,
+                    merkle_tree,
+                    initial_state,
+                    ecg_state,
+                    decrypted_state,
+                }
+            }
+            _ => unreachable!("We already checked that we're downloading the initial state"),
+        });
+
+        // Update listeners.
+        let StateMachine::Syncing {
+            ecg_state,
+            decrypted_state,
+            ..
+        } = &self.state_machine
+        else {
+            unreachable!("We just set our state to syncing")
+        };
+        update_listeners(
+            &mut self.ecg_subscribers,
+            listeners,
+            &decrypted_state.latest_state,
+            ecg_state,
+            Some(peer),
+        );
+
+        // Send blocks to any peers that are waiting.
+        let subs = std::mem::take(&mut self.block_subscribers);
+        for (_sub_peer, (block_ids, sub)) in subs {
+            // JP: Do we need to keep sub_peer here?
+            let msg = handle_block_peer_request_helper(&self.state_machine, &block_ids)
+                .expect("Unreachable: We just set our state to syncing");
+            sub.send(Some(msg)).expect("TODO");
+        }
     }
 }
 
@@ -1249,14 +1302,11 @@ pub(crate) async fn run_handler<OT: OdysseyType, T>(
                     UntypedStoreCommand::HandleBlockPeerRequest(HandlePeerRequest { peer, request, response_chan }) => {
                         store.handle_block_peer_request(peer, request, response_chan);
                     }
-                    // UntypedStoreCommand::HandleECGSyncRequest(HandlePeerRequest { peer, request, response_chan }) => {
-                    //     store.handle_ecg_sync_request(peer, request, response_chan);
-                    // }
                     UntypedStoreCommand::ReceivedMetadata { peer, metadata } => {
-                        store.handle_received_metadata(peer, metadata);
+                        store.handle_received_metadata(peer, metadata, &listeners);
                     }
                     UntypedStoreCommand::ReceivedMerkleHashes { peer, ranges, nodes } => {
-                        store.handle_received_merkle_hashes(peer, ranges, nodes);
+                        store.handle_received_merkle_hashes(peer, ranges, nodes, &listeners);
                     }
                     UntypedStoreCommand::ReceivedInitialStateBlocks { peer, ranges, blocks } => {
                         store.handle_received_initial_state_blocks(peer, ranges, blocks, &listeners);
