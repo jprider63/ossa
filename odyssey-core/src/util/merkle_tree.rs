@@ -356,7 +356,10 @@ mod test {
         assert_eq!(root, expected_root);
 
         for (i, chunk) in chunks.iter().enumerate() {
-            assert!(mt.validate_chunk(i as u64, chunk), "Chunk validation failed for chunk ({i}): {chunk:?}");
+            assert!(
+                mt.validate_chunk(i as u64, chunk),
+                "Chunk validation failed for chunk ({i}): {chunk:?}"
+            );
         }
     }
 
