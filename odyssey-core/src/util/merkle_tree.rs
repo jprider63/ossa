@@ -165,8 +165,7 @@ impl<H> MerkleTree<H> {
         let mut index = start + leaf_index;
         let nodes_count = self.nodes.len() as u64;
         if index >= nodes_count {
-            let bottom_row_count = nodes_count.next_power_of_two() - nodes_count;
-            index -= bottom_row_count;
+            index -= leaf_count;
         }
         index
     }
@@ -325,9 +324,29 @@ mod test {
         let chunks = vec![b"hello", b"world"];
         let root = "7305DB9B2ABCCD706C256DB3D97E5FF48D677CFE4D3A5904AFB7DA0E3950E1E2";
         merkle_test_helper(chunks, root);
+
+        let chunks = vec![b"0"];
+        let root = "5FECEB66FFC86F38D952786C6D696C79C2DBC239DD4E91B46729D73A27FB57E9";
+        merkle_test_helper(chunks, root);
+
+        let chunks = vec![b"0", b"1"];
+        let root = "B9B10A1BC77D2A241D120324DB7F3B81B2EDB67EB8E9CF02AF9C95D30329AEF5";
+        merkle_test_helper(chunks, root);
+
+        let chunks = vec![b"0", b"1", b"2"];
+        let root = "C80F77387D860FA469920D7AC2F8A959EF83A651F76DC54923734ED76DAAEF53";
+        merkle_test_helper(chunks, root);
+
+        let chunks = vec![b"0", b"1", b"2", b"3"];
+        let root = "C478FEAD0C89B79540638F844C8819D9A4281763AF9272C7F3968776B6052345";
+        merkle_test_helper(chunks, root);
+
+        let chunks = vec![b"0", b"1", b"2", b"3", b"4"];
+        let root = "C9CF4B52254B6397C6027A5DBD97CE2CF0F9340651E421C4184100AF7248EA92";
+        merkle_test_helper(chunks, root);
     }
 
-    fn merkle_test_helper<A: AsRef<[u8]>>(chunks: Vec<A>, expected_root: &str) {
+    fn merkle_test_helper<A: AsRef<[u8]> + Debug>(chunks: Vec<A>, expected_root: &str) {
         let expected_root = Sha256Hash::from_str(expected_root).unwrap();
 
         let mt = MerkleTree::<Sha256Hash>::from_chunks(chunks.iter());
@@ -335,6 +354,10 @@ mod test {
         let root = mt.merkle_root();
 
         assert_eq!(root, expected_root);
+
+        for (i, chunk) in chunks.iter().enumerate() {
+            assert!(mt.validate_chunk(i as u64, chunk), "Chunk validation failed for chunk ({i}): {chunk:?}");
+        }
     }
 
     /*
