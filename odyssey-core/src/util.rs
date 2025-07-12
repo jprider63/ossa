@@ -1,3 +1,5 @@
+pub mod merkle_tree;
+
 use bytes::{Bytes, BytesMut};
 use futures;
 use futures::task::{Context, Poll};
@@ -9,7 +11,6 @@ use std::marker::PhantomData;
 use std::ops::{Add, Range};
 use std::pin::Pin;
 use tokio::sync::mpsc::{Receiver, Sender};
-use tracing::error;
 use typeable::Typeable;
 
 use crate::network::protocol::ProtocolError;
@@ -384,6 +385,9 @@ impl<T> futures::Stream for UnboundChannel<T> {
 }
 
 #[cfg(test)]
+use tracing::error;
+
+#[cfg(test)]
 impl<T> futures::Sink<T> for UnboundChannel<T> {
     type Error = ProtocolError;
 
@@ -441,6 +445,7 @@ impl<T> futures::Sink<T> for UnboundChannel<T> {
     }
 }
 
+/*
 pub(crate) fn merkle_root<H: Hash>(hashes: &[H]) -> H {
     let mut h = H::new();
     for hash in hashes.iter() {
@@ -456,6 +461,7 @@ pub(crate) fn validate_piece<H: Hash>(piece: &[u8], expected_hash: &H) -> bool {
 
     &h == expected_hash
 }
+*/
 
 pub(crate) struct CompressConsecutive<I, T> {
     current: Option<Range<T>>,
