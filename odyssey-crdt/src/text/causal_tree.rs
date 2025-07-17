@@ -33,10 +33,10 @@ enum Letter<A> {
 }
 
 impl<T: Eq + Ord + Clone, A: Clone> CRDT for CausalTree<T, A> {
-    type Op = CausalTreeOp<T, A>;
+    type Op<Time> = CausalTreeOp<Time, A>;
     type Time = T;
 
-    fn apply<CS: CausalState<Time = Self::Time>>(self, st: &CS, op_time: T, op: Self::Op) -> Self {
+    fn apply<CS: CausalState<Time = Self::Time>>(self, st: &CS, op_time: T, op: Self::Op<T>) -> Self {
         insert_in_weave(st, &self, &op_time, &op)
             .expect("Precondition of `apply` violated: Operation must only be applied when all of its parents have been applied.")
     }

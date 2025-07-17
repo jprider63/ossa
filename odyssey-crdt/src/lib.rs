@@ -20,7 +20,7 @@ use crate::time::CausalState;
 // }
 
 pub trait CRDT {
-    type Op;
+    type Op<Time>;
     type Time;
 
     // TODO: enabled...
@@ -33,8 +33,8 @@ pub trait CRDT {
     fn apply<CS: CausalState<Time = Self::Time>>(
         self,
         causal_state: &CS,
-        logical_time: Self::Time,
-        op: Self::Op,
+        logical_time: Self::Time, // JP: TODO Delete this...
+        op: Self::Op<Self::Time>,
     ) -> Self;
 
     // lawCommutativity :: concurrent t1 t2 => x.apply(t1, op1).apply(t2, op2) == x.apply(t2, op2).apply(t1, op1)

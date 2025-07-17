@@ -231,7 +231,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
             + Typeable
             + Serialize
             + for<'d> Deserialize<'d>,
-        T::Op: Serialize,
+        T::Op<CausalTime<OT::Time>>: Serialize,
         OT::ECGHeader: Send + Sync + Clone + 'static + Serialize + for<'d> Deserialize<'d>,
         OT::ECGBody<T>:
             Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
@@ -276,7 +276,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
             Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
         <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId: Send,
         T: CRDT<Time = OT::Time> + Clone + Debug + Send + 'static + for<'d> Deserialize<'d>,
-        T::Op: Serialize,
+        T::Op<CausalTime<OT::Time>>: Serialize,
     {
         // Check if store is already active.
         // If it isn't, mark it as initializing and continue.
@@ -391,7 +391,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
             Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
         <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId:
             Send + for<'d> Deserialize<'d> + Serialize,
-        T::Op: Serialize,
+        T::Op<CausalTime<OT::Time>>: Serialize,
         T: CRDT<Time = OT::Time> + Debug + Clone + Send + 'static + for<'d> Deserialize<'d>,
     {
         // Initialize storage for this store.
@@ -470,8 +470,9 @@ pub struct OdysseyConfig {
 }
 
 pub struct StoreHandle<O: OdysseyType, T: CRDT<Time = O::Time>>
-where
-    T::Op: Serialize,
+// where
+//     // T::Op: Serialize,
+//     T::Op<CausalTime<OT::Time>>: Serialize,
 {
     // future_handle: JoinHandle<()>, // JP: Maybe this should be owned by `Odyssey`?
     send_command_chan: UnboundedSender<StoreCommand<O::ECGHeader, O::ECGBody<T>, T>>,
@@ -510,24 +511,35 @@ pub trait OdysseyType: 'static {
         + for<'a> Deserialize<'a>;
     type ECGBody<T: CRDT>; // : Serialize + for<'a> Deserialize<'a>; // : CRDT<Time = Self::Time, Op: Serialize>;
     type Time;
-    type CausalState<T: CRDT<Time = Self::Time, Op: Serialize>>: CausalState<Time = Self::Time>;
+    type CausalState<T: CRDT<Time = Self::Time, Op<CausalTime<Self::Time>>: Serialize>>: CausalState<Time = Self::Time>;
     // type OperationId;
     // type Hash: Clone + Copy + Debug + Ord + Send;
 
     // TODO: This should be refactored and provided automatically.
-    fn to_causal_state<T: CRDT<Time = Self::Time, Op: Serialize>>(
+    fn to_causal_state<T: CRDT<Time = Self::Time, Op<CausalTime<Self::Time>>: Serialize>>(
         st: &store::ecg::State<Self::ECGHeader, T>,
     ) -> &Self::CausalState<T>;
 }
 
+pub enum CausalTime<Time> {
+    Current { operation_position: u8 }, // Points to the current ECG node.
+    Time(Time), // Points to another ECG node.
+}
+
+impl<Time> CausalTime<Time> {
+    pub fn current_time(operation_position: u8) -> CausalTime<Time> {
+        CausalTime::Current{ operation_position }
+    }
+}
+
 impl<O: OdysseyType, T: CRDT<Time = O::Time>> StoreHandle<O, T>
 where
-    T::Op: Serialize,
+    T::Op<CausalTime<T::Time>>: Serialize,
 {
     pub fn apply(
         &mut self,
         parents: BTreeSet<<<O as OdysseyType>::ECGHeader as ECGHeader>::HeaderId>,
-        op: T::Op,
+        op: T::Op<CausalTime<T::Time>>,
     ) -> T::Time
     where
         <O as OdysseyType>::ECGBody<T>: ECGBody<T, Header = O::ECGHeader>,
@@ -539,7 +551,8 @@ where
     pub fn apply_batch(
         &mut self,
         parents: BTreeSet<<<O as OdysseyType>::ECGHeader as ECGHeader>::HeaderId>,
-        op: Vec<T::Op>,
+        op: Vec<T::Op<CausalTime<T::Time>>>,
+        // op: Vec<T::Op>,
     ) -> Vec<T::Time>
     where
         <O as OdysseyType>::ECGBody<T>: ECGBody<T, Header = O::ECGHeader>,

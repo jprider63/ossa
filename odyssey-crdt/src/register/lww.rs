@@ -30,14 +30,14 @@ impl<T, A> LWW<T, A> {
 }
 
 impl<T: Ord, A> CRDT for LWW<T, A> {
-    type Op = A;
+    type Op<Time> = A;
     type Time = T;
 
     fn apply<CS: CausalState<Time = Self::Time>>(
         self,
         st: &CS,
         op_time: Self::Time,
-        op: Self::Op,
+        op: Self::Op<T>,
     ) -> Self {
         match compare_with_tiebreak(st, &self.time, &op_time) {
             Ordering::Less => LWW {

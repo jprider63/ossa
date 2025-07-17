@@ -10,6 +10,8 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 use tracing::{debug, error};
 
+use crate::core::CausalTime;
+
 pub mod v0;
 
 /// Trait that ECG headers (nodes?) must implement.
@@ -47,10 +49,10 @@ pub trait ECGBody<T: CRDT> {
     type Header: ECGHeader;
 
     /// Create a new body from a vector of operations.
-    fn new_body(operations: Vec<T::Op>) -> Self;
+    fn new_body(operations: Vec<T::Op<CausalTime<T::Time>>>) -> Self;
 
     /// The operations in this body.
-    fn operations(self) -> impl Iterator<Item = T::Op>;
+    fn operations(self) -> impl Iterator<Item = T::Op<T::Time>>;
 
     /// The number of operations in this body.
     fn operations_count(&self) -> u8;
@@ -63,7 +65,7 @@ pub trait ECGBody<T: CRDT> {
     //     Self::Header: ECGHeader<HeaderId = HeaderId>;
 
     // TODO: Can we return the following instead? impl Iterator<(T::Time, Item = T::Time)>
-    fn zip_operations_with_time(self, header: &Self::Header) -> Vec<(T::Time, T::Op)>;
+    fn zip_operations_with_time(self, header: &Self::Header) -> Vec<(T::Time, T::Op<T::Time>)>;
     // where
     // T: CRDT + Sized,
     // <Self as ECGHeader>::Body: ECGBody<T>;

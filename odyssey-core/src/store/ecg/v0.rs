@@ -13,8 +13,7 @@ use std::{
 use typeable::Typeable;
 
 use crate::{
-    store::ecg::{self, ECGBody, ECGHeader},
-    util,
+    core::CausalTime, store::ecg::{self, ECGBody, ECGHeader}, util
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord, Typeable, Deserialize, Serialize)]
@@ -47,14 +46,14 @@ pub struct Header<Hash> {
 #[derive(Debug)]
 pub struct Body<Hash, T: CRDT> {
     /// The operations in this ECG body.
-    operations: Vec<T::Op>,
+    operations: Vec<T::Op<CausalTime<T::Time>>>,
     phantom: PhantomData<Hash>,
 }
 
 // TODO: Define CBOR properly
 impl<Hash, T: CRDT> Serialize for Body<Hash, T>
 where
-    <T as CRDT>::Op: Serialize,
+    <T as CRDT>::Op<CausalTime<T::Time>>: Serialize,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -68,7 +67,7 @@ where
 
 impl<'d, Hash, T: CRDT> Deserialize<'d> for Body<Hash, T>
 where
-    T::Op: Deserialize<'d>,
+    T::Op<CausalTime<T::Time>>: Deserialize<'d>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -84,7 +83,7 @@ where
 
         impl<'d, Hash, T: CRDT> Visitor<'d> for SVisitor<Hash, T>
         where
-            T::Op: Deserialize<'d>,
+            T::Op<CausalTime<T::Time>>: Deserialize<'d>,
         {
             type Value = Body<Hash, T>;
 
@@ -190,13 +189,14 @@ const MAX_OPERATION_COUNT: usize = 256;
 
 impl<Hash, T: CRDT<Time = OperationId<HeaderId<Hash>>>> ECGBody<T> for Body<Hash, T>
 where
-    <T as CRDT>::Op: Serialize,
+    <T as CRDT>::Op<CausalTime<T::Time>>: Serialize,
+    T::Op<T::Time>: From<T::Op<CausalTime<T::Time>>>,
     Hash: Clone + Copy + Debug + Ord + util::Hash + Serialize,
     // Self::Header: ECGHeader<HeaderId = HeaderId<Hash>>,
 {
     type Header = Header<Hash>;
 
-    fn new_body(operations: Vec<T::Op>) -> Self {
+    fn new_body(operations: Vec<T::Op<CausalTime<T::Time>>>) -> Self {
         if operations.len() > MAX_OPERATION_COUNT {
             panic!("Exceeded the maximum number of batched operations.");
         }
@@ -207,8 +207,8 @@ where
         }
     }
 
-    fn operations(self) -> impl Iterator<Item = T::Op> {
-        self.operations.into_iter()
+    fn operations(self) -> impl Iterator<Item = T::Op<T::Time>> {
+        self.operations.into_iter().map(|op| op.into())
     }
 
     fn operations_count(&self) -> u8 {
@@ -239,7 +239,7 @@ where
     fn zip_operations_with_time(
         self,
         header: &Self::Header,
-    ) -> Vec<(<T as CRDT>::Time, <T as CRDT>::Op)> {
+    ) -> Vec<(<T as CRDT>::Time, <T as CRDT>::Op<T::Time>)> {
         let times = self.get_operation_times(header);
         let ops = self.operations();
         times.into_iter().zip(ops).collect()
@@ -259,7 +259,7 @@ where
 
 impl<Hash: util::Hash, T: CRDT> Body<Hash, T>
 where
-    <T as CRDT>::Op: Serialize,
+    <T as CRDT>::Op<CausalTime<T::Time>>: Serialize,
 {
     fn get_hash(&self) -> Hash {
         tmp_hash(self)
@@ -323,18 +323,21 @@ pub struct TestHeader<T> {
 }
 
 pub struct TestBody<T: CRDT> {
-    operations: Vec<T::Op>,
+    operations: Vec<T::Op<CausalTime<T::Time>>>,
 }
 
-impl<T: CRDT> ECGBody<T> for TestBody<T> {
+impl<T: CRDT> ECGBody<T> for TestBody<T>
+where 
+    T::Op<T::Time>: From<T::Op<CausalTime<T::Time>>>,
+{
     type Header = TestHeader<T>;
 
-    fn new_body(operations: Vec<T::Op>) -> Self {
+    fn new_body(operations: Vec<T::Op<CausalTime<T::Time>>>) -> Self {
         TestBody { operations }
     }
 
-    fn operations(self) -> impl Iterator<Item = T::Op> {
-        self.operations.into_iter()
+    fn operations(self) -> impl Iterator<Item = T::Op<T::Time>> {
+        self.operations.into_iter().map(|op| op.into())
     }
 
     fn operations_count(&self) -> u8 {
@@ -347,7 +350,7 @@ impl<T: CRDT> ECGBody<T> for TestBody<T> {
     fn zip_operations_with_time(
         self,
         header: &Self::Header,
-    ) -> Vec<(<T as CRDT>::Time, <T as CRDT>::Op)> {
+    ) -> Vec<(<T as CRDT>::Time, <T as CRDT>::Op<T::Time>)> {
         todo!()
     }
 

@@ -100,7 +100,7 @@ impl<K: Ord + Debug, V: Debug> Debug for TwoPMap<K, V> {
 #[derive(Debug, Serialize, Deserialize)]
 pub enum TwoPMapOp<K, V: CRDT> {
     Insert { value: V },
-    Apply { key: K, operation: V::Op },
+    Apply { key: K, operation: V::Op<K> },
     Delete { key: K },
 }
 
@@ -115,14 +115,14 @@ impl<K, V: CRDT> TwoPMapOp<K, V> {
 }
 
 impl<K: Ord + Clone, V: CRDT<Time = K> + Clone> CRDT for TwoPMap<K, V> {
-    type Op = TwoPMapOp<K, V>;
+    type Op<Time> = TwoPMapOp<Time, V>;
     type Time = V::Time; // JP: Newtype wrap `struct TwoPMapId<V>(V::Time)`?
 
     fn apply<CS: CausalState<Time = Self::Time>>(
         self,
         st: &CS,
         op_time: Self::Time,
-        op: Self::Op,
+        op: Self::Op<V::Time>,
     ) -> Self {
         // Check if deleted.
         let is_deleted = {
