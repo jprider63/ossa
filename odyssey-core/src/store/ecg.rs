@@ -52,7 +52,7 @@ pub trait ECGBody<T: CRDT> {
     fn new_body(operations: Vec<T::Op<CausalTime<T::Time>>>) -> Self;
 
     /// The operations in this body.
-    fn operations(self) -> impl Iterator<Item = T::Op<T::Time>>;
+    fn operations(self, header_id: <Self::Header as ECGHeader>::HeaderId) -> impl Iterator<Item = T::Op<T::Time>>;
 
     /// The number of operations in this body.
     fn operations_count(&self) -> u8;

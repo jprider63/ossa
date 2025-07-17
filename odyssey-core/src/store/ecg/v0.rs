@@ -1,4 +1,4 @@
-use odyssey_crdt::{time::CausalState, CRDT};
+use odyssey_crdt::{time::CausalState, OperationFunctor, CRDT};
 use rand::Rng;
 use serde::{
     de::{MapAccess, Visitor},
@@ -190,9 +190,8 @@ const MAX_OPERATION_COUNT: usize = 256;
 impl<Hash, T: CRDT<Time = OperationId<HeaderId<Hash>>>> ECGBody<T> for Body<Hash, T>
 where
     <T as CRDT>::Op<CausalTime<T::Time>>: Serialize,
-    T::Op<T::Time>: From<T::Op<CausalTime<T::Time>>>,
+    T: OperationFunctor,
     Hash: Clone + Copy + Debug + Ord + util::Hash + Serialize,
-    // Self::Header: ECGHeader<HeaderId = HeaderId<Hash>>,
 {
     type Header = Header<Hash>;
 
@@ -207,8 +206,16 @@ where
         }
     }
 
-    fn operations(self) -> impl Iterator<Item = T::Op<T::Time>> {
-        self.operations.into_iter().map(|op| op.into())
+    fn operations(self, header_id: HeaderId<Hash>) -> impl Iterator<Item = T::Op<T::Time>> {
+        self.operations.into_iter().map(move |op| T::fmap(op, |t| {
+            match t {
+                CausalTime::Time(t) => t,
+                CausalTime::Current { operation_position } => OperationId {
+                    header_id: Some(header_id),
+                    operation_position,
+                }
+            }
+        }))
     }
 
     fn operations_count(&self) -> u8 {
@@ -241,7 +248,7 @@ where
         header: &Self::Header,
     ) -> Vec<(<T as CRDT>::Time, <T as CRDT>::Op<T::Time>)> {
         let times = self.get_operation_times(header);
-        let ops = self.operations();
+        let ops = self.operations(header.get_header_id());
         times.into_iter().zip(ops).collect()
     }
 
@@ -328,7 +335,7 @@ pub struct TestBody<T: CRDT> {
 
 impl<T: CRDT> ECGBody<T> for TestBody<T>
 where 
-    T::Op<T::Time>: From<T::Op<CausalTime<T::Time>>>,
+    T: OperationFunctor,
 {
     type Header = TestHeader<T>;
 
@@ -336,8 +343,13 @@ where
         TestBody { operations }
     }
 
-    fn operations(self) -> impl Iterator<Item = T::Op<T::Time>> {
-        self.operations.into_iter().map(|op| op.into())
+    fn operations(self, header_id: u32) -> impl Iterator<Item = T::Op<T::Time>> {
+        self.operations.into_iter().map(|op| T::fmap(op, |t| {
+            match t {
+                CausalTime::Time(t) => t,
+                CausalTime::Current { operation_position } => todo!(),
+            }
+        }))
     }
 
     fn operations_count(&self) -> u8 {

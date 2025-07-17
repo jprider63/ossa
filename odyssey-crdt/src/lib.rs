@@ -20,7 +20,7 @@ use crate::time::CausalState;
 // }
 
 pub trait CRDT {
-    type Op<Time>;
+    type Op<Time>; // Required due to lack of higher kinded types.
     type Time;
 
     // TODO: enabled...
@@ -38,6 +38,15 @@ pub trait CRDT {
     ) -> Self;
 
     // lawCommutativity :: concurrent t1 t2 => x.apply(t1, op1).apply(t2, op2) == x.apply(t2, op2).apply(t1, op1)
+}
+
+/// A poor man's functor that is used to modify the times used in CRDT operations.
+/// This is necessary since serialized operations may contain references to the current time but current time should never appear in memory CRDTs.
+/// `Op<T1> -> (T1 -> T2) -> Op<T2>`
+pub trait OperationFunctor {
+    fn fmap<T1, T2>(op: Self::Op<T1>, f: impl Fn(T1) -> T2) -> Self::Op<T2>
+    where
+        Self: CRDT;
 }
 
 // TODO: Need to connect the history causal ordering w/ the operation causal ordering/invariants
