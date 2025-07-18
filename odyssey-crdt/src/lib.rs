@@ -21,7 +21,7 @@ use crate::time::CausalState;
 
 pub trait CRDT {
     type Op<Time>; // Required due to lack of higher kinded types.
-    type Time;
+    type Time; // TODO: Delete this??
 
     // TODO: enabled...
 
@@ -33,7 +33,6 @@ pub trait CRDT {
     fn apply<CS: CausalState<Time = Self::Time>>(
         self,
         causal_state: &CS,
-        logical_time: Self::Time, // JP: TODO Delete this...
         op: Self::Op<Self::Time>,
     ) -> Self;
 

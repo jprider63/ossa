@@ -7,9 +7,10 @@ use std::marker::PhantomData;
 use typeable::Typeable;
 
 use crate::time::CausalState;
-use crate::CRDT;
+use crate::{OperationFunctor, CRDT};
 
 /// Two phase map.
+/// Invariant: All keys must be unique.
 #[derive(Clone, Typeable)]
 pub struct TwoPMap<K, V> {
     // JP: Drop `K`?
@@ -99,15 +100,15 @@ impl<K: Ord + Debug, V: Debug> Debug for TwoPMap<K, V> {
 // TODO: Define CBOR properly
 #[derive(Debug, Serialize, Deserialize)]
 pub enum TwoPMapOp<K, V: CRDT> {
-    Insert { value: V },
+    Insert { key: K, value: V },
     Apply { key: K, operation: V::Op<K> },
     Delete { key: K },
 }
 
 impl<K, V: CRDT> TwoPMapOp<K, V> {
-    fn key<'a>(&'a self, op_time: &'a K) -> &K {
+    fn key(&self) -> &K {
         match self {
-            TwoPMapOp::Insert { .. } => op_time,
+            TwoPMapOp::Insert { key, .. } => key,
             TwoPMapOp::Apply { key, .. } => key,
             TwoPMapOp::Delete { key } => key,
         }
@@ -121,21 +122,20 @@ impl<K: Ord + Clone, V: CRDT<Time = K> + Clone> CRDT for TwoPMap<K, V> {
     fn apply<CS: CausalState<Time = Self::Time>>(
         self,
         st: &CS,
-        op_time: Self::Time,
         op: Self::Op<V::Time>,
     ) -> Self {
         // Check if deleted.
         let is_deleted = {
-            let key = op.key(&op_time);
+            let key = op.key();
             self.tombstones.contains(key)
         };
         if is_deleted {
             self
         } else {
             match op {
-                TwoPMapOp::Insert { value } => {
+                TwoPMapOp::Insert { key, value } => {
                     let TwoPMap { map, tombstones } = self;
-                    let map = map.update_with(op_time, value, |_, _| {
+                    let map = map.update_with(key, value, |_, _| {
                         unreachable!("Invariant violated. Key already exists in TwoPMap.");
                     });
 
@@ -145,7 +145,7 @@ impl<K: Ord + Clone, V: CRDT<Time = K> + Clone> CRDT for TwoPMap<K, V> {
                     let TwoPMap { map, tombstones } = self;
                     let map = map.alter(|v| {
                         if let Some(v) = v {
-                            Some(v.apply(st, op_time, operation))
+                            Some(v.apply(st, operation))
                         } else {
                             unreachable!("Invariant violated. Key must already exist when applyting an update to a TwoPMap.")
                         }
@@ -181,7 +181,32 @@ impl<K: Ord, V: CRDT> TwoPMap<K, V> {
         self.map.iter()
     }
 
-    pub fn insert(value: V) -> TwoPMapOp<K, V> {
-        TwoPMapOp::Insert { value }
+    pub fn insert(key: K, value: V) -> TwoPMapOp<K, V> {
+        TwoPMapOp::Insert { key, value }
+    }
+}
+
+impl<K: Ord + Clone, V: CRDT<Time = K> + Clone> OperationFunctor for TwoPMap<K, V>
+where 
+    V: OperationFunctor,
+{
+    fn fmap<T1, T2>(op: <Self as CRDT>::Op<T1>, f: impl Fn(T1) -> T2) -> <Self as CRDT>::Op<T2> {
+        match op {
+            TwoPMapOp::Insert { key, value } => {
+                TwoPMapOp::Insert {
+                    key: f(key),
+                    value,
+                }
+            }
+            TwoPMapOp::Apply { key, operation } => {
+                TwoPMapOp::Apply {
+                    key: f(key),
+                    operation: V::fmap(operation, f),
+                }
+            }
+            TwoPMapOp::Delete { key } => {
+                TwoPMapOp::Delete { key: f(key) }
+            }
+        }
     }
 }
