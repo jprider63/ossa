@@ -189,8 +189,7 @@ const MAX_OPERATION_COUNT: usize = 256;
 
 impl<Hash, T: CRDT<Time = OperationId<HeaderId<Hash>>>> ECGBody<T> for Body<Hash, T>
 where
-    <T as CRDT>::Op<CausalTime<T::Time>>: Serialize,
-    T: OperationFunctor,
+    T::Op<CausalTime<T::Time>>: Serialize + OperationFunctor<CausalTime<T::Time>, T::Time, Target<T::Time> = T::Op<T::Time>>,
     Hash: Clone + Copy + Debug + Ord + util::Hash + Serialize,
 {
     type Header = Header<Hash>;
@@ -207,7 +206,7 @@ where
     }
 
     fn operations(self, header_id: HeaderId<Hash>) -> impl Iterator<Item = T::Op<T::Time>> {
-        self.operations.into_iter().map(move |op| T::fmap(op, |t| {
+        self.operations.into_iter().map(move |op| op.fmap(|t| {
             match t {
                 CausalTime::Time(t) => t,
                 CausalTime::Current { operation_position } => OperationId {
@@ -335,7 +334,7 @@ pub struct TestBody<T: CRDT> {
 
 impl<T: CRDT> ECGBody<T> for TestBody<T>
 where 
-    T: OperationFunctor,
+    T::Op<CausalTime<T::Time>>: Serialize + OperationFunctor<CausalTime<T::Time>, T::Time, Target<T::Time> = T::Op<T::Time>>,
 {
     type Header = TestHeader<T>;
 
@@ -344,7 +343,7 @@ where
     }
 
     fn operations(self, header_id: u32) -> impl Iterator<Item = T::Op<T::Time>> {
-        self.operations.into_iter().map(|op| T::fmap(op, |t| {
+        self.operations.into_iter().map(|op| op.fmap(|t| {
             match t {
                 CausalTime::Time(t) => t,
                 CausalTime::Current { operation_position } => todo!(),

@@ -157,7 +157,7 @@ fn insert_atom<T: Ord + Clone, A: Clone, CS: CausalState<Time = T>>(
 
 fn insert_in_weave_children<T: Eq + Ord + Clone, A: Clone, CS: CausalState<Time = T>>(
     st: &CS,
-    mut children: Vector<CausalTree<T, A>>,
+    children: Vector<CausalTree<T, A>>,
     // op_time: &T,
     op: CausalTreeOp<T, A>,
 ) -> (Vector<CausalTree<T, A>>, Option<CausalTreeOp<T, A>>) {
@@ -197,11 +197,28 @@ fn insert_in_weave_children<T: Eq + Ord + Clone, A: Clone, CS: CausalState<Time 
     
 }
 
-impl<T: Eq + Ord + Clone + Debug, A: Clone + Debug> OperationFunctor for CausalTree<T, A> {
-    fn fmap<T1, T2>(op: <Self as CRDT>::Op<T1>, f: impl Fn(T1) -> T2) -> <Self as CRDT>::Op<T2> {
-        let atom = Atom { id: f(op.atom.id), letter: op.atom.letter };
+
+// impl<'a, T, A> Functor<'a, T> for CausalTreeOp<T, A> {
+//     type Target<S> = CausalTreeOp<S, A>;
+// 
+//     fn fmap<B, F>(self, f: F) -> Self::Target<B>
+//     where
+//         F: Fn(T) -> B + 'a {
+//         let atom = Atom { id: f(self.atom.id), letter: self.atom.letter };
+//         CausalTreeOp {
+//             parent_id: f(self.parent_id),
+//             atom,
+//         }
+//     }
+// }
+
+impl<T, U, V> OperationFunctor<T, U> for CausalTreeOp<T, V> {
+    type Target<S> = CausalTreeOp<S, V>;
+
+    fn fmap(self, f: impl Fn(T) -> U) -> Self::Target<U> {
+        let atom = Atom { id: f(self.atom.id), letter: self.atom.letter };
         CausalTreeOp {
-            parent_id: f(op.parent_id),
+            parent_id: f(self.parent_id),
             atom,
         }
     }

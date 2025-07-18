@@ -186,12 +186,45 @@ impl<K: Ord, V: CRDT> TwoPMap<K, V> {
     }
 }
 
-impl<K: Ord + Clone, V: CRDT<Time = K> + Clone> OperationFunctor for TwoPMap<K, V>
+// impl<'a, T, V: CRDT> Functor<'a, T> for TwoPMapOp<T, V>
+// where
+//     V::Op<T>: for<S> Functor<'a, T, Target<S> = V::Op<S>>,
+// {
+//     type Target<S> = TwoPMapOp<S, V>;
+// 
+//     fn fmap<B, F>(self, f: F) -> Self::Target<B>
+//     where
+//         F: Fn(T) -> B + 'a
+//     {
+//         match self {
+//             TwoPMapOp::Insert { key, value } => {
+//                 TwoPMapOp::Insert {
+//                     key: f(key),
+//                     value,
+//                 }
+//             }
+//             TwoPMapOp::Apply { key, operation } => {
+//                 let operation: V::Op<B> = operation.fmap::<B, _>(f);
+//                 TwoPMapOp::Apply {
+//                     key: f(key),
+//                     operation,
+//                 }
+//             }
+//             TwoPMapOp::Delete { key } => {
+//                 TwoPMapOp::Delete { key: f(key) }
+//             }
+//         }
+//     }
+// }
+
+impl<K, L, V: CRDT> OperationFunctor<K, L> for TwoPMapOp<K, V>
 where 
-    V: OperationFunctor,
+    V::Op<K>: OperationFunctor<K, L, Target<L> = V::Op<L>>,
 {
-    fn fmap<T1, T2>(op: <Self as CRDT>::Op<T1>, f: impl Fn(T1) -> T2) -> <Self as CRDT>::Op<T2> {
-        match op {
+    type Target<Time> = TwoPMapOp<Time, V>;
+
+    fn fmap(self, f: impl Fn(K) -> L) -> Self::Target<L> {
+        match self {
             TwoPMapOp::Insert { key, value } => {
                 TwoPMapOp::Insert {
                     key: f(key),
@@ -199,9 +232,11 @@ where
                 }
             }
             TwoPMapOp::Apply { key, operation } => {
+                let key = f(key);
+                let operation = operation.fmap(f);
                 TwoPMapOp::Apply {
-                    key: f(key),
-                    operation: V::fmap(operation, f),
+                    key,
+                    operation,
                 }
             }
             TwoPMapOp::Delete { key } => {

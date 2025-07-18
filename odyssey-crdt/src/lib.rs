@@ -1,3 +1,5 @@
+// #![feature(non_lifetime_binders)]
+
 pub mod map;
 pub mod register;
 pub mod set;
@@ -42,10 +44,10 @@ pub trait CRDT {
 /// A poor man's functor that is used to modify the times used in CRDT operations.
 /// This is necessary since serialized operations may contain references to the current time but current time should never appear in memory CRDTs.
 /// `Op<T1> -> (T1 -> T2) -> Op<T2>`
-pub trait OperationFunctor {
-    fn fmap<T1, T2>(op: Self::Op<T1>, f: impl Fn(T1) -> T2) -> Self::Op<T2>
-    where
-        Self: CRDT;
+pub trait OperationFunctor<S, T> {
+    type Target<Time>;
+
+    fn fmap(self, f: impl Fn(S) -> T) -> Self::Target<T>;
 }
 
 // TODO: Need to connect the history causal ordering w/ the operation causal ordering/invariants

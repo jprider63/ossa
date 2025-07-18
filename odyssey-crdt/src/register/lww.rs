@@ -47,11 +47,27 @@ impl<T: Ord, A> CRDT for LWW<T, A> {
     }
 }
 
-impl<T: Ord, A> OperationFunctor for LWW<T, A> {
-    fn fmap<T1, T2>(op: <Self as CRDT>::Op<T1>, f: impl Fn(T1) -> T2) -> <Self as CRDT>::Op<T2> {
+// impl<'a, T, A> Functor<'a, T> for LWW<T, A> {
+//     type Target<S> = LWW<S, A>;
+// 
+//     fn fmap<B, F>(self, f: F) -> Self::Target<B>
+//     where
+//         F: Fn(T) -> B + 'a
+//     {
+//         LWW {
+//             time: f(self.time),
+//             value: self.value,
+//         }
+//     }
+// }
+
+impl<T, U, V> OperationFunctor<T, U> for LWW<T, V> {
+    type Target<Time> = LWW<Time, V>;
+
+    fn fmap(self, f: impl Fn(T) -> U) -> Self::Target<U> {
         LWW {
-            time: f(op.time),
-            value: op.value,
+            time: f(self.time),
+            value: self.value,
         }
     }
 }
