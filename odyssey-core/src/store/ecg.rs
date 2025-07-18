@@ -3,7 +3,7 @@ use daggy::petgraph::visit::{
 };
 use daggy::stable_dag::StableDag;
 use daggy::Walker;
-use odyssey_crdt::CRDT;
+use odyssey_crdt::{ConcretizeTime, CRDT};
 use std::cmp::{self, Reverse};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
@@ -44,15 +44,19 @@ pub trait ECGHeader {
     // fn get_operation_times<T>(&self, body: &Self::Body) -> Vec<T::Time> where T: CRDT;
 }
 
-pub trait ECGBody<T: CRDT> {
+pub trait ECGBody<T: CRDT>
+where
+    T::Op: ConcretizeTime<<Self::Header as ECGHeader>::HeaderId>,
+{
     /// Header type associated with this body.
     type Header: ECGHeader;
 
     /// Create a new body from a vector of operations.
-    fn new_body(operations: Vec<T::Op<CausalTime<T::Time>>>) -> Self;
+    // fn new_body(operations: Vec<T::Op<CausalTime<T::Time>>>) -> Self;
+    fn new_body(operations: Vec<<T::Op as ConcretizeTime<<Self::Header as ECGHeader>::HeaderId>>::Serialized>) -> Self;
 
     /// The operations in this body.
-    fn operations(self, header_id: <Self::Header as ECGHeader>::HeaderId) -> impl Iterator<Item = T::Op<T::Time>>;
+    fn operations(self, header_id: <Self::Header as ECGHeader>::HeaderId) -> impl Iterator<Item = T::Op>;
 
     /// The number of operations in this body.
     fn operations_count(&self) -> u8;

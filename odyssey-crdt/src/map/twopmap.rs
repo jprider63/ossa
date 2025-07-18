@@ -7,7 +7,7 @@ use std::marker::PhantomData;
 use typeable::Typeable;
 
 use crate::time::CausalState;
-use crate::{OperationFunctor, CRDT};
+use crate::{ConcretizeTime, CRDT};
 
 /// Two phase map.
 /// Invariant: All keys must be unique.
@@ -116,13 +116,13 @@ impl<K, V, Op> TwoPMapOp<K, V, Op> {
 }
 
 impl<K: Ord + Clone, V: CRDT<Time = K> + Clone> CRDT for TwoPMap<K, V> {
-    type Op<Time> = TwoPMapOp<Time, V, V::Op<Time>>;
+    type Op = TwoPMapOp<K, V, V::Op>;
     type Time = V::Time; // JP: Newtype wrap `struct TwoPMapId<V>(V::Time)`?
 
     fn apply<CS: CausalState<Time = Self::Time>>(
         self,
         st: &CS,
-        op: Self::Op<V::Time>,
+        op: Self::Op,
     ) -> Self {
         // Check if deleted.
         let is_deleted = {
@@ -181,7 +181,7 @@ impl<K: Ord, V: CRDT> TwoPMap<K, V> {
         self.map.iter()
     }
 
-    pub fn insert(key: K, value: V) -> TwoPMapOp<K, V, V::Op<K>> {
+    pub fn insert(key: K, value: V) -> TwoPMapOp<K, V, V::Op> {
         TwoPMapOp::Insert { key, value }
     }
 }
@@ -217,31 +217,31 @@ impl<K: Ord, V: CRDT> TwoPMap<K, V> {
 //     }
 // }
 
-impl<K, L, V, Op> OperationFunctor<K, L> for TwoPMapOp<K, V, Op>
-where 
-    Op: OperationFunctor<K, L, Target<L> = Op>,
-{
-    type Target<Time> = TwoPMapOp<Time, V, Op>;
-
-    fn fmap(self, f: impl Fn(K) -> L) -> Self::Target<L> {
-        match self {
-            TwoPMapOp::Insert { key, value } => {
-                TwoPMapOp::Insert {
-                    key: f(key),
-                    value,
-                }
-            }
-            TwoPMapOp::Apply { key, operation } => {
-                let key = f(key);
-                let operation = operation.fmap(f);
-                TwoPMapOp::Apply {
-                    key,
-                    operation,
-                }
-            }
-            TwoPMapOp::Delete { key } => {
-                TwoPMapOp::Delete { key: f(key) }
-            }
-        }
-    }
-}
+// impl<K, L, V, Op> OperationFunctor<K, L> for TwoPMapOp<K, V, Op>
+// where 
+//     Op: OperationFunctor<K, L, Target<L> = Op>,
+// {
+//     type Target<Time> = TwoPMapOp<Time, V, Op>;
+// 
+//     fn fmap(self, f: impl Fn(K) -> L) -> Self::Target<L> {
+//         match self {
+//             TwoPMapOp::Insert { key, value } => {
+//                 TwoPMapOp::Insert {
+//                     key: f(key),
+//                     value,
+//                 }
+//             }
+//             TwoPMapOp::Apply { key, operation } => {
+//                 let key = f(key);
+//                 let operation = operation.fmap(f);
+//                 TwoPMapOp::Apply {
+//                     key,
+//                     operation,
+//                 }
+//             }
+//             TwoPMapOp::Delete { key } => {
+//                 TwoPMapOp::Delete { key: f(key) }
+//             }
+//         }
+//     }
+// }

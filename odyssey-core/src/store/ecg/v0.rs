@@ -1,4 +1,4 @@
-use odyssey_crdt::{time::CausalState, OperationFunctor, CRDT};
+use odyssey_crdt::{time::CausalState, ConcretizeTime, CRDT};
 use rand::Rng;
 use serde::{
     de::{MapAccess, Visitor},
@@ -44,16 +44,16 @@ pub struct Header<Hash> {
 }
 
 #[derive(Debug)]
-pub struct Body<Hash, T: CRDT> {
+pub struct Body<Hash, SerializedOp> {
     /// The operations in this ECG body.
-    operations: Vec<T::Op<CausalTime<T::Time>>>,
+    operations: Vec<SerializedOp>, // <CausalTime<T::Time>>>,
     phantom: PhantomData<fn(Hash)>,
 }
 
-// TODO: Define CBOR properly
-impl<Hash, T: CRDT> Serialize for Body<Hash, T>
+// TODO: Define CBOR or rkyv properly
+impl<Hash, SerializedOp> Serialize for Body<Hash, SerializedOp>
 where
-    <T as CRDT>::Op<CausalTime<T::Time>>: Serialize,
+    SerializedOp: Serialize,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -65,9 +65,9 @@ where
     }
 }
 
-impl<'d, Hash, T: CRDT> Deserialize<'d> for Body<Hash, T>
+impl<'d, Hash, SerializedOp> Deserialize<'d> for Body<Hash, SerializedOp>
 where
-    T::Op<CausalTime<T::Time>>: Deserialize<'d>,
+    SerializedOp: Deserialize<'d>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -81,17 +81,17 @@ where
             Operations,
         }
 
-        impl<'d, Hash, T: CRDT> Visitor<'d> for SVisitor<Hash, T>
+        impl<'d, Hash, SerializedOp> Visitor<'d> for SVisitor<Hash, SerializedOp>
         where
-            T::Op<CausalTime<T::Time>>: Deserialize<'d>,
+            SerializedOp: Deserialize<'d>,
         {
-            type Value = Body<Hash, T>;
+            type Value = Body<Hash, SerializedOp>;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
                 formatter.write_str("struct Body")
             }
 
-            fn visit_map<M>(self, mut m: M) -> Result<Body<Hash, T>, M::Error>
+            fn visit_map<M>(self, mut m: M) -> Result<Body<Hash, SerializedOp>, M::Error>
             where
                 M: MapAccess<'d>,
             {
@@ -187,14 +187,15 @@ where
 
 const MAX_OPERATION_COUNT: usize = 256;
 
-impl<Hash, T: CRDT<Time = OperationId<HeaderId<Hash>>>> ECGBody<T> for Body<Hash, T>
+impl<Hash, T: CRDT<Time = OperationId<HeaderId<Hash>>>> ECGBody<T> for Body<Hash, <T::Op as ConcretizeTime<HeaderId<Hash>>>::Serialized>
 where
-    T::Op<CausalTime<T::Time>>: Serialize + OperationFunctor<CausalTime<T::Time>, T::Time, Target<T::Time> = T::Op<T::Time>>,
+    <T::Op as ConcretizeTime<HeaderId<Hash>>>::Serialized: Serialize,
+    T::Op: ConcretizeTime<HeaderId<Hash>>,
     Hash: Clone + Copy + Debug + Ord + util::Hash + Serialize,
 {
     type Header = Header<Hash>;
 
-    fn new_body(operations: Vec<T::Op<CausalTime<T::Time>>>) -> Self {
+    fn new_body(operations: Vec<<T::Op as ConcretizeTime<HeaderId<Hash>>>::Serialized>) -> Self {
         if operations.len() > MAX_OPERATION_COUNT {
             panic!("Exceeded the maximum number of batched operations.");
         }
@@ -205,16 +206,17 @@ where
         }
     }
 
-    fn operations(self, header_id: HeaderId<Hash>) -> impl Iterator<Item = T::Op<T::Time>> {
-        self.operations.into_iter().map(move |op| op.fmap(|t| {
-            match t {
-                CausalTime::Time(t) => t,
-                CausalTime::Current { operation_position } => OperationId {
-                    header_id: Some(header_id),
-                    operation_position,
-                }
-            }
-        }))
+    fn operations(self, header_id: HeaderId<Hash>) -> impl Iterator<Item = T::Op> {
+        self.operations.into_iter().map(move |op| T::Op::concretize_time(op, header_id))
+        // self.operations.into_iter().map(move |op| op.concretize_time(|t| {
+        //     match t {
+        //         CausalTime::Time(t) => t,
+        //         CausalTime::Current { operation_position } => OperationId {
+        //             header_id: Some(header_id),
+        //             operation_position,
+        //         }
+        //     }
+        // }))
     }
 
     fn operations_count(&self) -> u8 {
@@ -236,7 +238,7 @@ where
         Header {
             parent_ids: parents,
             nonce,
-            operations_count: self.operations_count(),
+            operations_count: <Self as ECGBody<T>>::operations_count(self),
             operations_hash: self.get_hash(),
             // phantom: PhantomData,
         }
@@ -263,9 +265,9 @@ where
     // }
 }
 
-impl<Hash: util::Hash, T: CRDT> Body<Hash, T>
+impl<Hash: util::Hash, SerializedOp> Body<Hash, SerializedOp>
 where
-    <T as CRDT>::Op<CausalTime<T::Time>>: Serialize,
+    SerializedOp: Serialize,
 {
     fn get_hash(&self) -> Hash {
         tmp_hash(self)
@@ -321,6 +323,7 @@ impl<Header: ECGHeader, T: CRDT> CausalState for ecg::State<Header, T> {
     }
 }
 
+
 #[derive(Clone, Debug)]
 pub struct TestHeader<T> {
     pub header_id: u32,
@@ -328,27 +331,29 @@ pub struct TestHeader<T> {
     pub phantom: PhantomData<T>,
 }
 
-pub struct TestBody<T: CRDT> {
-    operations: Vec<T::Op<CausalTime<T::Time>>>,
+pub struct TestBody<SerializedOp> {
+    operations: Vec<SerializedOp>,
 }
 
-impl<T: CRDT> ECGBody<T> for TestBody<T>
+impl<T: CRDT> ECGBody<T> for TestBody<<T::Op as ConcretizeTime<u32>>::Serialized>
 where 
-    T::Op<CausalTime<T::Time>>: Serialize + OperationFunctor<CausalTime<T::Time>, T::Time, Target<T::Time> = T::Op<T::Time>>,
+    T::Op: ConcretizeTime<u32>,
+//     T::Op<CausalTime<T::Time>>: Serialize + ConcretizeTime<CausalTime<T::Time>, T::Time, Target<T::Time> = T::Op<T::Time>>,
 {
     type Header = TestHeader<T>;
 
-    fn new_body(operations: Vec<T::Op<CausalTime<T::Time>>>) -> Self {
+    fn new_body(operations: Vec<<T::Op as ConcretizeTime<u32>>::Serialized>) -> Self {
         TestBody { operations }
     }
 
-    fn operations(self, header_id: u32) -> impl Iterator<Item = T::Op<T::Time>> {
-        self.operations.into_iter().map(|op| op.fmap(|t| {
-            match t {
-                CausalTime::Time(t) => t,
-                CausalTime::Current { operation_position } => todo!(),
-            }
-        }))
+    fn operations(self, header_id: u32) -> impl Iterator<Item = T::Op> {
+        self.operations.into_iter().map(move |op| T::Op::concretize_time(op, header_id))
+        // self.operations.into_iter().map(|op| op.concretize_time(|t| {
+        //     match t {
+        //         CausalTime::Time(t) => t,
+        //         CausalTime::Current { operation_position } => todo!(),
+        //     }
+        // }))
     }
 
     fn operations_count(&self) -> u8 {

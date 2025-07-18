@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 
 use crate::{
-    time::{compare_with_tiebreak, CausalState}, OperationFunctor, CRDT
+    time::{compare_with_tiebreak, CausalState}, CRDT
 };
 
 #[derive(Clone)]
@@ -34,10 +34,10 @@ enum Letter<A> {
 }
 
 impl<T: Eq + Ord + Clone + Debug, A: Clone + Debug> CRDT for CausalTree<T, A> {
-    type Op<Time> = CausalTreeOp<Time, A>;
+    type Op = CausalTreeOp<T, A>;
     type Time = T;
 
-    fn apply<CS: CausalState<Time = Self::Time>>(self, st: &CS, op: Self::Op<T>) -> Self {
+    fn apply<CS: CausalState<Time = Self::Time>>(self, st: &CS, op: Self::Op) -> Self {
         let (ct, op_ret) = insert_in_weave(st, self, op);
         if op_ret.is_some() {
             unreachable!("Precondition of `apply` violated: Operation must only be applied when all of its parents have been applied.")
@@ -212,14 +212,14 @@ fn insert_in_weave_children<T: Eq + Ord + Clone, A: Clone, CS: CausalState<Time 
 //     }
 // }
 
-impl<T, U, V> OperationFunctor<T, U> for CausalTreeOp<T, V> {
-    type Target<S> = CausalTreeOp<S, V>;
-
-    fn fmap(self, f: impl Fn(T) -> U) -> Self::Target<U> {
-        let atom = Atom { id: f(self.atom.id), letter: self.atom.letter };
-        CausalTreeOp {
-            parent_id: f(self.parent_id),
-            atom,
-        }
-    }
-}
+// impl<T, U, V> ConcretizeTime<T, U> for CausalTreeOp<T, V> {
+//     type Target<S> = CausalTreeOp<S, V>;
+// 
+//     fn concretize_time(self, f: impl Fn(T) -> U) -> Self::Target<U> {
+//         let atom = Atom { id: f(self.atom.id), letter: self.atom.letter };
+//         CausalTreeOp {
+//             parent_id: f(self.parent_id),
+//             atom,
+//         }
+//     }
+// }

@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use odyssey_crdt::CRDT;
+use odyssey_crdt::{ConcretizeTime, CRDT};
 use rand::{seq::SliceRandom as _, thread_rng};
 use replace_with::replace_with_or_abort;
 use serde::{Deserialize, Serialize};
@@ -758,7 +758,7 @@ impl<
     ) where
         OT: OdysseyType<ECGHeader = Header>,
         T: CRDT<Time = OT::Time> + Debug,
-        T::Op<CausalTime<T::Time>>: Serialize,
+        T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
         OT::ECGBody<T>: ECGBody<T, Header = OT::ECGHeader> + for<'d> Deserialize<'d> + Debug,
     {
         // Mark peer as ready.
@@ -970,7 +970,7 @@ async fn manage_peers<OT: OdysseyType, T: CRDT<Time = OT::Time> + Clone + Send +
         UntypedStoreCommand<OT::Hash, <OT::ECGHeader as ECGHeader>::HeaderId, OT::ECGHeader>,
     >,
 ) where
-    T::Op<CausalTime<T::Time>>: Serialize,
+    // T::Op<CausalTime<T::Time>>: Serialize,
     OT::ECGHeader: Clone + Serialize + for<'d> Deserialize<'d> + Send + Sync,
     <OT::ECGHeader as ECGHeader>::HeaderId: Serialize + for<'d> Deserialize<'d> + Send,
     //OT::ECGHeader<T>::HeaderId : Send,
@@ -1054,7 +1054,8 @@ fn apply_operations<OT: OdysseyType, T>(
     operation_body: OT::ECGBody<T>,
 ) where
     T: CRDT<Time = OT::Time>,
-    T::Op<CausalTime<T::Time>>: Serialize,
+    // T::Op<CausalTime<T::Time>>: Serialize,
+    T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
     OT::ECGBody<T>: ECGBody<T, Header = OT::ECGHeader>,
 {
     let causal_state = OT::to_causal_state(ecg_state);
@@ -1081,11 +1082,12 @@ pub(crate) async fn run_handler<OT: OdysseyType, T>(
     <OT as OdysseyType>::ECGHeader:
         Send + Sync + Clone + Serialize + for<'d> Deserialize<'d> + 'static,
     // <<OT as OdysseyType>::ECGHeader as ECGHeader>::Body: ECGBody<T> + Send,
+    T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
     <OT as OdysseyType>::ECGBody<T>:
         ECGBody<T, Header = OT::ECGHeader> + Send + Serialize + for<'d> Deserialize<'d> + Debug,
     <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId:
         Send + Serialize + for<'d> Deserialize<'d>,
-    T::Op<CausalTime<T::Time>>: Serialize,
+    // T::Op<CausalTime<T::Time>>: Serialize,
     T: CRDT<Time = OT::Time> + Debug + Clone + Send + 'static + for<'d> Deserialize<'d>,
 {
     let mut listeners: Vec<UnboundedSender<StateUpdate<OT::ECGHeader, T>>> = vec![];

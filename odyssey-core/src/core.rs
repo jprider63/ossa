@@ -1,7 +1,7 @@
 use odyssey_crdt::time::CausalState;
 // use futures::{SinkExt, StreamExt};
 // use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
-use odyssey_crdt::CRDT;
+use odyssey_crdt::{ConcretizeTime, CRDT};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Debug, Display};
@@ -231,7 +231,8 @@ impl<OT: OdysseyType> Odyssey<OT> {
             + Typeable
             + Serialize
             + for<'d> Deserialize<'d>,
-        T::Op<CausalTime<OT::Time>>: Serialize,
+        // T::Op<CausalTime<OT::Time>>: Serialize,
+        T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
         OT::ECGHeader: Send + Sync + Clone + 'static + Serialize + for<'d> Deserialize<'d>,
         OT::ECGBody<T>:
             Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
@@ -272,11 +273,12 @@ impl<OT: OdysseyType> Odyssey<OT> {
     ) -> StoreHandle<OT, T>
     where
         OT::ECGHeader: Send + Sync + Clone + 'static,
+        T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
         OT::ECGBody<T>:
             Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
         <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId: Send,
         T: CRDT<Time = OT::Time> + Clone + Debug + Send + 'static + for<'d> Deserialize<'d>,
-        T::Op<CausalTime<OT::Time>>: Serialize,
+        // T::Op<CausalTime<OT::Time>>: Serialize,
     {
         // Check if store is already active.
         // If it isn't, mark it as initializing and continue.
@@ -387,11 +389,12 @@ impl<OT: OdysseyType> Odyssey<OT> {
     ) -> StoreHandle<OT, T>
     where
         OT::ECGHeader: Send + Sync + Clone + 'static + for<'d> Deserialize<'d> + Serialize,
+        T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
         OT::ECGBody<T>:
             Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
         <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId:
             Send + for<'d> Deserialize<'d> + Serialize,
-        T::Op<CausalTime<OT::Time>>: Serialize,
+        // T::Op<CausalTime<OT::Time>>: Serialize,
         T: CRDT<Time = OT::Time> + Debug + Clone + Send + 'static + for<'d> Deserialize<'d>,
     {
         // Initialize storage for this store.
@@ -511,12 +514,13 @@ pub trait OdysseyType: 'static {
         + for<'a> Deserialize<'a>;
     type ECGBody<T: CRDT>; // : Serialize + for<'a> Deserialize<'a>; // : CRDT<Time = Self::Time, Op: Serialize>;
     type Time;
-    type CausalState<T: CRDT<Time = Self::Time, Op<CausalTime<Self::Time>>: Serialize>>: CausalState<Time = Self::Time>;
+    // type CausalState<T: CRDT<Time = Self::Time, Op<CausalTime<Self::Time>>: Serialize>>: CausalState<Time = Self::Time>;
+    type CausalState<T: CRDT<Time = Self::Time>>: CausalState<Time = Self::Time>;
     // type OperationId;
     // type Hash: Clone + Copy + Debug + Ord + Send;
 
     // TODO: This should be refactored and provided automatically.
-    fn to_causal_state<T: CRDT<Time = Self::Time, Op<CausalTime<Self::Time>>: Serialize>>(
+    fn to_causal_state<T: CRDT<Time = Self::Time>>(
         st: &store::ecg::State<Self::ECGHeader, T>,
     ) -> &Self::CausalState<T>;
 }
@@ -534,15 +538,16 @@ impl<Time> CausalTime<Time> {
 }
 
 impl<O: OdysseyType, T: CRDT<Time = O::Time>> StoreHandle<O, T>
-where
-    T::Op<CausalTime<T::Time>>: Serialize,
+// where
+//     T::Op<CausalTime<T::Time>>: Serialize,
 {
-    pub fn apply(
+    pub fn apply<Op>(
         &mut self,
         parents: BTreeSet<<<O as OdysseyType>::ECGHeader as ECGHeader>::HeaderId>,
-        op: T::Op<CausalTime<T::Time>>,
+        op: <T::Op as ConcretizeTime<<O::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
     ) -> <O::ECGHeader as ECGHeader>::HeaderId
     where
+        T::Op: ConcretizeTime<<O::ECGHeader as ECGHeader>::HeaderId>,
         <O as OdysseyType>::ECGBody<T>: ECGBody<T, Header = O::ECGHeader>,
     {
         self.apply_batch(parents, vec![op])
@@ -552,10 +557,11 @@ where
     pub fn apply_batch(
         &mut self,
         parents: BTreeSet<<<O as OdysseyType>::ECGHeader as ECGHeader>::HeaderId>,
-        op: Vec<T::Op<CausalTime<T::Time>>>,
+        op: Vec<<T::Op as ConcretizeTime<<O::ECGHeader as ECGHeader>::HeaderId>>::Serialized>, // T::Op<CausalTime<T::Time>>>,
         // op: Vec<T::Op>,
     ) -> <O::ECGHeader as ECGHeader>::HeaderId
     where
+        T::Op: ConcretizeTime<<O::ECGHeader as ECGHeader>::HeaderId>,
         <O as OdysseyType>::ECGBody<T>: ECGBody<T, Header = O::ECGHeader>,
     {
         // TODO: Divide into 256 operation chunks.
