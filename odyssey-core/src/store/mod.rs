@@ -1058,9 +1058,9 @@ fn apply_operations<OT: OdysseyType, T>(
     OT::ECGBody<T>: ECGBody<T, Header = OT::ECGHeader>,
 {
     let causal_state = OT::to_causal_state(ecg_state);
-    for (time, operation) in operation_body.zip_operations_with_time(&operation_header) {
+    for operation in operation_body.operations(operation_header.get_header_id()) {
         replace_with_or_abort(&mut decrypted_state.latest_state, |s| {
-            s.apply(causal_state, time, operation)
+            s.apply(causal_state, operation)
         });
     }
 }

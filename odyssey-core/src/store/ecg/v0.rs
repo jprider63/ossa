@@ -243,25 +243,25 @@ where
         }
     }
 
-    fn zip_operations_with_time(
-        self,
-        header: &Self::Header,
-    ) -> Vec<(<T as CRDT>::Time, <T as CRDT>::Op<T::Time>)> {
-        let times = self.get_operation_times(header);
-        let ops = self.operations(header.get_header_id());
-        times.into_iter().zip(ops).collect()
-    }
+    // fn zip_operations_with_time(
+    //     self,
+    //     header: &Self::Header,
+    // ) -> Vec<(<T as CRDT>::Time, <T as CRDT>::Op<T::Time>)> {
+    //     let times = self.get_operation_times(header);
+    //     let ops = self.operations(header.get_header_id());
+    //     times.into_iter().zip(ops).collect()
+    // }
 
-    fn get_operation_times(&self, header: &Self::Header) -> Vec<<T as CRDT>::Time> {
-        let header_id = Some(header.get_header_id());
-        let operations_c = self.operations_count();
-        (0..operations_c)
-            .map(move |i| OperationId {
-                header_id,
-                operation_position: i,
-            })
-            .collect()
-    }
+    // fn get_operation_times(&self, header: &Self::Header) -> Vec<<T as CRDT>::Time> {
+    //     let header_id = Some(header.get_header_id());
+    //     let operations_c = self.operations_count();
+    //     (0..operations_c)
+    //         .map(move |i| OperationId {
+    //             header_id,
+    //             operation_position: i,
+    //         })
+    //         .collect()
+    // }
 }
 
 impl<Hash: util::Hash, T: CRDT> Body<Hash, T>
@@ -359,16 +359,16 @@ where
             .expect("Unreachable: Length is bound by MAX_OPERATION_COUNT.")
     }
 
-    fn zip_operations_with_time(
-        self,
-        header: &Self::Header,
-    ) -> Vec<(<T as CRDT>::Time, <T as CRDT>::Op<T::Time>)> {
-        todo!()
-    }
+    // fn zip_operations_with_time(
+    //     self,
+    //     header: &Self::Header,
+    // ) -> Vec<(<T as CRDT>::Time, <T as CRDT>::Op<T::Time>)> {
+    //     todo!()
+    // }
 
-    fn get_operation_times(&self, header: &Self::Header) -> Vec<<T as CRDT>::Time> {
-        todo!()
-    }
+    // fn get_operation_times(&self, header: &Self::Header) -> Vec<<T as CRDT>::Time> {
+    //     todo!()
+    // }
 
     fn new_header(&self, parents: BTreeSet<<Self::Header as ECGHeader>::HeaderId>) -> Self::Header {
         todo!()

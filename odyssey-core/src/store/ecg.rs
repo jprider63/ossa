@@ -64,15 +64,15 @@ pub trait ECGBody<T: CRDT> {
     //     // Self::Header: ECGHeader;
     //     Self::Header: ECGHeader<HeaderId = HeaderId>;
 
-    // TODO: Can we return the following instead? impl Iterator<(T::Time, Item = T::Time)>
-    fn zip_operations_with_time(self, header: &Self::Header) -> Vec<(T::Time, T::Op<T::Time>)>;
-    // where
-    // T: CRDT + Sized,
-    // <Self as ECGHeader>::Body: ECGBody<T>;
+    // // TODO: Can we return the following instead? impl Iterator<(T::Time, Item = T::Time)>
+    // fn zip_operations_with_time(self, header: &Self::Header) -> Vec<(T::Time, T::Op<T::Time>)>;
+    // // where
+    // // T: CRDT + Sized,
+    // // <Self as ECGHeader>::Body: ECGBody<T>;
 
-    /// Retrieve the times for each operation in this ECG header and body.
-    // TODO: Can we return the following instead? impl Iterator<Item = T::Time>
-    fn get_operation_times(&self, header: &Self::Header) -> Vec<T::Time>;
+    // /// Retrieve the times for each operation in this ECG header and body.
+    // // TODO: Can we return the following instead? impl Iterator<Item = T::Time>
+    // fn get_operation_times(&self, header: &Self::Header) -> Vec<T::Time>;
 }
 
 // Serialized ECG body

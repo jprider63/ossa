@@ -541,11 +541,11 @@ where
         &mut self,
         parents: BTreeSet<<<O as OdysseyType>::ECGHeader as ECGHeader>::HeaderId>,
         op: T::Op<CausalTime<T::Time>>,
-    ) -> T::Time
+    ) -> <O::ECGHeader as ECGHeader>::HeaderId
     where
         <O as OdysseyType>::ECGBody<T>: ECGBody<T, Header = O::ECGHeader>,
     {
-        self.apply_batch(parents, vec![op]).pop().unwrap()
+        self.apply_batch(parents, vec![op])
     }
 
     // TODO: Don't take parents as an argument. Pull it from the state. XXX
@@ -554,19 +554,20 @@ where
         parents: BTreeSet<<<O as OdysseyType>::ECGHeader as ECGHeader>::HeaderId>,
         op: Vec<T::Op<CausalTime<T::Time>>>,
         // op: Vec<T::Op>,
-    ) -> Vec<T::Time>
+    ) -> <O::ECGHeader as ECGHeader>::HeaderId
     where
         <O as OdysseyType>::ECGBody<T>: ECGBody<T, Header = O::ECGHeader>,
     {
         // TODO: Divide into 256 operation chunks.
-        if op.is_empty() {
-            return vec![];
-        }
+        // if op.is_empty() {
+        //     return vec![];
+        // }
 
         // Create ECG header and body.
         let body = <<O as OdysseyType>::ECGBody<T> as ECGBody<T>>::new_body(op);
         let header = body.new_header(parents);
-        let times = body.get_operation_times(&header);
+        let header_id = header.get_header_id();
+        // let times = body.get_operation_times(&header);
 
         self.send_command_chan
             .send(StoreCommand::Apply {
@@ -575,7 +576,8 @@ where
             })
             .expect("TODO");
 
-        times
+        // times
+        header_id
     }
 
     pub fn subscribe_to_state(&mut self) -> UnboundedReceiver<StateUpdate<O::ECGHeader, T>> {
