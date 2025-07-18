@@ -521,7 +521,7 @@ pub trait OdysseyType: 'static {
     ) -> &Self::CausalState<T>;
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum CausalTime<Time> {
     Current { operation_position: u8 }, // Points to the current ECG node.
     Time(Time), // Points to another ECG node.
