@@ -99,13 +99,13 @@ impl<K: Ord + Debug, V: Debug> Debug for TwoPMap<K, V> {
 
 // TODO: Define CBOR properly
 #[derive(Debug, Serialize, Deserialize)]
-pub enum TwoPMapOp<K, V: CRDT> {
+pub enum TwoPMapOp<K, V, Op> {
     Insert { key: K, value: V },
-    Apply { key: K, operation: V::Op<K> },
+    Apply { key: K, operation: Op },
     Delete { key: K },
 }
 
-impl<K, V: CRDT> TwoPMapOp<K, V> {
+impl<K, V, Op> TwoPMapOp<K, V, Op> {
     fn key(&self) -> &K {
         match self {
             TwoPMapOp::Insert { key, .. } => key,
@@ -116,7 +116,7 @@ impl<K, V: CRDT> TwoPMapOp<K, V> {
 }
 
 impl<K: Ord + Clone, V: CRDT<Time = K> + Clone> CRDT for TwoPMap<K, V> {
-    type Op<Time> = TwoPMapOp<Time, V>;
+    type Op<Time> = TwoPMapOp<Time, V, V::Op<Time>>;
     type Time = V::Time; // JP: Newtype wrap `struct TwoPMapId<V>(V::Time)`?
 
     fn apply<CS: CausalState<Time = Self::Time>>(
@@ -181,7 +181,7 @@ impl<K: Ord, V: CRDT> TwoPMap<K, V> {
         self.map.iter()
     }
 
-    pub fn insert(key: K, value: V) -> TwoPMapOp<K, V> {
+    pub fn insert(key: K, value: V) -> TwoPMapOp<K, V, V::Op<K>> {
         TwoPMapOp::Insert { key, value }
     }
 }
@@ -198,7 +198,7 @@ impl<K: Ord, V: CRDT> TwoPMap<K, V> {
 //     {
 //         match self {
 //             TwoPMapOp::Insert { key, value } => {
-//                 TwoPMapOp::Insert {
+//                 TwoPMapOp::Insert {: CRDT
 //                     key: f(key),
 //                     value,
 //                 }
@@ -217,11 +217,11 @@ impl<K: Ord, V: CRDT> TwoPMap<K, V> {
 //     }
 // }
 
-impl<K, L, V: CRDT> OperationFunctor<K, L> for TwoPMapOp<K, V>
+impl<K, L, V, Op> OperationFunctor<K, L> for TwoPMapOp<K, V, Op>
 where 
-    V::Op<K>: OperationFunctor<K, L, Target<L> = V::Op<L>>,
+    Op: OperationFunctor<K, L, Target<L> = Op>,
 {
-    type Target<Time> = TwoPMapOp<Time, V>;
+    type Target<Time> = TwoPMapOp<Time, V, Op>;
 
     fn fmap(self, f: impl Fn(K) -> L) -> Self::Target<L> {
         match self {

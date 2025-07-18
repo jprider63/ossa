@@ -47,7 +47,7 @@ pub struct Header<Hash> {
 pub struct Body<Hash, T: CRDT> {
     /// The operations in this ECG body.
     operations: Vec<T::Op<CausalTime<T::Time>>>,
-    phantom: PhantomData<Hash>,
+    phantom: PhantomData<fn(Hash)>,
 }
 
 // TODO: Define CBOR properly
