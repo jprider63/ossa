@@ -232,7 +232,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
             + Serialize
             + for<'d> Deserialize<'d>,
         // T::Op<CausalTime<OT::Time>>: Serialize,
-        T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
+        T::Op: ConcretizeTime<OT::Time>, // <OT::ECGHeader as ECGHeader>::HeaderId>,
         OT::ECGHeader: Send + Sync + Clone + 'static + Serialize + for<'d> Deserialize<'d>,
         OT::ECGBody<T>:
             Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
@@ -273,7 +273,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
     ) -> StoreHandle<OT, T>
     where
         OT::ECGHeader: Send + Sync + Clone + 'static,
-        T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
+        T::Op: ConcretizeTime<T::Time>,
         OT::ECGBody<T>:
             Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
         <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId: Send,
@@ -389,7 +389,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
     ) -> StoreHandle<OT, T>
     where
         OT::ECGHeader: Send + Sync + Clone + 'static + for<'d> Deserialize<'d> + Serialize,
-        T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
+        T::Op: ConcretizeTime<T::Time>,
         OT::ECGBody<T>:
             Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
         <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId:
@@ -525,7 +525,7 @@ pub trait OdysseyType: 'static {
     ) -> &Self::CausalState<T>;
 }
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum CausalTime<Time> {
     Current { operation_position: u8 }, // Points to the current ECG node.
     Time(Time), // Points to another ECG node.
@@ -535,19 +535,23 @@ impl<Time> CausalTime<Time> {
     pub fn current_time(operation_position: u8) -> CausalTime<Time> {
         CausalTime::Current{ operation_position }
     }
+
+    pub fn time(time: Time) -> CausalTime<Time> {
+        CausalTime::Time(time)
+    }
 }
 
 impl<O: OdysseyType, T: CRDT<Time = O::Time>> StoreHandle<O, T>
 // where
 //     T::Op<CausalTime<T::Time>>: Serialize,
 {
-    pub fn apply<Op>(
+    pub fn apply(
         &mut self,
         parents: BTreeSet<<<O as OdysseyType>::ECGHeader as ECGHeader>::HeaderId>,
-        op: <T::Op as ConcretizeTime<<O::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
+        op: <T::Op as ConcretizeTime<T::Time>>::Serialized,
     ) -> <O::ECGHeader as ECGHeader>::HeaderId
     where
-        T::Op: ConcretizeTime<<O::ECGHeader as ECGHeader>::HeaderId>,
+        T::Op: ConcretizeTime<T::Time>,
         <O as OdysseyType>::ECGBody<T>: ECGBody<T, Header = O::ECGHeader>,
     {
         self.apply_batch(parents, vec![op])
@@ -557,11 +561,11 @@ impl<O: OdysseyType, T: CRDT<Time = O::Time>> StoreHandle<O, T>
     pub fn apply_batch(
         &mut self,
         parents: BTreeSet<<<O as OdysseyType>::ECGHeader as ECGHeader>::HeaderId>,
-        op: Vec<<T::Op as ConcretizeTime<<O::ECGHeader as ECGHeader>::HeaderId>>::Serialized>, // T::Op<CausalTime<T::Time>>>,
+        op: Vec<<T::Op as ConcretizeTime<T::Time>>::Serialized>, // T::Op<CausalTime<T::Time>>>,
         // op: Vec<T::Op>,
     ) -> <O::ECGHeader as ECGHeader>::HeaderId
     where
-        T::Op: ConcretizeTime<<O::ECGHeader as ECGHeader>::HeaderId>,
+        T::Op: ConcretizeTime<T::Time>,
         <O as OdysseyType>::ECGBody<T>: ECGBody<T, Header = O::ECGHeader>,
     {
         // TODO: Divide into 256 operation chunks.

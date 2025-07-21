@@ -758,7 +758,7 @@ impl<
     ) where
         OT: OdysseyType<ECGHeader = Header>,
         T: CRDT<Time = OT::Time> + Debug,
-        T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
+        T::Op: ConcretizeTime<T::Time>,
         OT::ECGBody<T>: ECGBody<T, Header = OT::ECGHeader> + for<'d> Deserialize<'d> + Debug,
     {
         // Mark peer as ready.
@@ -1055,7 +1055,7 @@ fn apply_operations<OT: OdysseyType, T>(
 ) where
     T: CRDT<Time = OT::Time>,
     // T::Op<CausalTime<T::Time>>: Serialize,
-    T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
+    T::Op: ConcretizeTime<T::Time>,
     OT::ECGBody<T>: ECGBody<T, Header = OT::ECGHeader>,
 {
     let causal_state = OT::to_causal_state(ecg_state);
@@ -1082,7 +1082,7 @@ pub(crate) async fn run_handler<OT: OdysseyType, T>(
     <OT as OdysseyType>::ECGHeader:
         Send + Sync + Clone + Serialize + for<'d> Deserialize<'d> + 'static,
     // <<OT as OdysseyType>::ECGHeader as ECGHeader>::Body: ECGBody<T> + Send,
-    T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
+    T::Op: ConcretizeTime<T::Time>,
     <OT as OdysseyType>::ECGBody<T>:
         ECGBody<T, Header = OT::ECGHeader> + Send + Serialize + for<'d> Deserialize<'d> + Debug,
     <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId:

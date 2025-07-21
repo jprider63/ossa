@@ -46,14 +46,14 @@ pub trait ECGHeader {
 
 pub trait ECGBody<T: CRDT>
 where
-    T::Op: ConcretizeTime<<Self::Header as ECGHeader>::HeaderId>,
+    T::Op: ConcretizeTime<T::Time>,
 {
     /// Header type associated with this body.
     type Header: ECGHeader;
 
     /// Create a new body from a vector of operations.
     // fn new_body(operations: Vec<T::Op<CausalTime<T::Time>>>) -> Self;
-    fn new_body(operations: Vec<<T::Op as ConcretizeTime<<Self::Header as ECGHeader>::HeaderId>>::Serialized>) -> Self;
+    fn new_body(operations: Vec<<T::Op as ConcretizeTime<T::Time>>::Serialized>) -> Self;
 
     /// The operations in this body.
     fn operations(self, header_id: <Self::Header as ECGHeader>::HeaderId) -> impl Iterator<Item = T::Op>;
