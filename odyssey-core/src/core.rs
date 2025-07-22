@@ -232,10 +232,12 @@ impl<OT: OdysseyType> Odyssey<OT> {
             + Serialize
             + for<'d> Deserialize<'d>,
         // T::Op<CausalTime<OT::Time>>: Serialize,
-        T::Op: ConcretizeTime<OT::Time>, // <OT::ECGHeader as ECGHeader>::HeaderId>,
+        // T::Op: ConcretizeTime<T::Time>, // <OT::ECGHeader as ECGHeader>::HeaderId>,
+        T::Op: ConcretizeTime<OT::Time>,
+        OT::ECGBody<T>: Send + Serialize + for<'d> Deserialize<'d> + Debug + ECGBody<T::Op, <T::Op as ConcretizeTime<OT::Time>>::Serialized, Header = OT::ECGHeader>,
         OT::ECGHeader: Send + Sync + Clone + 'static + Serialize + for<'d> Deserialize<'d>,
-        OT::ECGBody<T>:
-            Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
+        // OT::ECGBody<T>:
+        //     Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
         <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId:
             Send + Serialize + for<'d> Deserialize<'d>,
     {
@@ -273,9 +275,11 @@ impl<OT: OdysseyType> Odyssey<OT> {
     ) -> StoreHandle<OT, T>
     where
         OT::ECGHeader: Send + Sync + Clone + 'static,
-        T::Op: ConcretizeTime<T::Time>,
-        OT::ECGBody<T>:
-            Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
+        T::Op: ConcretizeTime<OT::Time>,
+        OT::ECGBody<T>: Send + Serialize + for<'d> Deserialize<'d> + Debug + ECGBody<T::Op, <T::Op as ConcretizeTime<OT::Time>>::Serialized, Header = OT::ECGHeader>,
+        // T::Op: ConcretizeTime<T::Time>,
+        // OT::ECGBody<T>:
+        //     Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
         <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId: Send,
         T: CRDT<Time = OT::Time> + Clone + Debug + Send + 'static + for<'d> Deserialize<'d>,
         // T::Op<CausalTime<OT::Time>>: Serialize,
@@ -389,9 +393,11 @@ impl<OT: OdysseyType> Odyssey<OT> {
     ) -> StoreHandle<OT, T>
     where
         OT::ECGHeader: Send + Sync + Clone + 'static + for<'d> Deserialize<'d> + Serialize,
-        T::Op: ConcretizeTime<T::Time>,
-        OT::ECGBody<T>:
-            Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
+        // T::Op: ConcretizeTime<T::Time>,
+        T::Op: ConcretizeTime<OT::Time>,
+        OT::ECGBody<T>: Send + Serialize + for<'d> Deserialize<'d> + Debug + ECGBody<T::Op, <T::Op as ConcretizeTime<OT::Time>>::Serialized, Header = OT::ECGHeader>,
+        // OT::ECGBody<T>:
+        //     Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
         <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId:
             Send + for<'d> Deserialize<'d> + Serialize,
         // T::Op<CausalTime<OT::Time>>: Serialize,
@@ -472,7 +478,7 @@ pub struct OdysseyConfig {
     pub port: u16,
 }
 
-pub struct StoreHandle<O: OdysseyType, T: CRDT<Time = O::Time>>
+pub struct StoreHandle<O: OdysseyType, T: CRDT<Time = O::Time, Op: ConcretizeTime<O::Time>>>
 // where
 //     // T::Op: Serialize,
 //     T::Op<CausalTime<OT::Time>>: Serialize,
@@ -512,7 +518,7 @@ pub trait OdysseyType: 'static {
         + Send
         + Serialize
         + for<'a> Deserialize<'a>;
-    type ECGBody<T: CRDT>; // : Serialize + for<'a> Deserialize<'a>; // : CRDT<Time = Self::Time, Op: Serialize>;
+    type ECGBody<T: CRDT<Op: ConcretizeTime<Self::Time>>>; // : Serialize + for<'a> Deserialize<'a>; // : CRDT<Time = Self::Time, Op: Serialize>;
     type Time;
     // type CausalState<T: CRDT<Time = Self::Time, Op<CausalTime<Self::Time>>: Serialize>>: CausalState<Time = Self::Time>;
     type CausalState<T: CRDT<Time = Self::Time>>: CausalState<Time = Self::Time>;
@@ -541,7 +547,7 @@ impl<Time> CausalTime<Time> {
     }
 }
 
-impl<O: OdysseyType, T: CRDT<Time = O::Time>> StoreHandle<O, T>
+impl<O: OdysseyType, T: CRDT<Time = O::Time, Op: ConcretizeTime<O::Time>>> StoreHandle<O, T>
 // where
 //     T::Op<CausalTime<T::Time>>: Serialize,
 {
@@ -551,8 +557,8 @@ impl<O: OdysseyType, T: CRDT<Time = O::Time>> StoreHandle<O, T>
         op: <T::Op as ConcretizeTime<T::Time>>::Serialized,
     ) -> <O::ECGHeader as ECGHeader>::HeaderId
     where
-        T::Op: ConcretizeTime<T::Time>,
-        <O as OdysseyType>::ECGBody<T>: ECGBody<T, Header = O::ECGHeader>,
+        T::Op: ConcretizeTime<O::Time>,
+        <O as OdysseyType>::ECGBody<T>: ECGBody<T::Op, <T::Op as ConcretizeTime<O::Time>>::Serialized, Header = O::ECGHeader>,
     {
         self.apply_batch(parents, vec![op])
     }
@@ -565,8 +571,8 @@ impl<O: OdysseyType, T: CRDT<Time = O::Time>> StoreHandle<O, T>
         // op: Vec<T::Op>,
     ) -> <O::ECGHeader as ECGHeader>::HeaderId
     where
-        T::Op: ConcretizeTime<T::Time>,
-        <O as OdysseyType>::ECGBody<T>: ECGBody<T, Header = O::ECGHeader>,
+        T::Op: ConcretizeTime<O::Time>,
+        <O as OdysseyType>::ECGBody<T>: ECGBody<T::Op, <T::Op as ConcretizeTime<O::Time>>::Serialized, Header = O::ECGHeader>,
     {
         // TODO: Divide into 256 operation chunks.
         // if op.is_empty() {
@@ -574,7 +580,7 @@ impl<O: OdysseyType, T: CRDT<Time = O::Time>> StoreHandle<O, T>
         // }
 
         // Create ECG header and body.
-        let body = <<O as OdysseyType>::ECGBody<T> as ECGBody<T>>::new_body(op);
+        let body = <<O as OdysseyType>::ECGBody<T> as ECGBody<T::Op, <T::Op as ConcretizeTime<O::Time>>::Serialized>>::new_body(op);
         let header = body.new_header(parents);
         let header_id = header.get_header_id();
         // let times = body.get_operation_times(&header);

@@ -187,16 +187,19 @@ where
 
 const MAX_OPERATION_COUNT: usize = 256;
 
-impl<Hash, T: CRDT<Time = OperationId<HeaderId<Hash>>>> ECGBody<T> for Body<Hash, <T::Op as ConcretizeTime<T::Time>>::Serialized>
+// impl<Hash, T> ECGBody<T::Op, <T::Op as ConcretizeTime<T::Time>>::Serialized> for Body<Hash, <T::Op as ConcretizeTime<T::Time>>::Serialized>
+impl<Hash, Op> ECGBody<Op, Op::Serialized> for Body<Hash, Op::Serialized>
 where
-    // T::Op: ConcretizeTime<T::Time>,
-    T::Op: ConcretizeTime<OperationId<HeaderId<Hash>>>,
-    <T::Op as ConcretizeTime<T::Time>>::Serialized: Serialize,
+    // T: CRDT<Time = OperationId<HeaderId<Hash>>>,
+    Op: ConcretizeTime<OperationId<HeaderId<Hash>>>,
+    Op::Serialized: Serialize,
+    // T::Op: ConcretizeTime<OperationId<HeaderId<Hash>>>,
+    // <T::Op as ConcretizeTime<T::Time>>::Serialized: Serialize,
     Hash: Clone + Copy + Debug + Ord + util::Hash + Serialize,
 {
     type Header = Header<Hash>;
 
-    fn new_body(operations: Vec<<T::Op as ConcretizeTime<T::Time>>::Serialized>) -> Self {
+    fn new_body(operations: Vec<Op::Serialized>) -> Self {
         if operations.len() > MAX_OPERATION_COUNT {
             panic!("Exceeded the maximum number of batched operations.");
         }
@@ -207,14 +210,14 @@ where
         }
     }
 
-    fn operations(self, header_id: HeaderId<Hash>) -> impl Iterator<Item = T::Op> {
+    fn operations(self, header_id: HeaderId<Hash>) -> impl Iterator<Item = Op> {
         let header_id = Some(header_id);
         self.operations.into_iter().enumerate().map(move |(i, op)| {
             let operation_id = OperationId {
                 header_id,
                 operation_position: i as u8,
             };
-            T::Op::concretize_time(op, operation_id)
+            Op::concretize_time(op, operation_id)
         })
         // self.operations.into_iter().map(move |op| op.concretize_time(|t| {
         //     match t {
@@ -246,7 +249,7 @@ where
         Header {
             parent_ids: parents,
             nonce,
-            operations_count: <Self as ECGBody<T>>::operations_count(self),
+            operations_count: <Self as ECGBody<Op, Op::Serialized>>::operations_count(self),
             operations_hash: self.get_hash(),
             // phantom: PhantomData,
         }
@@ -343,6 +346,7 @@ pub struct TestBody<SerializedOp> {
     operations: Vec<SerializedOp>,
 }
 
+/*
 impl<T: CRDT<Time = u32>> ECGBody<T> for TestBody<<T::Op as ConcretizeTime<u32>>::Serialized>
 where 
     T::Op: ConcretizeTime<u32>,
@@ -386,6 +390,7 @@ where
         todo!()
     }
 }
+*/
 
 // For testing, just have the header store the parent ids.
 impl<A: CRDT> ECGHeader for TestHeader<A> {

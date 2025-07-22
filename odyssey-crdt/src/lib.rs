@@ -50,10 +50,10 @@ pub trait CRDT {
 //     fn fmap(self, f: impl Fn(S) -> T) -> Self::Target<T>;
 // }
 
-pub trait ConcretizeTime<HeaderId> {
+pub trait ConcretizeTime<Time> {
     type Serialized;
 
-    fn concretize_time(src: Self::Serialized, header_id: HeaderId) -> Self;
+    fn concretize_time(src: Self::Serialized, current_time: Time) -> Self;
 }
 
 // TODO: Need to connect the history causal ordering w/ the operation causal ordering/invariants
