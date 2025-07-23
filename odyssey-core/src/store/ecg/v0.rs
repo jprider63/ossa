@@ -46,6 +46,7 @@ pub struct Header<Hash> {
 #[derive(Debug)]
 pub struct Body<Hash, SerializedOp> {
     /// The operations in this ECG body.
+    /// Invariant: <= 256 operations
     operations: Vec<SerializedOp>, // <CausalTime<T::Time>>>,
     phantom: PhantomData<fn(Hash)>,
 }
@@ -191,7 +192,7 @@ const MAX_OPERATION_COUNT: usize = 256;
 impl<Hash, Op> ECGBody<Op, Op::Serialized> for Body<Hash, Op::Serialized>
 where
     // T: CRDT<Time = OperationId<HeaderId<Hash>>>,
-    Op: ConcretizeTime<OperationId<HeaderId<Hash>>>,
+    Op: ConcretizeTime<HeaderId<Hash>>,
     Op::Serialized: Serialize,
     // T::Op: ConcretizeTime<OperationId<HeaderId<Hash>>>,
     // <T::Op as ConcretizeTime<T::Time>>::Serialized: Serialize,
@@ -211,13 +212,13 @@ where
     }
 
     fn operations(self, header_id: HeaderId<Hash>) -> impl Iterator<Item = Op> {
-        let header_id = Some(header_id);
-        self.operations.into_iter().enumerate().map(move |(i, op)| {
-            let operation_id = OperationId {
-                header_id,
-                operation_position: i as u8,
-            };
-            Op::concretize_time(op, operation_id)
+        // let header_id = Some(header_id);
+        self.operations.into_iter().map(move |op| {
+            // let operation_id = OperationId {
+            //     header_id,
+            //     operation_position: i as u8,
+            // };
+            Op::concretize_time(op, header_id)
         })
         // self.operations.into_iter().map(move |op| op.concretize_time(|t| {
         //     match t {
@@ -302,12 +303,12 @@ pub struct OperationId<HeaderId> {
     pub operation_position: u8,
 }
 
-impl<HeaderId> ConcretizeTime<OperationId<HeaderId>> for OperationId<HeaderId> {
+impl<HeaderId> ConcretizeTime<HeaderId> for OperationId<HeaderId> {
     type Serialized = CausalTime<OperationId<HeaderId>>;
 
-    fn concretize_time(src: Self::Serialized, current_time: OperationId<HeaderId>) -> Self {
+    fn concretize_time(src: Self::Serialized, current_header: HeaderId) -> Self {
         match src {
-            CausalTime::Current { operation_position } => OperationId { header_id: Some(current_time), operation_position },
+            CausalTime::Current { operation_position } => OperationId { header_id: Some(current_header), operation_position },
             CausalTime::Time(t) => t,
         }
     }
