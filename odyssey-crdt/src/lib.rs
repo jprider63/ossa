@@ -41,20 +41,3 @@ pub trait CRDT {
     // lawCommutativity :: concurrent t1 t2 => x.apply(t1, op1).apply(t2, op2) == x.apply(t2, op2).apply(t1, op1)
 }
 
-// /// A poor man's functor that is used to modify the times used in CRDT operations.
-// /// This is necessary since serialized operations may contain references to the current time but current time should never appear in memory CRDTs.
-// /// `Op<T1> -> (T1 -> T2) -> Op<T2>`
-// pub trait OperationFunctor<S, T> {
-//     type Target<Time>;
-// 
-//     fn fmap(self, f: impl Fn(S) -> T) -> Self::Target<T>;
-// }
-
-pub trait ConcretizeTime<Time> {
-    type Serialized;
-
-    fn concretize_time(src: Self::Serialized, current_time: Time) -> Self;
-}
-
-// TODO: Need to connect the history causal ordering w/ the operation causal ordering/invariants
-// and whether or not an operation is enabled/valid

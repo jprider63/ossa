@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use odyssey_crdt::{ConcretizeTime, CRDT};
+use odyssey_crdt::CRDT;
 use rand::{seq::SliceRandom as _, thread_rng};
 use replace_with::replace_with_or_abort;
 use serde::{Deserialize, Serialize};
@@ -18,8 +18,8 @@ use tokio::{
 use tracing::{debug, error, warn};
 use typeable::{TypeId, Typeable};
 
-use crate::core::CausalTime;
 use crate::store::v0::BLOCK_SIZE;
+use crate::time::ConcretizeTime;
 use crate::util::merkle_tree::{MerkleTree, Potential};
 use crate::{
     auth::DeviceId,

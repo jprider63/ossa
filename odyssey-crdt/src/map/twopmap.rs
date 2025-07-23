@@ -7,7 +7,7 @@ use std::marker::PhantomData;
 use typeable::Typeable;
 
 use crate::time::CausalState;
-use crate::{ConcretizeTime, CRDT};
+use crate::CRDT;
 
 /// Two phase map.
 /// Invariant: All keys must be unique.

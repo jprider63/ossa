@@ -10,8 +10,8 @@ use crate::{
 #[derive(Clone, Debug, PartialEq, Typeable, Serialize, Deserialize)]
 /// Last writer wins (LWW) register.
 pub struct LWW<T, A> {
-    time: T,
-    value: A,
+    pub time: T,
+    pub value: A,
 }
 
 impl<T, A> LWW<T, A> {
@@ -61,13 +61,3 @@ impl<T: Ord, A> CRDT for LWW<T, A> {
 //     }
 // }
 
-// impl<T, U, V> ConcretizeTime<T, U> for LWW<T, V> {
-//     type Target<Time> = LWW<Time, V>;
-// 
-//     fn concretize_time(self, f: impl Fn(T) -> U) -> Self::Target<U> {
-//         LWW {
-//             time: f(self.time),
-//             value: self.value,
-//         }
-//     }
-// }

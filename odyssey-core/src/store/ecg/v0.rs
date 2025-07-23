@@ -1,4 +1,4 @@
-use odyssey_crdt::{time::CausalState, ConcretizeTime, CRDT};
+use odyssey_crdt::{time::CausalState, CRDT};
 use rand::Rng;
 use serde::{
     de::{MapAccess, Visitor},
@@ -13,7 +13,7 @@ use std::{
 use typeable::Typeable;
 
 use crate::{
-    core::CausalTime, store::ecg::{self, ECGBody, ECGHeader}, util
+    store::ecg::{self, ECGBody, ECGHeader}, time::{CausalTime, ConcretizeTime}, util
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord, Typeable, Deserialize, Serialize)]
@@ -300,6 +300,17 @@ fn tmp_hash<T: Serialize, Hash: util::Hash>(x: &T) -> Hash {
 pub struct OperationId<HeaderId> {
     pub header_id: Option<HeaderId>, // None when in the initial state?
     pub operation_position: u8,
+}
+
+impl<HeaderId> ConcretizeTime<OperationId<HeaderId>> for OperationId<HeaderId> {
+    type Serialized = CausalTime<OperationId<HeaderId>>;
+
+    fn concretize_time(src: Self::Serialized, current_time: OperationId<HeaderId>) -> Self {
+        match src {
+            CausalTime::Current { operation_position } => OperationId { header_id: Some(current_time), operation_position },
+            CausalTime::Time(t) => t,
+        }
+    }
 }
 
 impl<HeaderId> OperationId<HeaderId> {

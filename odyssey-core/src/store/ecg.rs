@@ -3,14 +3,12 @@ use daggy::petgraph::visit::{
 };
 use daggy::stable_dag::StableDag;
 use daggy::Walker;
-use odyssey_crdt::{ConcretizeTime, CRDT};
+use odyssey_crdt::CRDT;
 use std::cmp::{self, Reverse};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use tracing::{debug, error};
-
-use crate::core::CausalTime;
 
 pub mod v0;
 

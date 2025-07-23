@@ -1,7 +1,7 @@
 use odyssey_crdt::time::CausalState;
 // use futures::{SinkExt, StreamExt};
 // use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
-use odyssey_crdt::{ConcretizeTime, CRDT};
+use odyssey_crdt::CRDT;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Debug, Display};
@@ -25,6 +25,7 @@ use crate::protocol::MiniProtocolArgs;
 use crate::storage::Storage;
 use crate::store::ecg::{self, ECGBody, ECGHeader};
 use crate::store::{self, StateUpdate, StoreCommand, UntypedStoreCommand};
+use crate::time::ConcretizeTime;
 use crate::util::{self, TypedStream};
 
 pub struct Odyssey<OT: OdysseyType> {
@@ -529,22 +530,6 @@ pub trait OdysseyType: 'static {
     fn to_causal_state<T: CRDT<Time = Self::Time>>(
         st: &store::ecg::State<Self::ECGHeader, T>,
     ) -> &Self::CausalState<T>;
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
-pub enum CausalTime<Time> {
-    Current { operation_position: u8 }, // Points to the current ECG node.
-    Time(Time), // Points to another ECG node.
-}
-
-impl<Time> CausalTime<Time> {
-    pub fn current_time(operation_position: u8) -> CausalTime<Time> {
-        CausalTime::Current{ operation_position }
-    }
-
-    pub fn time(time: Time) -> CausalTime<Time> {
-        CausalTime::Time(time)
-    }
 }
 
 impl<O: OdysseyType, T: CRDT<Time = O::Time, Op: ConcretizeTime<O::Time>>> StoreHandle<O, T>
