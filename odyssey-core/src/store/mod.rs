@@ -758,8 +758,9 @@ impl<
     ) where
         OT: OdysseyType<ECGHeader = Header>,
         T: CRDT<Time = OT::Time> + Debug,
-        T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
         OT::ECGBody<T>: for<'d> Deserialize<'d> + Debug + ECGBody<T::Op, <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized, Header = OT::ECGHeader>, // ECGBody<T, Header = OT::ECGHeader> + 
+        // T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
+        T::Op: ConcretizeTime<<Header as ECGHeader>::HeaderId>,
     {
         // Mark peer as ready.
         self.update_outgoing_peer_to_ready(&peer);
