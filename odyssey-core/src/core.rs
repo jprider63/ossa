@@ -97,6 +97,24 @@ impl<Hash, HeaderId, Header> StoreStatus<Hash, HeaderId, Header> {
 }
 
 impl<OT: OdysseyType> Odyssey<OT> {
+    async fn bind_server_ipv4(mut port: u16) -> Option<TcpListener> {
+        for _ in 0..10 {
+            let address = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), port);
+            match TcpListener::bind(&address).await {
+                Ok(l) => {
+                    info!("Started server: {address}");
+                    return Some(l);
+                }
+                Err(err) => {
+                    warn!("Failed to bind to port ({}): {}", &address, err);
+                    port += 1;
+                }
+            }
+        }
+
+        None
+    }
+
     // Start odyssey.
     pub fn start(config: OdysseyConfig) -> Self {
         // TODO: Load identity or take it as an argument.
@@ -126,13 +144,9 @@ impl<OT: OdysseyType> Odyssey<OT> {
         let odyssey_thread = thread::spawn(move || {
             runtime_handle.block_on(async move {
                 // Start listening for connections.
-                let address = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), config.port);
-                let listener = match TcpListener::bind(&address).await {
-                    Ok(l) => l,
-                    Err(err) => {
-                        error!("Failed to bind to port ({}): {}", &address, err);
-                        return;
-                    }
+                let Some(listener) = Odyssey::<OT>::bind_server_ipv4(config.port).await else {
+                    error!("Failed to start server.");
+                    return;
                 };
 
                 // // Handle commands from application.
