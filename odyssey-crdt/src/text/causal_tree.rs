@@ -1,5 +1,6 @@
 use im::Vector;
 use std::cmp::Ordering;
+use std::fmt::Debug;
 
 use crate::{
     time::{compare_with_tiebreak, CausalState},
@@ -12,19 +13,20 @@ pub struct CausalTree<T, A> {
     children: Vector<CausalTree<T, A>>, // JP: Use a Map, ordered by atom, here instead??
 }
 
+#[derive(Debug)]
 pub struct CausalTreeOp<T, A> {
     parent_id: T,
-    // atom: Atom<T, A>,
-    letter: Letter<A>,
+    atom: Atom<T, A>,
+    // letter: Letter<A>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Atom<T, A> {
     id: T,
     letter: Letter<A>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum Letter<A> {
     Letter(A),
     Delete,
@@ -32,39 +34,40 @@ enum Letter<A> {
     Root,
 }
 
-impl<T: Eq + Ord + Clone, A: Clone> CRDT for CausalTree<T, A> {
+impl<T: Eq + Ord + Clone + Debug, A: Clone + Debug> CRDT for CausalTree<T, A> {
     type Op = CausalTreeOp<T, A>;
     type Time = T;
 
-    fn apply<CS: CausalState<Time = Self::Time>>(self, st: &CS, op_time: T, op: Self::Op) -> Self {
-        insert_in_weave(st, &self, &op_time, &op)
-            .expect("Precondition of `apply` violated: Operation must only be applied when all of its parents have been applied.")
+    fn apply<CS: CausalState<Time = Self::Time>>(self, st: &CS, op: Self::Op) -> Self {
+        let (ct, op_ret) = insert_in_weave(st, self, op);
+        if op_ret.is_some() {
+            unreachable!("Precondition of `apply` violated: Operation must only be applied when all of its parents have been applied.")
+        }
+        ct
     }
 }
 
 fn insert_in_weave<T: Eq + Ord + Clone, A: Clone, CS: CausalState<Time = T>>(
     st: &CS,
-    weave: &CausalTree<T, A>,
-    op_time: &T,
-    op: &CausalTreeOp<T, A>,
-) -> Option<CausalTree<T, A>> {
+    weave: CausalTree<T, A>,
+    // op_time: &T,
+    op: CausalTreeOp<T, A>,
+) -> (CausalTree<T, A>, Option<CausalTreeOp<T, A>>) {
+    // ) -> Option<CausalTree<T, A>> {
     if weave.atom.id == op.parent_id {
-        let atom = Atom {
-            id: op_time.clone(),
-            letter: op.letter.clone(),
-        };
-        let children = insert_atom(st, weave.children.clone(), atom);
+        let children = insert_atom(st, weave.children, op.atom);
         let ct = CausalTree {
-            atom: weave.atom.clone(),
+            atom: weave.atom, // .clone(),
             children,
         };
-        Some(ct)
+        (ct, None)
     } else {
-        let children_m = insert_in_weave_children(st, weave.children.clone(), op_time, op);
-        children_m.map(|children| CausalTree {
-            atom: weave.atom.clone(),
+        let (children, op_ret) = insert_in_weave_children(st, weave.children, op);
+        let ct = CausalTree {
+            atom: weave.atom,
             children,
-        })
+        };
+        (ct, op_ret)
     }
 }
 
@@ -155,17 +158,69 @@ fn insert_atom<T: Ord + Clone, A: Clone, CS: CausalState<Time = T>>(
 
 fn insert_in_weave_children<T: Eq + Ord + Clone, A: Clone, CS: CausalState<Time = T>>(
     st: &CS,
-    mut children: Vector<CausalTree<T, A>>,
-    op_time: &T,
-    op: &CausalTreeOp<T, A>,
-) -> Option<Vector<CausalTree<T, A>>> {
+    children: Vector<CausalTree<T, A>>,
+    // op_time: &T,
+    op: CausalTreeOp<T, A>,
+) -> (Vector<CausalTree<T, A>>, Option<CausalTreeOp<T, A>>) {
     // JP: Why does iter require clone?
-    for mut child in children.iter_mut() {
-        if let Some(updated_child) = insert_in_weave(st, child, op_time, op) {
-            *child = updated_child;
-            return Some(children);
-        }
-    }
+    let mut op_m = Some(op);
+    let children = children
+        .into_iter()
+        .map(|child| {
+            if let Some(op) = op_m.take() {
+                let (updated_child, op_ret) = insert_in_weave(st, child, op);
+                op_m = op_ret;
+                updated_child
+            } else {
+                child
+            }
+        })
+        .collect();
 
-    None
+    (children, op_m)
+
+    /*
+    for mut child in children.iter_mut() {
+        match insert_in_weave(st, child, op) {
+            Ok(updated_child) => {
+                *child = updated_child;
+                return Ok(children);
+            }
+            Err(op) => {
+                todo!("Forward on op"):
+
+            }
+        }
+        // if let Ok(updated_child) = insert_in_weave(st, child, op) {
+        //     *child = updated_child;
+        //     return Ok(children);
+        // }
+    }
+    */
 }
+
+// impl<'a, T, A> Functor<'a, T> for CausalTreeOp<T, A> {
+//     type Target<S> = CausalTreeOp<S, A>;
+//
+//     fn fmap<B, F>(self, f: F) -> Self::Target<B>
+//     where
+//         F: Fn(T) -> B + 'a {
+//         let atom = Atom { id: f(self.atom.id), letter: self.atom.letter };
+//         CausalTreeOp {
+//             parent_id: f(self.parent_id),
+//             atom,
+//         }
+//     }
+// }
+
+// impl<T, U, V> ConcretizeTime<T, U> for CausalTreeOp<T, V> {
+//     type Target<S> = CausalTreeOp<S, V>;
+//
+//     fn concretize_time(self, f: impl Fn(T) -> U) -> Self::Target<U> {
+//         let atom = Atom { id: f(self.atom.id), letter: self.atom.letter };
+//         CausalTreeOp {
+//             parent_id: f(self.parent_id),
+//             atom,
+//         }
+//     }
+// }

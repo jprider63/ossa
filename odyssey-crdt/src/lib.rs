@@ -1,3 +1,5 @@
+// #![feature(non_lifetime_binders)]
+
 pub mod map;
 pub mod register;
 pub mod set;
@@ -20,8 +22,8 @@ use crate::time::CausalState;
 // }
 
 pub trait CRDT {
-    type Op;
-    type Time;
+    type Op; // <Time>; // Required due to lack of higher kinded types.
+    type Time; // TODO: Delete this??
 
     // TODO: enabled...
 
@@ -30,15 +32,7 @@ pub trait CRDT {
 
     // Preconditions:
     // - All `logical_time`s of applied operations must be unique in all subsequent calls to `apply`.
-    fn apply<CS: CausalState<Time = Self::Time>>(
-        self,
-        causal_state: &CS,
-        logical_time: Self::Time,
-        op: Self::Op,
-    ) -> Self;
+    fn apply<CS: CausalState<Time = Self::Time>>(self, causal_state: &CS, op: Self::Op) -> Self;
 
     // lawCommutativity :: concurrent t1 t2 => x.apply(t1, op1).apply(t2, op2) == x.apply(t2, op2).apply(t1, op1)
 }
-
-// TODO: Need to connect the history causal ordering w/ the operation causal ordering/invariants
-// and whether or not an operation is enabled/valid

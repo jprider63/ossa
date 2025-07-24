@@ -11,8 +11,8 @@ use crate::{
 #[derive(Clone, Debug, PartialEq, Typeable, Serialize, Deserialize)]
 /// Last writer wins (LWW) register.
 pub struct LWW<T, A> {
-    time: T,
-    value: A,
+    pub time: T,
+    pub value: A,
 }
 
 impl<T, A> LWW<T, A> {
@@ -30,20 +30,12 @@ impl<T, A> LWW<T, A> {
 }
 
 impl<T: Ord, A> CRDT for LWW<T, A> {
-    type Op = A;
+    type Op = LWW<T, A>;
     type Time = T;
 
-    fn apply<CS: CausalState<Time = Self::Time>>(
-        self,
-        st: &CS,
-        op_time: Self::Time,
-        op: Self::Op,
-    ) -> Self {
-        match compare_with_tiebreak(st, &self.time, &op_time) {
-            Ordering::Less => LWW {
-                time: op_time,
-                value: op,
-            },
+    fn apply<CS: CausalState<Time = Self::Time>>(self, st: &CS, op: Self::Op) -> Self {
+        match compare_with_tiebreak(st, &self.time, &op.time) {
+            Ordering::Less => op,
             Ordering::Greater => self,
             Ordering::Equal => unreachable!(
                 "Precondition of `apply` violated: Applied `logical_time`s must be unique."
@@ -51,3 +43,17 @@ impl<T: Ord, A> CRDT for LWW<T, A> {
         }
     }
 }
+
+// impl<'a, T, A> Functor<'a, T> for LWW<T, A> {
+//     type Target<S> = LWW<S, A>;
+//
+//     fn fmap<B, F>(self, f: F) -> Self::Target<B>
+//     where
+//         F: Fn(T) -> B + 'a
+//     {
+//         LWW {
+//             time: f(self.time),
+//             value: self.value,
+//         }
+//     }
+// }

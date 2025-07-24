@@ -42,15 +42,19 @@ pub trait ECGHeader {
     // fn get_operation_times<T>(&self, body: &Self::Body) -> Vec<T::Time> where T: CRDT;
 }
 
-pub trait ECGBody<T: CRDT> {
+pub trait ECGBody<Op, SerializedOp> {
     /// Header type associated with this body.
     type Header: ECGHeader;
 
     /// Create a new body from a vector of operations.
-    fn new_body(operations: Vec<T::Op>) -> Self;
+    // fn new_body(operations: Vec<T::Op<CausalTime<T::Time>>>) -> Self;
+    fn new_body(operations: Vec<SerializedOp>) -> Self;
 
     /// The operations in this body.
-    fn operations(self) -> impl Iterator<Item = T::Op>;
+    fn operations(
+        self,
+        header_id: <Self::Header as ECGHeader>::HeaderId,
+    ) -> impl Iterator<Item = Op>;
 
     /// The number of operations in this body.
     fn operations_count(&self) -> u8;
@@ -62,15 +66,15 @@ pub trait ECGBody<T: CRDT> {
     //     // Self::Header: ECGHeader;
     //     Self::Header: ECGHeader<HeaderId = HeaderId>;
 
-    // TODO: Can we return the following instead? impl Iterator<(T::Time, Item = T::Time)>
-    fn zip_operations_with_time(self, header: &Self::Header) -> Vec<(T::Time, T::Op)>;
-    // where
-    // T: CRDT + Sized,
-    // <Self as ECGHeader>::Body: ECGBody<T>;
+    // // TODO: Can we return the following instead? impl Iterator<(T::Time, Item = T::Time)>
+    // fn zip_operations_with_time(self, header: &Self::Header) -> Vec<(T::Time, T::Op<T::Time>)>;
+    // // where
+    // // T: CRDT + Sized,
+    // // <Self as ECGHeader>::Body: ECGBody<T>;
 
-    /// Retrieve the times for each operation in this ECG header and body.
-    // TODO: Can we return the following instead? impl Iterator<Item = T::Time>
-    fn get_operation_times(&self, header: &Self::Header) -> Vec<T::Time>;
+    // /// Retrieve the times for each operation in this ECG header and body.
+    // // TODO: Can we return the following instead? impl Iterator<Item = T::Time>
+    // fn get_operation_times(&self, header: &Self::Header) -> Vec<T::Time>;
 }
 
 // Serialized ECG body

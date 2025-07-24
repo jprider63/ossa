@@ -19,6 +19,7 @@ use tracing::{debug, error, warn};
 use typeable::{TypeId, Typeable};
 
 use crate::store::v0::BLOCK_SIZE;
+use crate::time::ConcretizeTime;
 use crate::util::merkle_tree::{MerkleTree, Potential};
 use crate::{
     auth::DeviceId,
@@ -757,8 +758,15 @@ impl<
     ) where
         OT: OdysseyType<ECGHeader = Header>,
         T: CRDT<Time = OT::Time> + Debug,
-        T::Op: Serialize,
-        OT::ECGBody<T>: ECGBody<T, Header = OT::ECGHeader> + for<'d> Deserialize<'d> + Debug,
+        OT::ECGBody<T>: for<'d> Deserialize<'d>
+            + Debug
+            + ECGBody<
+                T::Op,
+                <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
+                Header = OT::ECGHeader,
+            >, // ECGBody<T, Header = OT::ECGHeader> +
+        // T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
+        T::Op: ConcretizeTime<<Header as ECGHeader>::HeaderId>,
     {
         // Mark peer as ready.
         self.update_outgoing_peer_to_ready(&peer);
@@ -969,7 +977,7 @@ async fn manage_peers<OT: OdysseyType, T: CRDT<Time = OT::Time> + Clone + Send +
         UntypedStoreCommand<OT::Hash, <OT::ECGHeader as ECGHeader>::HeaderId, OT::ECGHeader>,
     >,
 ) where
-    T::Op: Serialize,
+    // T::Op<CausalTime<T::Time>>: Serialize,
     OT::ECGHeader: Clone + Serialize + for<'d> Deserialize<'d> + Send + Sync,
     <OT::ECGHeader as ECGHeader>::HeaderId: Serialize + for<'d> Deserialize<'d> + Send,
     //OT::ECGHeader<T>::HeaderId : Send,
@@ -1053,13 +1061,18 @@ fn apply_operations<OT: OdysseyType, T>(
     operation_body: OT::ECGBody<T>,
 ) where
     T: CRDT<Time = OT::Time>,
-    T::Op: Serialize,
-    OT::ECGBody<T>: ECGBody<T, Header = OT::ECGHeader>,
+    // T::Op<CausalTime<T::Time>>: Serialize,
+    T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
+    OT::ECGBody<T>: ECGBody<
+        T::Op,
+        <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
+        Header = OT::ECGHeader,
+    >,
 {
     let causal_state = OT::to_causal_state(ecg_state);
-    for (time, operation) in operation_body.zip_operations_with_time(&operation_header) {
+    for operation in operation_body.operations(operation_header.get_header_id()) {
         replace_with_or_abort(&mut decrypted_state.latest_state, |s| {
-            s.apply(causal_state, time, operation)
+            s.apply(causal_state, operation)
         });
     }
 }
@@ -1080,11 +1093,19 @@ pub(crate) async fn run_handler<OT: OdysseyType, T>(
     <OT as OdysseyType>::ECGHeader:
         Send + Sync + Clone + Serialize + for<'d> Deserialize<'d> + 'static,
     // <<OT as OdysseyType>::ECGHeader as ECGHeader>::Body: ECGBody<T> + Send,
-    <OT as OdysseyType>::ECGBody<T>:
-        ECGBody<T, Header = OT::ECGHeader> + Send + Serialize + for<'d> Deserialize<'d> + Debug,
+    T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
+    OT::ECGBody<T>: Serialize
+        + for<'d> Deserialize<'d>
+        + Debug
+        + ECGBody<
+            T::Op,
+            <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
+            Header = OT::ECGHeader,
+        >,
+    //     ECGBody<T, Header = OT::ECGHeader> + Send + Serialize + for<'d> Deserialize<'d> + Debug,
     <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId:
         Send + Serialize + for<'d> Deserialize<'d>,
-    T::Op: Serialize,
+    // T::Op<CausalTime<T::Time>>: Serialize,
     T: CRDT<Time = OT::Time> + Debug + Clone + Send + 'static + for<'d> Deserialize<'d>,
 {
     let mut listeners: Vec<UnboundedSender<StateUpdate<OT::ECGHeader, T>>> = vec![];

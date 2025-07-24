@@ -14,6 +14,7 @@ use typeable::Typeable;
 
 use crate::{
     store::ecg::{self, ECGBody, ECGHeader},
+    time::{CausalTime, ConcretizeTime},
     util,
 };
 
@@ -45,16 +46,17 @@ pub struct Header<Hash> {
 }
 
 #[derive(Debug)]
-pub struct Body<Hash, T: CRDT> {
+pub struct Body<Hash, SerializedOp> {
     /// The operations in this ECG body.
-    operations: Vec<T::Op>,
-    phantom: PhantomData<Hash>,
+    /// Invariant: <= 256 operations
+    operations: Vec<SerializedOp>, // <CausalTime<T::Time>>>,
+    phantom: PhantomData<fn(Hash)>,
 }
 
-// TODO: Define CBOR properly
-impl<Hash, T: CRDT> Serialize for Body<Hash, T>
+// TODO: Define CBOR or rkyv properly
+impl<Hash, SerializedOp> Serialize for Body<Hash, SerializedOp>
 where
-    <T as CRDT>::Op: Serialize,
+    SerializedOp: Serialize,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -66,9 +68,9 @@ where
     }
 }
 
-impl<'d, Hash, T: CRDT> Deserialize<'d> for Body<Hash, T>
+impl<'d, Hash, SerializedOp> Deserialize<'d> for Body<Hash, SerializedOp>
 where
-    T::Op: Deserialize<'d>,
+    SerializedOp: Deserialize<'d>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -82,17 +84,17 @@ where
             Operations,
         }
 
-        impl<'d, Hash, T: CRDT> Visitor<'d> for SVisitor<Hash, T>
+        impl<'d, Hash, SerializedOp> Visitor<'d> for SVisitor<Hash, SerializedOp>
         where
-            T::Op: Deserialize<'d>,
+            SerializedOp: Deserialize<'d>,
         {
-            type Value = Body<Hash, T>;
+            type Value = Body<Hash, SerializedOp>;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
                 formatter.write_str("struct Body")
             }
 
-            fn visit_map<M>(self, mut m: M) -> Result<Body<Hash, T>, M::Error>
+            fn visit_map<M>(self, mut m: M) -> Result<Body<Hash, SerializedOp>, M::Error>
             where
                 M: MapAccess<'d>,
             {
@@ -188,15 +190,19 @@ where
 
 const MAX_OPERATION_COUNT: usize = 256;
 
-impl<Hash, T: CRDT<Time = OperationId<HeaderId<Hash>>>> ECGBody<T> for Body<Hash, T>
+// impl<Hash, T> ECGBody<T::Op, <T::Op as ConcretizeTime<T::Time>>::Serialized> for Body<Hash, <T::Op as ConcretizeTime<T::Time>>::Serialized>
+impl<Hash, Op> ECGBody<Op, Op::Serialized> for Body<Hash, Op::Serialized>
 where
-    <T as CRDT>::Op: Serialize,
+    // T: CRDT<Time = OperationId<HeaderId<Hash>>>,
+    Op: ConcretizeTime<HeaderId<Hash>>,
+    Op::Serialized: Serialize,
+    // T::Op: ConcretizeTime<OperationId<HeaderId<Hash>>>,
+    // <T::Op as ConcretizeTime<T::Time>>::Serialized: Serialize,
     Hash: Clone + Copy + Debug + Ord + util::Hash + Serialize,
-    // Self::Header: ECGHeader<HeaderId = HeaderId<Hash>>,
 {
     type Header = Header<Hash>;
 
-    fn new_body(operations: Vec<T::Op>) -> Self {
+    fn new_body(operations: Vec<Op::Serialized>) -> Self {
         if operations.len() > MAX_OPERATION_COUNT {
             panic!("Exceeded the maximum number of batched operations.");
         }
@@ -207,8 +213,24 @@ where
         }
     }
 
-    fn operations(self) -> impl Iterator<Item = T::Op> {
-        self.operations.into_iter()
+    fn operations(self, header_id: HeaderId<Hash>) -> impl Iterator<Item = Op> {
+        // let header_id = Some(header_id);
+        self.operations.into_iter().map(move |op| {
+            // let operation_id = OperationId {
+            //     header_id,
+            //     operation_position: i as u8,
+            // };
+            Op::concretize_time(op, header_id)
+        })
+        // self.operations.into_iter().map(move |op| op.concretize_time(|t| {
+        //     match t {
+        //         CausalTime::Time(t) => t,
+        //         CausalTime::Current { operation_position } => OperationId {
+        //             header_id: Some(header_id),
+        //             operation_position,
+        //         }
+        //     }
+        // }))
     }
 
     fn operations_count(&self) -> u8 {
@@ -230,36 +252,36 @@ where
         Header {
             parent_ids: parents,
             nonce,
-            operations_count: self.operations_count(),
+            operations_count: <Self as ECGBody<Op, Op::Serialized>>::operations_count(self),
             operations_hash: self.get_hash(),
             // phantom: PhantomData,
         }
     }
 
-    fn zip_operations_with_time(
-        self,
-        header: &Self::Header,
-    ) -> Vec<(<T as CRDT>::Time, <T as CRDT>::Op)> {
-        let times = self.get_operation_times(header);
-        let ops = self.operations();
-        times.into_iter().zip(ops).collect()
-    }
+    // fn zip_operations_with_time(
+    //     self,
+    //     header: &Self::Header,
+    // ) -> Vec<(<T as CRDT>::Time, <T as CRDT>::Op<T::Time>)> {
+    //     let times = self.get_operation_times(header);
+    //     let ops = self.operations(header.get_header_id());
+    //     times.into_iter().zip(ops).collect()
+    // }
 
-    fn get_operation_times(&self, header: &Self::Header) -> Vec<<T as CRDT>::Time> {
-        let header_id = Some(header.get_header_id());
-        let operations_c = self.operations_count();
-        (0..operations_c)
-            .map(move |i| OperationId {
-                header_id,
-                operation_position: i,
-            })
-            .collect()
-    }
+    // fn get_operation_times(&self, header: &Self::Header) -> Vec<<T as CRDT>::Time> {
+    //     let header_id = Some(header.get_header_id());
+    //     let operations_c = self.operations_count();
+    //     (0..operations_c)
+    //         .map(move |i| OperationId {
+    //             header_id,
+    //             operation_position: i,
+    //         })
+    //         .collect()
+    // }
 }
 
-impl<Hash: util::Hash, T: CRDT> Body<Hash, T>
+impl<Hash: util::Hash, SerializedOp> Body<Hash, SerializedOp>
 where
-    <T as CRDT>::Op: Serialize,
+    SerializedOp: Serialize,
 {
     fn get_hash(&self) -> Hash {
         tmp_hash(self)
@@ -281,6 +303,20 @@ fn tmp_hash<T: Serialize, Hash: util::Hash>(x: &T) -> Hash {
 pub struct OperationId<HeaderId> {
     pub header_id: Option<HeaderId>, // None when in the initial state?
     pub operation_position: u8,
+}
+
+impl<HeaderId> ConcretizeTime<HeaderId> for OperationId<HeaderId> {
+    type Serialized = CausalTime<OperationId<HeaderId>>;
+
+    fn concretize_time(src: Self::Serialized, current_header: HeaderId) -> Self {
+        match src {
+            CausalTime::Current { operation_position } => OperationId {
+                header_id: Some(current_header),
+                operation_position,
+            },
+            CausalTime::Time(t) => t,
+        }
+    }
 }
 
 impl<HeaderId> OperationId<HeaderId> {
@@ -322,19 +358,30 @@ pub struct TestHeader<T> {
     pub phantom: PhantomData<T>,
 }
 
-pub struct TestBody<T: CRDT> {
-    operations: Vec<T::Op>,
+pub struct TestBody<SerializedOp> {
+    operations: Vec<SerializedOp>,
 }
 
-impl<T: CRDT> ECGBody<T> for TestBody<T> {
+/*
+impl<T: CRDT<Time = u32>> ECGBody<T> for TestBody<<T::Op as ConcretizeTime<u32>>::Serialized>
+where
+    T::Op: ConcretizeTime<u32>,
+//     T::Op<CausalTime<T::Time>>: Serialize + ConcretizeTime<CausalTime<T::Time>, T::Time, Target<T::Time> = T::Op<T::Time>>,
+{
     type Header = TestHeader<T>;
 
-    fn new_body(operations: Vec<T::Op>) -> Self {
+    fn new_body(operations: Vec<<T::Op as ConcretizeTime<u32>>::Serialized>) -> Self {
         TestBody { operations }
     }
 
-    fn operations(self) -> impl Iterator<Item = T::Op> {
-        self.operations.into_iter()
+    fn operations(self, header_id: u32) -> impl Iterator<Item = T::Op> {
+        self.operations.into_iter().map(move |op| T::Op::concretize_time(op, header_id))
+        // self.operations.into_iter().map(|op| op.concretize_time(|t| {
+        //     match t {
+        //         CausalTime::Time(t) => t,
+        //         CausalTime::Current { operation_position } => todo!(),
+        //     }
+        // }))
     }
 
     fn operations_count(&self) -> u8 {
@@ -344,21 +391,22 @@ impl<T: CRDT> ECGBody<T> for TestBody<T> {
             .expect("Unreachable: Length is bound by MAX_OPERATION_COUNT.")
     }
 
-    fn zip_operations_with_time(
-        self,
-        header: &Self::Header,
-    ) -> Vec<(<T as CRDT>::Time, <T as CRDT>::Op)> {
-        todo!()
-    }
+    // fn zip_operations_with_time(
+    //     self,
+    //     header: &Self::Header,
+    // ) -> Vec<(<T as CRDT>::Time, <T as CRDT>::Op<T::Time>)> {
+    //     todo!()
+    // }
 
-    fn get_operation_times(&self, header: &Self::Header) -> Vec<<T as CRDT>::Time> {
-        todo!()
-    }
+    // fn get_operation_times(&self, header: &Self::Header) -> Vec<<T as CRDT>::Time> {
+    //     todo!()
+    // }
 
     fn new_header(&self, parents: BTreeSet<<Self::Header as ECGHeader>::HeaderId>) -> Self::Header {
         todo!()
     }
 }
+*/
 
 // For testing, just have the header store the parent ids.
 impl<A: CRDT> ECGHeader for TestHeader<A> {
