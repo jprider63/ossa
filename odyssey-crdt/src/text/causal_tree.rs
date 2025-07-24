@@ -3,7 +3,8 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 
 use crate::{
-    time::{compare_with_tiebreak, CausalState}, CRDT
+    time::{compare_with_tiebreak, CausalState},
+    CRDT,
 };
 
 #[derive(Clone)]
@@ -52,7 +53,7 @@ fn insert_in_weave<T: Eq + Ord + Clone, A: Clone, CS: CausalState<Time = T>>(
     // op_time: &T,
     op: CausalTreeOp<T, A>,
 ) -> (CausalTree<T, A>, Option<CausalTreeOp<T, A>>) {
-// ) -> Option<CausalTree<T, A>> {
+    // ) -> Option<CausalTree<T, A>> {
     if weave.atom.id == op.parent_id {
         let children = insert_atom(st, weave.children, op.atom);
         let ct = CausalTree {
@@ -163,15 +164,18 @@ fn insert_in_weave_children<T: Eq + Ord + Clone, A: Clone, CS: CausalState<Time 
 ) -> (Vector<CausalTree<T, A>>, Option<CausalTreeOp<T, A>>) {
     // JP: Why does iter require clone?
     let mut op_m = Some(op);
-    let children = children.into_iter().map(|child| {
-        if let Some(op) = op_m.take() {
-            let (updated_child, op_ret) = insert_in_weave(st, child, op);
-            op_m = op_ret;
-            updated_child
-        } else {
-            child
-        }
-    }).collect();
+    let children = children
+        .into_iter()
+        .map(|child| {
+            if let Some(op) = op_m.take() {
+                let (updated_child, op_ret) = insert_in_weave(st, child, op);
+                op_m = op_ret;
+                updated_child
+            } else {
+                child
+            }
+        })
+        .collect();
 
     (children, op_m)
 
@@ -193,14 +197,11 @@ fn insert_in_weave_children<T: Eq + Ord + Clone, A: Clone, CS: CausalState<Time 
         // }
     }
     */
-
-    
 }
-
 
 // impl<'a, T, A> Functor<'a, T> for CausalTreeOp<T, A> {
 //     type Target<S> = CausalTreeOp<S, A>;
-// 
+//
 //     fn fmap<B, F>(self, f: F) -> Self::Target<B>
 //     where
 //         F: Fn(T) -> B + 'a {
@@ -214,7 +215,7 @@ fn insert_in_weave_children<T: Eq + Ord + Clone, A: Clone, CS: CausalState<Time 
 
 // impl<T, U, V> ConcretizeTime<T, U> for CausalTreeOp<T, V> {
 //     type Target<S> = CausalTreeOp<S, V>;
-// 
+//
 //     fn concretize_time(self, f: impl Fn(T) -> U) -> Self::Target<U> {
 //         let atom = Atom { id: f(self.atom.id), letter: self.atom.letter };
 //         CausalTreeOp {

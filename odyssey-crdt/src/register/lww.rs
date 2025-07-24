@@ -3,7 +3,8 @@ use std::cmp::Ordering;
 use typeable::Typeable;
 
 use crate::{
-    time::{compare_with_tiebreak, CausalState}, CRDT
+    time::{compare_with_tiebreak, CausalState},
+    CRDT,
 };
 
 // TODO: Define CBOR properly
@@ -32,11 +33,7 @@ impl<T: Ord, A> CRDT for LWW<T, A> {
     type Op = LWW<T, A>;
     type Time = T;
 
-    fn apply<CS: CausalState<Time = Self::Time>>(
-        self,
-        st: &CS,
-        op: Self::Op,
-    ) -> Self {
+    fn apply<CS: CausalState<Time = Self::Time>>(self, st: &CS, op: Self::Op) -> Self {
         match compare_with_tiebreak(st, &self.time, &op.time) {
             Ordering::Less => op,
             Ordering::Greater => self,
@@ -49,7 +46,7 @@ impl<T: Ord, A> CRDT for LWW<T, A> {
 
 // impl<'a, T, A> Functor<'a, T> for LWW<T, A> {
 //     type Target<S> = LWW<S, A>;
-// 
+//
 //     fn fmap<B, F>(self, f: F) -> Self::Target<B>
 //     where
 //         F: Fn(T) -> B + 'a
@@ -60,4 +57,3 @@ impl<T: Ord, A> CRDT for LWW<T, A> {
 //         }
 //     }
 // }
-

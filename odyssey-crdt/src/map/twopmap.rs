@@ -119,11 +119,7 @@ impl<K: Ord + Clone, V: CRDT<Time = K> + Clone> CRDT for TwoPMap<K, V> {
     type Op = TwoPMapOp<K, V, V::Op>;
     type Time = V::Time; // JP: Newtype wrap `struct TwoPMapId<V>(V::Time)`?
 
-    fn apply<CS: CausalState<Time = Self::Time>>(
-        self,
-        st: &CS,
-        op: Self::Op,
-    ) -> Self {
+    fn apply<CS: CausalState<Time = Self::Time>>(self, st: &CS, op: Self::Op) -> Self {
         // Check if deleted.
         let is_deleted = {
             let key = op.key();
@@ -191,7 +187,7 @@ impl<K: Ord, V: CRDT> TwoPMap<K, V> {
 //     V::Op<T>: for<S> Functor<'a, T, Target<S> = V::Op<S>>,
 // {
 //     type Target<S> = TwoPMapOp<S, V>;
-// 
+//
 //     fn fmap<B, F>(self, f: F) -> Self::Target<B>
 //     where
 //         F: Fn(T) -> B + 'a
@@ -218,11 +214,11 @@ impl<K: Ord, V: CRDT> TwoPMap<K, V> {
 // }
 
 // impl<K, L, V, Op> OperationFunctor<K, L> for TwoPMapOp<K, V, Op>
-// where 
+// where
 //     Op: OperationFunctor<K, L, Target<L> = Op>,
 // {
 //     type Target<Time> = TwoPMapOp<Time, V, Op>;
-// 
+//
 //     fn fmap(self, f: impl Fn(K) -> L) -> Self::Target<L> {
 //         match self {
 //             TwoPMapOp::Insert { key, value } => {

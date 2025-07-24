@@ -758,7 +758,13 @@ impl<
     ) where
         OT: OdysseyType<ECGHeader = Header>,
         T: CRDT<Time = OT::Time> + Debug,
-        OT::ECGBody<T>: for<'d> Deserialize<'d> + Debug + ECGBody<T::Op, <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized, Header = OT::ECGHeader>, // ECGBody<T, Header = OT::ECGHeader> + 
+        OT::ECGBody<T>: for<'d> Deserialize<'d>
+            + Debug
+            + ECGBody<
+                T::Op,
+                <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
+                Header = OT::ECGHeader,
+            >, // ECGBody<T, Header = OT::ECGHeader> +
         // T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
         T::Op: ConcretizeTime<<Header as ECGHeader>::HeaderId>,
     {
@@ -1057,7 +1063,11 @@ fn apply_operations<OT: OdysseyType, T>(
     T: CRDT<Time = OT::Time>,
     // T::Op<CausalTime<T::Time>>: Serialize,
     T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
-    OT::ECGBody<T>: ECGBody<T::Op, <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized, Header = OT::ECGHeader>,
+    OT::ECGBody<T>: ECGBody<
+        T::Op,
+        <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
+        Header = OT::ECGHeader,
+    >,
 {
     let causal_state = OT::to_causal_state(ecg_state);
     for operation in operation_body.operations(operation_header.get_header_id()) {
@@ -1084,7 +1094,14 @@ pub(crate) async fn run_handler<OT: OdysseyType, T>(
         Send + Sync + Clone + Serialize + for<'d> Deserialize<'d> + 'static,
     // <<OT as OdysseyType>::ECGHeader as ECGHeader>::Body: ECGBody<T> + Send,
     T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
-    OT::ECGBody<T>: Serialize + for<'d> Deserialize<'d> + Debug + ECGBody<T::Op, <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized, Header = OT::ECGHeader>,
+    OT::ECGBody<T>: Serialize
+        + for<'d> Deserialize<'d>
+        + Debug
+        + ECGBody<
+            T::Op,
+            <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
+            Header = OT::ECGHeader,
+        >,
     //     ECGBody<T, Header = OT::ECGHeader> + Send + Serialize + for<'d> Deserialize<'d> + Debug,
     <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId:
         Send + Serialize + for<'d> Deserialize<'d>,

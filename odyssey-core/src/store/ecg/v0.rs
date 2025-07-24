@@ -13,7 +13,9 @@ use std::{
 use typeable::Typeable;
 
 use crate::{
-    store::ecg::{self, ECGBody, ECGHeader}, time::{CausalTime, ConcretizeTime}, util
+    store::ecg::{self, ECGBody, ECGHeader},
+    time::{CausalTime, ConcretizeTime},
+    util,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord, Typeable, Deserialize, Serialize)]
@@ -308,7 +310,10 @@ impl<HeaderId> ConcretizeTime<HeaderId> for OperationId<HeaderId> {
 
     fn concretize_time(src: Self::Serialized, current_header: HeaderId) -> Self {
         match src {
-            CausalTime::Current { operation_position } => OperationId { header_id: Some(current_header), operation_position },
+            CausalTime::Current { operation_position } => OperationId {
+                header_id: Some(current_header),
+                operation_position,
+            },
             CausalTime::Time(t) => t,
         }
     }
@@ -346,7 +351,6 @@ impl<Header: ECGHeader, T: CRDT> CausalState for ecg::State<Header, T> {
     }
 }
 
-
 #[derive(Clone, Debug)]
 pub struct TestHeader<T> {
     pub header_id: u32,
@@ -360,7 +364,7 @@ pub struct TestBody<SerializedOp> {
 
 /*
 impl<T: CRDT<Time = u32>> ECGBody<T> for TestBody<<T::Op as ConcretizeTime<u32>>::Serialized>
-where 
+where
     T::Op: ConcretizeTime<u32>,
 //     T::Op<CausalTime<T::Time>>: Serialize + ConcretizeTime<CausalTime<T::Time>, T::Time, Target<T::Time> = T::Op<T::Time>>,
 {

@@ -39,4 +39,3 @@ pub fn compare_with_tiebreak<CS: CausalState<Time: Ord>>(
         t1.cmp(t2)
     }
 }
-

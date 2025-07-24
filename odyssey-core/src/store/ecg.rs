@@ -42,10 +42,7 @@ pub trait ECGHeader {
     // fn get_operation_times<T>(&self, body: &Self::Body) -> Vec<T::Time> where T: CRDT;
 }
 
-pub trait ECGBody<Op, SerializedOp>
-// where
-//     T::Op: ConcretizeTime<T::Time>,
-{
+pub trait ECGBody<Op, SerializedOp> {
     /// Header type associated with this body.
     type Header: ECGHeader;
 
@@ -54,7 +51,10 @@ pub trait ECGBody<Op, SerializedOp>
     fn new_body(operations: Vec<SerializedOp>) -> Self;
 
     /// The operations in this body.
-    fn operations(self, header_id: <Self::Header as ECGHeader>::HeaderId) -> impl Iterator<Item = Op>;
+    fn operations(
+        self,
+        header_id: <Self::Header as ECGHeader>::HeaderId,
+    ) -> impl Iterator<Item = Op>;
 
     /// The number of operations in this body.
     fn operations_count(&self) -> u8;

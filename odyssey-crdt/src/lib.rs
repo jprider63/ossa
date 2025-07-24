@@ -32,12 +32,7 @@ pub trait CRDT {
 
     // Preconditions:
     // - All `logical_time`s of applied operations must be unique in all subsequent calls to `apply`.
-    fn apply<CS: CausalState<Time = Self::Time>>(
-        self,
-        causal_state: &CS,
-        op: Self::Op,
-    ) -> Self;
+    fn apply<CS: CausalState<Time = Self::Time>>(self, causal_state: &CS, op: Self::Op) -> Self;
 
     // lawCommutativity :: concurrent t1 t2 => x.apply(t1, op1).apply(t2, op2) == x.apply(t2, op2).apply(t1, op1)
 }
-

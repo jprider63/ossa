@@ -1,16 +1,15 @@
 use odyssey_crdt::{map::twopmap::TwoPMapOp, register::LWW};
 use serde::{Deserialize, Serialize};
 
-
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum CausalTime<Time> {
     Current { operation_position: u8 }, // Points to the current ECG node.
-    Time(Time), // Points to another ECG node.
+    Time(Time),                         // Points to another ECG node.
 }
 
 impl<Time> CausalTime<Time> {
     pub fn current_time(operation_position: u8) -> CausalTime<Time> {
-        CausalTime::Current{ operation_position }
+        CausalTime::Current { operation_position }
     }
 
     pub fn time(time: Time) -> CausalTime<Time> {
@@ -35,7 +34,13 @@ impl<HeaderId, T: ConcretizeTime<HeaderId>, V> ConcretizeTime<HeaderId> for LWW<
     }
 }
 
-impl<HeaderId: Clone, K: ConcretizeTime<HeaderId>, V: ConcretizeTime<HeaderId>, Op: ConcretizeTime<HeaderId>> ConcretizeTime<HeaderId> for TwoPMapOp<K, V, Op> {
+impl<
+        HeaderId: Clone,
+        K: ConcretizeTime<HeaderId>,
+        V: ConcretizeTime<HeaderId>,
+        Op: ConcretizeTime<HeaderId>,
+    > ConcretizeTime<HeaderId> for TwoPMapOp<K, V, Op>
+{
     type Serialized = TwoPMapOp<K::Serialized, V::Serialized, Op::Serialized>;
 
     fn concretize_time(src: Self::Serialized, current_header: HeaderId) -> Self {
