@@ -6,7 +6,7 @@ use crate::network::protocol::ecg_sync::v0::{
 use crate::network::ConnectionManager;
 use crate::store::ecg::ECGHeader;
 use crate::util::Stream;
-use odyssey_crdt::CRDT;
+use ossa_crdt::CRDT;
 use std::cmp::min;
 use std::collections::{BTreeSet, BinaryHeap, VecDeque};
 use std::fmt::Debug;

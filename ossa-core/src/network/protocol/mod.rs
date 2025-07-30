@@ -23,7 +23,7 @@ use crate::store::v0::MetadataHeader;
 use crate::util::Stream;
 use crate::{
     auth::DeviceId,
-    core::{OdysseyType, StoreStatuses},
+    core::{OssaType, StoreStatuses},
     network::multiplexer,
 };
 

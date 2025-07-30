@@ -6,7 +6,7 @@ use tokio::{
 
 use crate::{
     auth::DeviceId,
-    core::{OdysseyType, StoreStatuses},
+    core::{OssaType, StoreStatuses},
     protocol::manager::v0::PeerManagerCommand,
     store::ecg::ECGHeader,
 };
@@ -47,7 +47,7 @@ impl Version {
         *self as u8
     }
 
-    pub async fn run_miniprotocols_server<O: OdysseyType>(
+    pub async fn run_miniprotocols_server<O: OssaType>(
         &self,
         stream: TcpStream,
         args: MiniProtocolArgs<
@@ -62,7 +62,7 @@ impl Version {
         }
     }
 
-    pub async fn run_miniprotocols_client<O: OdysseyType>(
+    pub async fn run_miniprotocols_client<O: OssaType>(
         &self,
         stream: TcpStream,
         args: MiniProtocolArgs<

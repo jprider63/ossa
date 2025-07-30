@@ -25,7 +25,7 @@ use crate::store;
 use crate::util;
 use crate::{
     auth::DeviceId,
-    core::{OdysseyType, StoreStatuses},
+    core::{OssaType, StoreStatuses},
     network::{
         multiplexer::{run_miniprotocol_async, Multiplexer, MultiplexerCommand, Party, StreamId},
         protocol::MiniProtocol,
@@ -46,7 +46,7 @@ impl<
         Header: Send,
     > MiniProtocols<StoreId, Hash, HeaderId, Header>
 {
-    pub(crate) async fn run_async<O: OdysseyType>(
+    pub(crate) async fn run_async<O: OssaType>(
         self,
         is_client: bool,
         stream_id: StreamId,
@@ -109,7 +109,7 @@ fn initial_miniprotocols<StoreId, Hash, HeaderId, Header>(
     ]
 }
 
-pub(crate) async fn run_miniprotocols_server<O: OdysseyType>(
+pub(crate) async fn run_miniprotocols_server<O: OssaType>(
     stream: TcpStream,
     args: MiniProtocolArgs<
         O::StoreId,
@@ -121,7 +121,7 @@ pub(crate) async fn run_miniprotocols_server<O: OdysseyType>(
     run_miniprotocols::<O>(stream, args, Party::Server).await
 }
 
-pub(crate) async fn run_miniprotocols_client<O: OdysseyType>(
+pub(crate) async fn run_miniprotocols_client<O: OssaType>(
     stream: TcpStream,
     args: MiniProtocolArgs<
         O::StoreId,
@@ -133,7 +133,7 @@ pub(crate) async fn run_miniprotocols_client<O: OdysseyType>(
     run_miniprotocols::<O>(stream, args, Party::Client).await
 }
 
-async fn run_miniprotocols<O: OdysseyType>(
+async fn run_miniprotocols<O: OssaType>(
     stream: TcpStream,
     args: MiniProtocolArgs<
         O::StoreId,

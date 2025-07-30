@@ -2,7 +2,7 @@ use crate::store::ecg::{self, ECGHeader};
 use crate::util::is_power_of_two;
 use async_session_types::{Eps, Recv, Send};
 use bitvec::{order::Msb0, BitArr};
-use odyssey_crdt::CRDT;
+use ossa_crdt::CRDT;
 use std::cmp::Reverse;
 use std::fmt::{self, Debug};
 use std::marker::PhantomData;

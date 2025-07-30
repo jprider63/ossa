@@ -1,7 +1,7 @@
-use odyssey_crdt::time::CausalState;
+use ossa_crdt::time::CausalState;
 // use futures::{SinkExt, StreamExt};
 // use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
-use odyssey_crdt::CRDT;
+use ossa_crdt::CRDT;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Debug, Display};
@@ -28,7 +28,7 @@ use crate::store::{self, StateUpdate, StoreCommand, UntypedStoreCommand};
 use crate::time::ConcretizeTime;
 use crate::util::{self, TypedStream};
 
-pub struct Odyssey<OT: OdysseyType> {
+pub struct Odyssey<OT: OssaType> {
     /// Thread running the Odyssey server.
     thread: thread::JoinHandle<()>,
     // command_channel: UnboundedSender<OdysseyCommand>,
@@ -96,7 +96,7 @@ impl<Hash, HeaderId, Header> StoreStatus<Hash, HeaderId, Header> {
     }
 }
 
-impl<OT: OdysseyType> Odyssey<OT> {
+impl<OT: OssaType> Odyssey<OT> {
     async fn bind_server_ipv4(mut port: u16) -> Option<TcpListener> {
         for _ in 0..10 {
             let address = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), port);
@@ -310,7 +310,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
         // T::Op: ConcretizeTime<T::Time>,
         // OT::ECGBody<T>:
         //     Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
-        <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId: Send,
+        <<OT as OssaType>::ECGHeader as ECGHeader>::HeaderId: Send,
         T: CRDT<Time = OT::Time> + Clone + Debug + Send + 'static + for<'d> Deserialize<'d>,
         // T::Op<CausalTime<OT::Time>>: Serialize,
     {
@@ -435,7 +435,7 @@ impl<OT: OdysseyType> Odyssey<OT> {
             >,
         // OT::ECGBody<T>:
         //     Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
-        <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId:
+        <<OT as OssaType>::ECGHeader as ECGHeader>::HeaderId:
             Send + for<'d> Deserialize<'d> + Serialize,
         // T::Op<CausalTime<OT::Time>>: Serialize,
         T: CRDT<Time = OT::Time> + Debug + Clone + Send + 'static + for<'d> Deserialize<'d>,
@@ -516,7 +516,7 @@ pub struct OdysseyConfig {
 }
 
 pub struct StoreHandle<
-    O: OdysseyType,
+    O: OssaType,
     T: CRDT<Time = O::Time, Op: ConcretizeTime<<O::ECGHeader as ECGHeader>::HeaderId>>,
 >
 // where
@@ -529,7 +529,7 @@ pub struct StoreHandle<
 }
 
 /// Trait to define newtype wrapers that instantiate type families required by Odyssey.
-pub trait OdysseyType: 'static {
+pub trait OssaType: 'static {
     type StoreId: Debug
         + Display
         + Eq
@@ -572,7 +572,7 @@ pub trait OdysseyType: 'static {
 }
 
 impl<
-        O: OdysseyType,
+        O: OssaType,
         T: CRDT<Time = O::Time, Op: ConcretizeTime<<O::ECGHeader as ECGHeader>::HeaderId>>,
     > StoreHandle<O, T>
 // where
@@ -597,13 +597,13 @@ impl<
     // TODO: Don't take parents as an argument. Pull it from the state. XXX
     pub fn apply_batch(
         &mut self,
-        parents: BTreeSet<<<O as OdysseyType>::ECGHeader as ECGHeader>::HeaderId>,
+        parents: BTreeSet<<<O as OssaType>::ECGHeader as ECGHeader>::HeaderId>,
         op: Vec<<T::Op as ConcretizeTime<<O::ECGHeader as ECGHeader>::HeaderId>>::Serialized>, // T::Op<CausalTime<T::Time>>>,
                                                                                                // op: Vec<T::Op>,
     ) -> <O::ECGHeader as ECGHeader>::HeaderId
     where
         T::Op: ConcretizeTime<<O::ECGHeader as ECGHeader>::HeaderId>,
-        <O as OdysseyType>::ECGBody<T>: ECGBody<
+        <O as OssaType>::ECGBody<T>: ECGBody<
             T::Op,
             <T::Op as ConcretizeTime<<O::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
             Header = O::ECGHeader,
@@ -615,7 +615,7 @@ impl<
         // }
 
         // Create ECG header and body.
-        let body = <<O as OdysseyType>::ECGBody<T> as ECGBody<
+        let body = <<O as OssaType>::ECGBody<T> as ECGBody<
             T::Op,
             <T::Op as ConcretizeTime<<O::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
         >>::new_body(op);

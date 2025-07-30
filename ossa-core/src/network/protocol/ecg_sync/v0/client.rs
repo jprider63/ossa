@@ -7,7 +7,7 @@ use crate::network::protocol::ecg_sync::v0::{
 use crate::network::ConnectionManager;
 use crate::store::ecg::ECGHeader;
 use crate::util::Stream;
-use odyssey_crdt::CRDT;
+use ossa_crdt::CRDT;
 use std::collections::{BTreeSet, BinaryHeap};
 use std::fmt::Debug;
 use std::marker::PhantomData;

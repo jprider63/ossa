@@ -3,7 +3,7 @@ use daggy::petgraph::visit::{
 };
 use daggy::stable_dag::StableDag;
 use daggy::Walker;
-use odyssey_crdt::CRDT;
+use ossa_crdt::CRDT;
 use std::cmp::{self, Reverse};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;

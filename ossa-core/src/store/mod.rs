@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use odyssey_crdt::CRDT;
+use ossa_crdt::CRDT;
 use rand::{seq::SliceRandom as _, thread_rng};
 use replace_with::replace_with_or_abort;
 use serde::{Deserialize, Serialize};
@@ -23,7 +23,7 @@ use crate::time::ConcretizeTime;
 use crate::util::merkle_tree::{MerkleTree, Potential};
 use crate::{
     auth::DeviceId,
-    core::{OdysseyType, SharedState},
+    core::{OssaType, SharedState},
     network::{
         multiplexer::{run_miniprotocol_async, SpawnMultiplexerTask},
         protocol::MiniProtocol,
@@ -756,7 +756,7 @@ impl<
         operations: Vec<(Header, RawECGBody)>,
         listeners: &[UnboundedSender<StateUpdate<Header, T>>],
     ) where
-        OT: OdysseyType<ECGHeader = Header>,
+        OT: OssaType<ECGHeader = Header>,
         T: CRDT<Time = OT::Time> + Debug,
         OT::ECGBody<T>: for<'d> Deserialize<'d>
             + Debug
@@ -970,7 +970,7 @@ fn update_listeners<Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone>(
 
 // JP: Or should Odyssey own this/peers?
 /// Manage peers by ranking them, randomize, potentially connecting to some of them, etc.
-async fn manage_peers<OT: OdysseyType, T: CRDT<Time = OT::Time> + Clone + Send + 'static>(
+async fn manage_peers<OT: OssaType, T: CRDT<Time = OT::Time> + Clone + Send + 'static>(
     store: &mut State<OT::StoreId, OT::ECGHeader, T, OT::Hash>,
     shared_state: &SharedState<OT::StoreId>,
     send_commands: &UnboundedSender<
@@ -1054,7 +1054,7 @@ async fn manage_peers<OT: OdysseyType, T: CRDT<Time = OT::Time> + Clone + Send +
     }
 }
 
-fn apply_operations<OT: OdysseyType, T>(
+fn apply_operations<OT: OssaType, T>(
     decrypted_state: &mut DecryptedState<OT::ECGHeader, T>,
     ecg_state: &ecg::State<OT::ECGHeader, T>,
     operation_header: &OT::ECGHeader,
@@ -1079,7 +1079,7 @@ fn apply_operations<OT: OdysseyType, T>(
 
 /// Run the handler that owns this store and manages its state. This handler is typically run in
 /// its own tokio thread.
-pub(crate) async fn run_handler<OT: OdysseyType, T>(
+pub(crate) async fn run_handler<OT: OssaType, T>(
     mut store: State<OT::StoreId, OT::ECGHeader, T, OT::Hash>,
     mut recv_commands: UnboundedReceiver<StoreCommand<OT::ECGHeader, OT::ECGBody<T>, T>>,
     send_commands_untyped: UnboundedSender<
@@ -1090,7 +1090,7 @@ pub(crate) async fn run_handler<OT: OdysseyType, T>(
     >,
     shared_state: SharedState<OT::StoreId>,
 ) where
-    <OT as OdysseyType>::ECGHeader:
+    <OT as OssaType>::ECGHeader:
         Send + Sync + Clone + Serialize + for<'d> Deserialize<'d> + 'static,
     // <<OT as OdysseyType>::ECGHeader as ECGHeader>::Body: ECGBody<T> + Send,
     T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
@@ -1103,7 +1103,7 @@ pub(crate) async fn run_handler<OT: OdysseyType, T>(
             Header = OT::ECGHeader,
         >,
     //     ECGBody<T, Header = OT::ECGHeader> + Send + Serialize + for<'d> Deserialize<'d> + Debug,
-    <<OT as OdysseyType>::ECGHeader as ECGHeader>::HeaderId:
+    <<OT as OssaType>::ECGHeader as ECGHeader>::HeaderId:
         Send + Serialize + for<'d> Deserialize<'d>,
     // T::Op<CausalTime<T::Time>>: Serialize,
     T: CRDT<Time = OT::Time> + Debug + Clone + Send + 'static + for<'d> Deserialize<'d>,

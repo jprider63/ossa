@@ -22,7 +22,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::{PollSendError, PollSender};
 use tracing::{debug, error, trace, warn};
 
-use crate::core::{OdysseyType, StoreStatuses};
+use crate::core::{OssaType, StoreStatuses};
 use crate::store::ecg::ECGHeader;
 use crate::{
     network::protocol::{MiniProtocol, ProtocolError},
@@ -80,7 +80,7 @@ impl Multiplexer {
 
     /// Run the multiplexer with these initial mini protocols.
     /// The miniprotocols are assigned identifiers in order, starting at 0.
-    pub(crate) async fn run_with_miniprotocols<O: OdysseyType>(
+    pub(crate) async fn run_with_miniprotocols<O: OssaType>(
         mut self,
         mut stream: TcpStream,
         miniprotocols: Vec<
@@ -336,7 +336,7 @@ struct MiniprotocolState {
 }
 
 // JP: TODO: This O probably isn't needed.
-pub(crate) async fn run_miniprotocol_async<P: MiniProtocol, O: OdysseyType>(
+pub(crate) async fn run_miniprotocol_async<P: MiniProtocol, O: OssaType>(
     p: P,
     is_client: bool,
     stream_id: StreamId,

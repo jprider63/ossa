@@ -2,8 +2,8 @@
 resolver = "2"
 
 members = [
-    "odyssey-core",
-    "odyssey-crdt",
+    "ossa-core",
+    "ossa-crdt",
     "typeable",
     "typeable_derive",
 ]

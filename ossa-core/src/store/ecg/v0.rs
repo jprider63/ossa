@@ -1,4 +1,4 @@
-use odyssey_crdt::{time::CausalState, CRDT};
+use ossa_crdt::{time::CausalState, CRDT};
 use rand::Rng;
 use serde::{
     de::{MapAccess, Visitor},

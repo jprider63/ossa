@@ -1,4 +1,4 @@
-use odyssey_crdt::{map::twopmap::TwoPMapOp, register::LWW};
+use ossa_crdt::{map::twopmap::TwoPMapOp, register::LWW};
 use serde::{Deserialize, Serialize};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]

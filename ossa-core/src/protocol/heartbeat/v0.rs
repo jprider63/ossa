@@ -10,7 +10,7 @@ use tokio::{
 use tracing::debug;
 
 use crate::{
-    core::{OdysseyType, StoreStatuses},
+    core::{OssaType, StoreStatuses},
     network::protocol::{receive, send, MiniProtocol},
     util::Stream,
 };

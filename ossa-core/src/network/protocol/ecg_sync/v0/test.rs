@@ -1,8 +1,8 @@
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
-use odyssey_crdt::register::LWW;
-use odyssey_crdt::CRDT;
+use ossa_crdt::register::LWW;
+use ossa_crdt::CRDT;
 
 use crate::network::protocol::ecg_sync::v0::client::ecg_sync_client;
 use crate::network::protocol::ecg_sync::v0::server::ecg_sync_server;

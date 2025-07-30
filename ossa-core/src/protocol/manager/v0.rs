@@ -11,7 +11,7 @@ use tokio::time::{sleep, Duration};
 use tracing::{debug, error, info, warn};
 
 use crate::auth::DeviceId;
-use crate::core::{OdysseyType, StoreStatus, StoreStatuses};
+use crate::core::{OssaType, StoreStatus, StoreStatuses};
 use crate::network::multiplexer::{MultiplexerCommand, SpawnMultiplexerTask, StreamId};
 use crate::store::UntypedStoreCommand;
 use crate::{
