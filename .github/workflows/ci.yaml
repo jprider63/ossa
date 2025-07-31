@@ -14,8 +14,8 @@ jobs:
           # Disable warnings as errors
           rustflags: ""
       - run:
-	      sudo apt-get install -y libglib2.0-dev
-	      cargo test --all-features
+          sudo apt-get install -y libglib2.0-dev
+          cargo test --all-features
 
   # Check formatting with rustfmt
   formatting:
