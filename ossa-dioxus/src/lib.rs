@@ -1,7 +1,6 @@
-
 pub use dioxus;
 use dioxus::hooks::use_context;
-use dioxus::prelude::{current_scope_id, spawn_in_scope, use_hook, ScopeId, Task};
+use dioxus::prelude::{ScopeId, Task, current_scope_id, spawn_in_scope, use_hook};
 use dioxus::signals::{Readable as _, Signal, Writable as _};
 pub use dioxus_desktop;
 use tracing::debug;
@@ -11,14 +10,14 @@ use std::collections::BTreeSet;
 use std::panic::Location;
 use std::rc::Rc;
 
-use ossa_core::core::{StoreHandle};
+use ossa_core::Ossa;
+use ossa_core::core::OssaType;
+use ossa_core::core::StoreHandle;
 use ossa_core::store::ecg::v0::{Body, Header, HeaderId, OperationId};
 use ossa_core::store::ecg::{ECGBody, ECGHeader};
-use ossa_core::store::{ecg, StateUpdate};
-use ossa_core::core::OssaType;
+use ossa_core::store::{StateUpdate, ecg};
 use ossa_core::time::{CausalTime, ConcretizeTime};
 use ossa_core::util::Sha256Hash;
-use ossa_core::Ossa;
 use ossa_crdt::CRDT;
 
 // #[derive(Props, PartialEq)]
@@ -47,11 +46,12 @@ pub enum DefaultSetup {}
 impl OssaType for DefaultSetup {
     type Hash = Sha256Hash;
     type StoreId = Sha256Hash; // TODO
-                       // type ECGHeader<T: CRDT<Op: Serialize, Time = OperationId<HeaderId<Sha256Hash>>>> = Header<Sha256Hash, T>;
-                       // type ECGHeader<T: CRDT<Time = OperationId<HeaderId<Sha256Hash>>>> = Header<Sha256Hash, T>;
+    // type ECGHeader<T: CRDT<Op: Serialize, Time = OperationId<HeaderId<Sha256Hash>>>> = Header<Sha256Hash, T>;
+    // type ECGHeader<T: CRDT<Time = OperationId<HeaderId<Sha256Hash>>>> = Header<Sha256Hash, T>;
     type ECGHeader = Header<Sha256Hash>;
     // type ECGHeader<T: CRDT<Op: Serialize>> = Header<Sha256Hash, T>;
-    type ECGBody<T: CRDT<Op: ConcretizeTime<HeaderId<Sha256Hash>>>> = Body<Sha256Hash, <T::Op as ConcretizeTime<HeaderId<Sha256Hash>>>::Serialized>; // : CRDT<Time = Self::Time, Op: Serialize>> = Body<Sha256Hash, T>;
+    type ECGBody<T: CRDT<Op: ConcretizeTime<HeaderId<Sha256Hash>>>> =
+        Body<Sha256Hash, <T::Op as ConcretizeTime<HeaderId<Sha256Hash>>>::Serialized>; // : CRDT<Time = Self::Time, Op: Serialize>> = Body<Sha256Hash, T>;
 
     type Time = OperationId<HeaderId<Sha256Hash>>;
 
@@ -68,7 +68,10 @@ impl OssaType for DefaultSetup {
 }
 
 // TODO: Create `odyssey-dioxus` crate?
-pub struct UseStore<OT: OssaType + 'static, T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>> + 'static> {
+pub struct UseStore<
+    OT: OssaType + 'static,
+    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>> + 'static,
+> {
     future: Task,
     handle: Rc<RefCell<StoreHandle<OT, T>>>,
     // handle: StoreHandle<OT, T>,
@@ -81,12 +84,16 @@ pub struct UseStore<OT: OssaType + 'static, T: CRDT<Time = OT::Time, Op: Concret
 //     fn drop(&mut self) {
 //         // JP: Gracefully shutdown store receiver somehow?
 //         self.future.cancel();
-// 
+//
 //         self.state.manually_drop(); // JP: Is this needed?
 //     }
 // }
 
-impl<OT: OssaType + 'static, T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>> Clone for UseStore<OT, T> {
+impl<
+    OT: OssaType + 'static,
+    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>,
+> Clone for UseStore<OT, T>
+{
     fn clone(&self) -> Self {
         UseStore {
             future: self.future,
@@ -114,7 +121,11 @@ where
     }
 }
 
-pub fn use_store<OT: OssaType + 'static, T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>, F>(
+pub fn use_store<
+    OT: OssaType + 'static,
+    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>,
+    F,
+>(
     build_store_handle: F,
 ) -> UseStore<OT, T>
 where
@@ -126,7 +137,11 @@ where
     use_hook(|| new_store_helper(&odyssey, scope, caller, build_store_handle).unwrap())
 }
 
-fn new_store_helper<OT: OssaType + 'static, T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>, F>(
+fn new_store_helper<
+    OT: OssaType + 'static,
+    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>,
+    F,
+>(
     ossa: &Ossa<OT>,
     scope: ScopeId,
     caller: &'static Location,
@@ -160,7 +175,7 @@ where
                     };
                     state.set(Some(s));
                 }
-                StateUpdate::Downloading {percent} => {
+                StateUpdate::Downloading { percent } => {
                     debug!("Store is downloading ({percent}%)");
                     state.set(None);
                 }
@@ -175,10 +190,18 @@ where
     };
 
     let handle = Rc::new(RefCell::new(handle));
-    Some(UseStore { future, handle, state })
+    Some(UseStore {
+        future,
+        handle,
+        state,
+    })
 }
 
-pub fn new_store_in_scope<OT: OssaType + 'static, T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>, F>(
+pub fn new_store_in_scope<
+    OT: OssaType + 'static,
+    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>,
+    F,
+>(
     scope: ScopeId,
     build_store_handle: F,
 ) -> Option<UseStore<OT, T>>
@@ -260,29 +283,39 @@ where
 }
 */
 
-pub struct OperationBuilder<OT: OssaType, T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>> {
+pub struct OperationBuilder<
+    OT: OssaType,
+    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>,
+> {
     handle: Rc<RefCell<StoreHandle<OT, T>>>,
     parents: BTreeSet<<<OT as OssaType>::ECGHeader as ECGHeader>::HeaderId>,
     operations: Vec<<T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized>,
 }
 
 const MAX_OPS: usize = 256; // TODO: This is already defined somewhere else?
-impl<OT: OssaType, T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>> OperationBuilder<OT, T> {
+impl<
+    OT: OssaType,
+    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>,
+> OperationBuilder<OT, T>
+{
     /// Queue up an operation to apply.
     /// Cannot queue up more than 256 operations inside a single queue.
     /// This function will return `None` if more than 256 operations are queued.
-    /// Only refer to the returned time in other operations inside this queue, otherwise the time reference will be incorrect. 
+    /// Only refer to the returned time in other operations inside this queue, otherwise the time reference will be incorrect.
     pub fn queue<F>(&mut self, f: F) -> Option<CausalTime<OT::Time>>
     where
         OT::Time: Clone,
-        F: FnOnce(CausalTime<OT::Time>) -> <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
+        F: FnOnce(
+            CausalTime<OT::Time>,
+        )
+            -> <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
     {
         if self.operations.len() >= MAX_OPS {
             return None;
         }
         let t = CausalTime::current_time((self.operations.len()) as u8);
         self.operations.push(f(t.clone()));
-        
+
         Some(t)
     }
 
@@ -290,9 +323,15 @@ impl<OT: OssaType, T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as
     where
         // T::Op<CausalTime<OT::Time>>: Serialize,
         T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
-        OT::ECGBody<T>: ECGBody<T::Op, <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized, Header = OT::ECGHeader>,
+        OT::ECGBody<T>: ECGBody<
+                T::Op,
+                <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
+                Header = OT::ECGHeader,
+            >,
     {
-        (*self.handle).borrow_mut().apply_batch(self.parents, self.operations)
+        (*self.handle)
+            .borrow_mut()
+            .apply_batch(self.parents, self.operations)
 
         // let mut ops = vec![];
         // let mut ret = vec![];
@@ -313,7 +352,10 @@ impl<OT: OssaType, T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as
     }
 }
 
-impl<OT: OssaType, T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>> UseStore<OT, T>
+impl<
+    OT: OssaType,
+    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>,
+> UseStore<OT, T>
 // where
 //     T::Op<CausalTime<OT::Time>>: Serialize,
 {
@@ -350,14 +392,18 @@ impl<OT: OssaType, T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as
     // }
 
     /// Applies an operation to the Store's CRDT with the closure the builds the operation. If  you want to apply multiple operations, use `operation_builder`.
-    pub fn apply<F>(
-        &self,
-        op: F,
-    ) -> OperationId<<OT::ECGHeader as ECGHeader>::HeaderId>
+    pub fn apply<F>(&self, op: F) -> OperationId<<OT::ECGHeader as ECGHeader>::HeaderId>
     where
-        F: FnOnce(CausalTime<OT::Time>) -> <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
+        F: FnOnce(
+            CausalTime<OT::Time>,
+        )
+            -> <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
         T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
-        OT::ECGBody<T>: ECGBody<T::Op, <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized, Header = OT::ECGHeader>,
+        OT::ECGBody<T>: ECGBody<
+                T::Op,
+                <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
+                Header = OT::ECGHeader,
+            >,
     {
         let parent_header_ids = {
             let cookbook_store_state = self.state.peek();
@@ -373,9 +419,16 @@ impl<OT: OssaType, T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as
         op: F,
     ) -> OperationId<<OT::ECGHeader as ECGHeader>::HeaderId>
     where
-        F: FnOnce(CausalTime<OT::Time>) -> <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
+        F: FnOnce(
+            CausalTime<OT::Time>,
+        )
+            -> <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
         T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
-        OT::ECGBody<T>: ECGBody<T::Op, <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized, Header = OT::ECGHeader>,
+        OT::ECGBody<T>: ECGBody<
+                T::Op,
+                <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
+                Header = OT::ECGHeader,
+            >,
     {
         let t = CausalTime::current_time(0);
         let header_id = (*self.handle).borrow_mut().apply(parents, op(t));
@@ -398,7 +451,7 @@ impl<OT: OssaType, T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as
     // }
 
     pub fn operations_builder(&self) -> OperationBuilder<OT, T>
-    where 
+    where
         T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
     {
         let cookbook_store_state = self.state.peek();
