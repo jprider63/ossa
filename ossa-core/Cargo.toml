@@ -1,0 +1,33 @@
+[package]
+name = "ossa-core"
+version = "0.0.1"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-recursion = "*"
+async-session-types = "*"
+bitvec = {version="*", features = ["serde"]}
+bs58 = "*"
+bytes = "*"
+ed25519-dalek = {version="*", features = ["rand_core", "serde"]}
+daggy = {version="*", features=["stable_dag"]}
+futures = "*"
+hex = "*"
+itertools = "*"
+ossa-crdt = {path="../ossa-crdt"}
+rand = "*"
+rand_core = {version="^0.6.4", features=["std"]}
+replace_with = "*"
+serde = {version="*", features=["derive"]}
+serde_cbor = {version="*", features=[]}
+sha2 = "*"
+tokio = {version="1.43.0", features=["io-util","rt","rt-multi-thread","net"]}
+tokio-util = {version="*", features=["codec"]}
+tokio-stream = "*"
+tracing = "*"
+typeable = {path="../typeable", features=["serde"]}
+
+[dev-dependencies]
+petgraph = "*"
