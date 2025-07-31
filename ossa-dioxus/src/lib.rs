@@ -107,6 +107,16 @@ pub struct StoreState<OT: OssaType, T: CRDT<Time = OT::Time>> {
     ecg: ecg::State<OT::ECGHeader, T>,
 }
 
+impl<OT: OssaType, T: CRDT<Time = OT::Time>> StoreState<OT, T> {
+    pub fn state(&self) -> &T {
+        &self.state
+    }
+
+    pub fn ecg(&self) -> &ecg::State<OT::ECGHeader, T> {
+        &self.ecg
+    }
+}
+
 impl<OT: OssaType, T: CRDT<Time = OT::Time> + Clone> Clone for StoreState<OT, T>
 where
     <OT as OssaType>::ECGHeader: Clone,
