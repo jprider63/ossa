@@ -14,4 +14,4 @@ pub mod store;
 pub mod time;
 pub mod util;
 
-pub use core::{Odyssey, OdysseyConfig};
+pub use core::{Ossa, OssaConfig};

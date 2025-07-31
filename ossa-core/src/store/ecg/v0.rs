@@ -298,7 +298,7 @@ fn tmp_hash<T: Serialize, Hash: util::Hash>(x: &T) -> Hash {
 }
 
 // OperationID's are header ids and index (HeaderId, u8)
-// TODO: Move this to odyssey-crdt::time??
+// TODO: Move this to ossa-crdt::time??
 #[derive(Serialize, Deserialize, Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Typeable)]
 pub struct OperationId<HeaderId> {
     pub header_id: Option<HeaderId>, // None when in the initial state?

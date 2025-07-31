@@ -968,7 +968,7 @@ fn update_listeners<Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone>(
     }
 }
 
-// JP: Or should Odyssey own this/peers?
+// JP: Or should Ossa own this/peers?
 /// Manage peers by ranking them, randomize, potentially connecting to some of them, etc.
 async fn manage_peers<OT: OssaType, T: CRDT<Time = OT::Time> + Clone + Send + 'static>(
     store: &mut State<OT::StoreId, OT::ECGHeader, T, OT::Hash>,
@@ -1092,7 +1092,7 @@ pub(crate) async fn run_handler<OT: OssaType, T>(
 ) where
     <OT as OssaType>::ECGHeader:
         Send + Sync + Clone + Serialize + for<'d> Deserialize<'d> + 'static,
-    // <<OT as OdysseyType>::ECGHeader as ECGHeader>::Body: ECGBody<T> + Send,
+    // <<OT as OssaType>::ECGHeader as ECGHeader>::Body: ECGBody<T> + Send,
     T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
     OT::ECGBody<T>: Serialize
         + for<'d> Deserialize<'d>

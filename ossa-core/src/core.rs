@@ -28,10 +28,10 @@ use crate::store::{self, StateUpdate, StoreCommand, UntypedStoreCommand};
 use crate::time::ConcretizeTime;
 use crate::util::{self, TypedStream};
 
-pub struct Odyssey<OT: OssaType> {
-    /// Thread running the Odyssey server.
+pub struct Ossa<OT: OssaType> {
+    /// Thread running the Ossa server.
     thread: thread::JoinHandle<()>,
-    // command_channel: UnboundedSender<OdysseyCommand>,
+    // command_channel: UnboundedSender<OssaCommand>,
     tokio_runtime: Runtime,
     /// Active stores.
     // stores: BTreeMap<OT::StoreId,ActiveStore>,
@@ -46,7 +46,7 @@ pub struct Odyssey<OT: OssaType> {
 pub type StoreStatuses<StoreId, Hash, HeaderId, Header> =
     BTreeMap<StoreId, StoreStatus<Hash, HeaderId, Header>>; // Rename this MiniProtocolArgs?
 
-// pub enum StoreStatus<O: OdysseyType, T: CRDT<Time = O::Time>>
+// pub enum StoreStatus<O: OssaType, T: CRDT<Time = O::Time>>
 // where
 //     T::Op: Serialize,
 pub enum StoreStatus<Hash, HeaderId, Header> {
@@ -66,7 +66,7 @@ pub enum StoreStatus<Hash, HeaderId, Header> {
 }
 
 #[derive(Clone, Debug)]
-/// Odyssey state that is shared across multiple tasks.
+/// Ossa state that is shared across multiple tasks.
 pub(crate) struct SharedState<StoreId> {
     pub(crate) peer_state:
         Arc<RwLock<BTreeMap<DeviceId, UnboundedSender<PeerManagerCommand<StoreId>>>>>,
@@ -96,7 +96,7 @@ impl<Hash, HeaderId, Header> StoreStatus<Hash, HeaderId, Header> {
     }
 }
 
-impl<OT: OssaType> Odyssey<OT> {
+impl<OT: OssaType> Ossa<OT> {
     async fn bind_server_ipv4(mut port: u16) -> Option<TcpListener> {
         for _ in 0..10 {
             let address = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), port);
@@ -115,13 +115,13 @@ impl<OT: OssaType> Odyssey<OT> {
         None
     }
 
-    // Start odyssey.
-    pub fn start(config: OdysseyConfig) -> Self {
+    // Start ossa.
+    pub fn start(config: OssaConfig) -> Self {
         // TODO: Load identity or take it as an argument.
         let identity_keys = generate_identity();
 
-        // // Create channels to communicate with Odyssey thread.
-        // let (send_odyssey_commands, mut recv_odyssey_commands) = futures_channel::mpsc::unbounded();
+        // // Create channels to communicate with Ossa thread.
+        // let (send_ossa_commands, mut recv_ossa_commands) = futures_channel::mpsc::unbounded();
         let (active_stores, active_stores_receiver) = watch::channel(BTreeMap::new());
         let device_id = DeviceId::new(identity_keys.auth_key().verifying_key());
 
@@ -141,17 +141,17 @@ impl<OT: OssaType> Odyssey<OT> {
         let shared_state = shared_state_.clone();
 
         // Spawn server thread.
-        let odyssey_thread = thread::spawn(move || {
+        let ossa_thread = thread::spawn(move || {
             runtime_handle.block_on(async move {
                 // Start listening for connections.
-                let Some(listener) = Odyssey::<OT>::bind_server_ipv4(config.port).await else {
+                let Some(listener) = Ossa::<OT>::bind_server_ipv4(config.port).await else {
                     error!("Failed to start server.");
                     return;
                 };
 
                 // // Handle commands from application.
                 // tokio::spawn(async move {
-                //     while let Some(cmd) = recv_odyssey_commands.next().await {
+                //     while let Some(cmd) = recv_ossa_commands.next().await {
                 //         todo!();
                 //     }
 
@@ -225,9 +225,9 @@ impl<OT: OssaType> Odyssey<OT> {
 
         // TODO: Store identity key
 
-        Odyssey {
-            thread: odyssey_thread,
-            // command_channel: send_odyssey_commands,
+        Ossa {
+            thread: ossa_thread,
+            // command_channel: send_ossa_commands,
             tokio_runtime: runtime,
             active_stores,
             phantom: PhantomData,
@@ -510,8 +510,8 @@ async fn initiate_peer<StoreId>(
 }
 
 #[derive(Clone, Copy)]
-pub struct OdysseyConfig {
-    // IPv4 port to run Odyssey on.
+pub struct OssaConfig {
+    // IPv4 port to run Ossa on.
     pub port: u16,
 }
 
@@ -523,12 +523,12 @@ pub struct StoreHandle<
 //     // T::Op: Serialize,
 //     T::Op<CausalTime<OT::Time>>: Serialize,
 {
-    // future_handle: JoinHandle<()>, // JP: Maybe this should be owned by `Odyssey`?
+    // future_handle: JoinHandle<()>, // JP: Maybe this should be owned by `Ossa`?
     send_command_chan: UnboundedSender<StoreCommand<O::ECGHeader, O::ECGBody<T>, T>>,
     phantom: PhantomData<O>,
 }
 
-/// Trait to define newtype wrapers that instantiate type families required by Odyssey.
+/// Trait to define newtype wrapers that instantiate type families required by Ossa.
 pub trait OssaType: 'static {
     type StoreId: Debug
         + Display
@@ -644,7 +644,7 @@ impl<
     }
 }
 
-// pub enum OdysseyCommand {
+// pub enum OssaCommand {
 //     CreateStore {
 //         // Since Rust doesn't have existentials...
 //         initial_state: (), // Box<Dynamic>, // T
@@ -652,5 +652,5 @@ impl<
 //     },
 // }
 
-// fn handle_odyssey_command() {
+// fn handle_ossa_command() {
 // }
