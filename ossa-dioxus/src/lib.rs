@@ -41,24 +41,19 @@ impl<A: OssaType> OssaProp<A> {
     }
 }
 
+/// A default setup that implements `OssaType` with typical settings like using sha256 as the hash function.
 pub enum DefaultSetup {}
 
 impl OssaType for DefaultSetup {
     type Hash = Sha256Hash;
-    type StoreId = Sha256Hash; // TODO
-    // type ECGHeader<T: CRDT<Op: Serialize, Time = OperationId<HeaderId<Sha256Hash>>>> = Header<Sha256Hash, T>;
-    // type ECGHeader<T: CRDT<Time = OperationId<HeaderId<Sha256Hash>>>> = Header<Sha256Hash, T>;
+    type StoreId = Sha256Hash;
     type ECGHeader = Header<Sha256Hash>;
-    // type ECGHeader<T: CRDT<Op: Serialize>> = Header<Sha256Hash, T>;
     type ECGBody<T: CRDT<Op: ConcretizeTime<HeaderId<Sha256Hash>>>> =
-        Body<Sha256Hash, <T::Op as ConcretizeTime<HeaderId<Sha256Hash>>>::Serialized>; // : CRDT<Time = Self::Time, Op: Serialize>> = Body<Sha256Hash, T>;
+        Body<Sha256Hash, <T::Op as ConcretizeTime<HeaderId<Sha256Hash>>>::Serialized>;
 
     type Time = OperationId<HeaderId<Sha256Hash>>;
 
     type CausalState<T: CRDT<Time = Self::Time>> = ecg::State<Self::ECGHeader, T>;
-    // type ECGHeader<T> = Header<Sha256Hash, T>
-    //     where T: CRDT<Time = OperationId<HeaderId<Sha256Hash>>>;
-    // type ECGHeader<T> = Header<Sha256Hash, T>;
 
     fn to_causal_state<T: CRDT<Time = Self::Time>>(
         st: &ecg::State<Self::ECGHeader, T>,
@@ -67,7 +62,6 @@ impl OssaType for DefaultSetup {
     }
 }
 
-// TODO: Create `odyssey-dioxus` crate?
 pub struct UseStore<
     OT: OssaType + 'static,
     T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>> + 'static,
@@ -132,9 +126,9 @@ where
     F: FnOnce(&Ossa<OT>) -> StoreHandle<OT, T>,
 {
     let scope = current_scope_id().expect("Failed to get scope id");
-    let odyssey = use_context::<OssaProp<OT>>().ossa;
+    let ossa = use_context::<OssaProp<OT>>().ossa;
     let caller = std::panic::Location::caller();
-    use_hook(|| new_store_helper(&odyssey, scope, caller, build_store_handle).unwrap())
+    use_hook(|| new_store_helper(&ossa, scope, caller, build_store_handle).unwrap())
 }
 
 fn new_store_helper<
@@ -153,15 +147,10 @@ where
     let mut handle = build_store_handle(ossa);
     let mut recv_st = handle.subscribe_to_state();
 
-    // use_hook(|| Signal::new_maybe_sync_in_scope_with_caller(f(), scope, caller))
     let mut state = Signal::new_maybe_sync_in_scope_with_caller(None, scope, caller);
 
     let future = spawn_in_scope(scope, async move {
         debug!("Creating future for store");
-        //     let mut recv_state = handle2.subscribe_to_state();
-        //     // let mut recv_state = Rc::try_unwrap(recv_state).unwrap();
-        //     // let mut recv_state = recv_state.clone();
-        //     // let recv_state = Rc::get_mut(&mut recv_state).unwrap();
         while let Some(msg) = recv_st.recv().await {
             match msg {
                 StateUpdate::Snapshot {
@@ -213,76 +202,6 @@ where
     new_store_helper(&ossa, scope, caller, build_store_handle)
 }
 
-/*
-fn use_signal_in_scope<T: 'static>(scope: ScopeId, f: impl FnOnce() -> T) -> Signal<T, UnsyncStorage> {
-    let caller = std::panic::Location::caller();
-    use_hook(|| Signal::new_maybe_sync_in_scope_with_caller(f(), scope, caller))
-}
-
-// JP: Is this usage of ScopeId correct? Will this be deallocated properly?
-fn use_store_in_scope<OT: OssaType + 'static, T: CRDT<Time = OT::Time, Op: Serialize>, F>(
-    scope: ScopeId,
-    build_store_handle: F,
-) -> UseStore<OT, T>
-where
-    F: FnOnce(&Odyssey<CookbookApplication>) -> StoreHandle<OT, T>,
-{
-    // JP: How do we put this inside the `use_hook`?
-    let odyssey = use_context::<OssaProp<CookbookApplication>>().odyssey;
-    let (handle, mut recv_state) = use_hook(|| {
-        let mut h = build_store_handle(&odyssey);
-        let recv_st = h.subscribe_to_state();
-
-        // // Get current state.
-        // let st = recv_st.blocking_recv().unwrap();
-
-        let h = Rc::new(RefCell::new(h)); // JP: Annoyingly required since dioxus requires clone... XXX
-                                          // let st = Rc::new(st); // JP: Annoyingly required since dioxus requires clone... XXX
-                                          // let recv_st = Rc::new(recv_st); // JP: Annoyingly required since dioxus requires clone... XXX
-        let recv_st = CopyValue::new_in_scope(recv_st, scope); // JP: Annoyingly required since dioxus requires clone... XXX
-        (h, recv_st)
-    });
-    // let mut state = use_signal(|| None);
-    let mut state = use_signal_in_scope(scope, || None);
-    // let mut state: Signal<T> = use_signal(|| {
-    //     // let recv_state = Rc::get_mut(&mut recv_state).unwrap();
-    //     let init_st = recv_state.write().blocking_recv().unwrap();
-    //     init_st
-    //     // Rc::into_inner(init_st).unwrap()
-    // });
-    // let handle2 = handle.clone();
-    // TODO...
-    let future = use_future(move || async move {
-        debug!("Creating future for store");
-        //     let mut recv_state = handle2.subscribe_to_state();
-        //     // let mut recv_state = Rc::try_unwrap(recv_state).unwrap();
-        //     // let mut recv_state = recv_state.clone();
-        //     // let recv_state = Rc::get_mut(&mut recv_state).unwrap();
-        while let Some(msg) = recv_state.write().recv().await {
-            match msg {
-                StateUpdate::Snapshot {
-                    snapshot,
-                    ecg_state,
-                } => {
-                    debug!("Received state!");
-                    let s = StoreState {
-                        state: snapshot,
-                        ecg: ecg_state,
-                    };
-                    state.set(Some(s));
-                }
-                StateUpdate::Downloading {percent} => {
-                    debug!("Store is downloading ({percent}%)");
-                    state.set(None);
-                }
-            }
-        }
-        debug!("Future for store is exiting");
-    });
-    UseStore { future, handle, state }
-}
-*/
-
 pub struct OperationBuilder<
     OT: OssaType,
     T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>,
@@ -332,23 +251,6 @@ impl<
         (*self.handle)
             .borrow_mut()
             .apply_batch(self.parents, self.operations)
-
-        // let mut ops = vec![];
-        // let mut ret = vec![];
-        // for op in self.operations {
-        //     if ops.len() >= MAX_OPS {
-        //         ret.push((*self.handle).borrow_mut().apply_batch(self.parents.clone(), ops));
-        //         ops = vec![];
-        //     }
-
-        //     ops.push(op);
-        // }
-
-        // if !ops.is_empty() {
-        //     ret.push((*self.handle).borrow_mut().apply_batch(self.parents, ops));
-        // }
-
-        // ret
     }
 }
 
@@ -356,10 +258,7 @@ impl<
     OT: OssaType,
     T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>,
 > UseStore<OT, T>
-// where
-//     T::Op<CausalTime<OT::Time>>: Serialize,
 {
-    // TODO: Apply operations, get current state, etc
     pub fn get_current_state(&self) -> Option<T>
     where
         T: Clone,
@@ -375,21 +274,6 @@ impl<
     {
         self.state.cloned()
     }
-
-    // fn apply_helper(
-    //     &self,
-    //     op: T::Op<CausalTime<OT::Time>>,
-    // ) -> <OT::ECGHeader as ECGHeader>::HeaderId
-    // where
-    //     OT::ECGBody<T>: ECGBody<T, Header = OT::ECGHeader>,
-    // {
-    //     let parent_header_ids = {
-    //         let cookbook_store_state = self.state.peek();
-    //         let cookbook_store_state = cookbook_store_state.as_ref().expect("TODO");
-    //         cookbook_store_state.ecg.tips().clone()
-    //     };
-    //     (*self.handle).borrow_mut().apply(parent_header_ids, op)
-    // }
 
     /// Applies an operation to the Store's CRDT with the closure the builds the operation. If  you want to apply multiple operations, use `operation_builder`.
     pub fn apply<F>(&self, op: F) -> OperationId<<OT::ECGHeader as ECGHeader>::HeaderId>
