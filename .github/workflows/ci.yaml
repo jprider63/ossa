@@ -13,7 +13,7 @@ jobs:
         with:
           # Disable warnings as errors
           rustflags: ""
-      - run: cargo test --all-features
+      - run: cargo update && cargo test --all-features
 
   # Check formatting with rustfmt
   formatting:
