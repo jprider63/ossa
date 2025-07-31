@@ -39,6 +39,10 @@ impl<A: OssaType> OssaProp<A> {
             ossa: Rc::new(ossa),
         }
     }
+
+    pub fn ossa(&self) -> &Rc<Ossa<A>> {
+        &self.ossa
+    }
 }
 
 /// A default setup that implements `OssaType` with typical settings like using sha256 as the hash function.
