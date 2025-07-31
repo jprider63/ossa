@@ -1,0 +1,12 @@
+[package]
+name = "ossa-dioxus"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+dioxus = {git = "https://github.com/jprider63/dioxus.git", rev="cd3ff6d3644347163c249da8293a76db02044d03"}
+dioxus-desktop = {git = "https://github.com/jprider63/dioxus.git", rev="cd3ff6d3644347163c249da8293a76db02044d03"}
+ossa-core = {path="../ossa-core"}
+ossa-crdt = {path="../ossa-crdt"}
+tracing = "*"
+

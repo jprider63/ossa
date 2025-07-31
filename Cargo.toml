@@ -3,7 +3,7 @@ resolver = "2"
 
 members = [
     "ossa-core",
-    "ossa-crdt",
+    "ossa-crdt", "ossa-dioxus",
     "typeable",
     "typeable_derive",
 ]
