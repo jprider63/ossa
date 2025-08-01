@@ -1,6 +1,6 @@
 pub use dioxus;
 use dioxus::hooks::use_context;
-use dioxus::prelude::{ScopeId, Task, current_scope_id, use_hook};
+use dioxus::prelude::{ScopeId, Task, current_scope_id, spawn_in_scope, use_hook};
 use dioxus::signals::{Readable as _, Signal, Writable as _};
 pub use dioxus_desktop;
 use tracing::debug;
@@ -129,7 +129,6 @@ where
     }
 }
 
-/*
 pub fn use_store<
     OT: OssaType + 'static,
     T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>,
@@ -216,7 +215,6 @@ where
     let caller = std::panic::Location::caller();
     new_store_helper(&ossa, scope, caller, build_store_handle)
 }
-*/
 
 pub struct OperationBuilder<
     OT: OssaType,
