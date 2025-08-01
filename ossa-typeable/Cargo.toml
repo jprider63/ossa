@@ -16,4 +16,5 @@ lazy_static = "*"
 im = {version = "*", optional = true}
 serde = {version = "*", optional = true}
 sha2 = "*"
-ossa-typeable-derive = {path = "../ossa-typeable-derive"}
+# ossa-typeable-derive = {path = "../ossa-typeable-derive"}
+ossa-typeable-derive = "*"
