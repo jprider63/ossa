@@ -10,7 +10,7 @@ use std::{
     fmt::Debug,
     marker::PhantomData,
 };
-use typeable::Typeable;
+use ossa_typeable::Typeable;
 
 use crate::{
     store::ecg::{self, ECGBody, ECGHeader},

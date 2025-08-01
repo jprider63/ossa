@@ -16,7 +16,7 @@ use tokio::sync::{watch, RwLock};
 use tokio::task::JoinHandle;
 use tokio_util::codec::{self, LengthDelimitedCodec};
 use tracing::{debug, error, info, warn};
-use typeable::Typeable;
+use ossa_typeable::Typeable;
 
 use crate::auth::{generate_identity, DeviceId, Identity};
 use crate::network::protocol::{run_handshake_client, run_handshake_server, HandshakeError};

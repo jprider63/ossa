@@ -4,7 +4,7 @@ use serde::ser::{SerializeStruct, Serializer};
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug};
 use std::marker::PhantomData;
-use typeable::Typeable;
+use ossa_typeable::Typeable;
 
 use crate::time::CausalState;
 use crate::CRDT;

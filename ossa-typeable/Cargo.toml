@@ -1,0 +1,19 @@
+[package]
+name = "ossa-typeable"
+version = "0.0.1-alpha.1"
+edition = "2021"
+license = "MPL-2.0"
+description = "Unique identifiers for types."
+homepage = "https://github.com/jprider63/ossa"
+repository = "https://github.com/jprider63/ossa"
+
+[features]
+im = ["dep:im"]
+serde = ["dep:serde"]
+
+[dependencies]
+lazy_static = "*"
+im = {version = "*", optional = true}
+serde = {version = "*", optional = true}
+sha2 = "*"
+ossa-typeable-derive = {path = "../ossa-typeable-derive"}
