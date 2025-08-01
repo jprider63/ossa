@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 
-members = [
+members = [ "ossa",
     "ossa-core",
     "ossa-crdt",
     "ossa-dioxus",
