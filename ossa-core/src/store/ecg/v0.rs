@@ -1,4 +1,5 @@
 use ossa_crdt::{time::CausalState, CRDT};
+use ossa_typeable::Typeable;
 use rand::Rng;
 use serde::{
     de::{MapAccess, Visitor},
@@ -10,7 +11,6 @@ use std::{
     fmt::Debug,
     marker::PhantomData,
 };
-use ossa_typeable::Typeable;
 
 use crate::{
     store::ecg::{self, ECGBody, ECGHeader},

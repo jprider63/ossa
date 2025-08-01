@@ -1,7 +1,7 @@
+use ossa_typeable::{TypeId, Typeable};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use tracing::warn;
-use ossa_typeable::{TypeId, Typeable};
 
 use crate::util::merkle_tree::MerkleTree;
 use crate::util::{generate_nonce, Hash};
