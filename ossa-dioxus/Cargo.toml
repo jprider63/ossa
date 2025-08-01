@@ -8,8 +8,8 @@ homepage = "https://github.com/jprider63/ossa"
 repository = "https://github.com/jprider63/ossa"
 
 [dependencies]
-dioxus = {git = "https://github.com/jprider63/dioxus.git", rev="cd3ff6d3644347163c249da8293a76db02044d03"}
-dioxus-desktop = {git = "https://github.com/jprider63/dioxus.git", rev="cd3ff6d3644347163c249da8293a76db02044d03"}
+dioxus = {version = "0.6.0", git = "https://github.com/jprider63/dioxus.git", rev="cd3ff6d3644347163c249da8293a76db02044d03"}
+dioxus-desktop = {version = "0.6.0", git = "https://github.com/jprider63/dioxus.git", rev="cd3ff6d3644347163c249da8293a76db02044d03"}
 ossa-core = {version="0.0.1", path="../ossa-core"}
 ossa-crdt = {version="0.0.1", path="../ossa-crdt"}
 tracing = "0.1.41"
