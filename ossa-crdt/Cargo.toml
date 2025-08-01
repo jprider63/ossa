@@ -1,6 +1,6 @@
 [package]
 name = "ossa-crdt"
-version = "0.0.1-alpha.1"
+version = "0.0.1"
 edition = "2021"
 license = "MPL-2.0"
 description = "CRDTs for the Ossa Protocol."
@@ -12,5 +12,4 @@ repository = "https://github.com/jprider63/ossa"
 [dependencies]
 im = {version = "*", features = ["serde"] }
 serde = "*"
-# ossa-typeable = {path="../ossa-typeable"}
-ossa-typeable = "*"
+ossa-typeable = {version="*", path="../ossa-typeable"}
