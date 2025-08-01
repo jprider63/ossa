@@ -12,4 +12,5 @@ repository = "https://github.com/jprider63/ossa"
 [dependencies]
 im = {version = "*", features = ["serde"] }
 serde = "*"
-ossa-typeable = {path="../ossa-typeable"}
+# ossa-typeable = {path="../ossa-typeable"}
+ossa-typeable = "*"
