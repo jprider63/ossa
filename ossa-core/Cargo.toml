@@ -1,6 +1,6 @@
 [package]
 name = "ossa-core"
-version = "0.0.1-alpha.1"
+version = "0.0.1"
 edition = "2021"
 license = "MPL-2.0"
 description = "Rust implementation of the Ossa Protocol."
@@ -20,8 +20,7 @@ daggy = {version="*", features=["stable_dag"]}
 futures = "*"
 hex = "*"
 itertools = "*"
-# ossa-crdt = {path="../ossa-crdt"}
-ossa-crdt = "*"
+ossa-crdt = {version="*", path="../ossa-crdt"}
 rand = "*"
 rand_core = {version="^0.6.4", features=["std"]}
 replace_with = "*"
@@ -32,8 +31,7 @@ tokio = {version="1.43.0", features=["io-util","rt","rt-multi-thread","net"]}
 tokio-util = {version="*", features=["codec"]}
 tokio-stream = "*"
 tracing = "*"
-# ossa-typeable = {path="../ossa-typeable", features=["serde"]}
-ossa-typeable = {version="*", features=["serde"]}
+ossa-typeable = {version="*", path="../ossa-typeable", features=["serde"]}
 
 [dev-dependencies]
 petgraph = "*"
