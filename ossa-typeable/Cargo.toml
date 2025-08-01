@@ -12,8 +12,8 @@ im = ["dep:im"]
 serde = ["dep:serde"]
 
 [dependencies]
-lazy_static = "*"
-im = {version = "*", optional = true}
-serde = {version = "*", optional = true}
-sha2 = "*"
-ossa-typeable-derive = {version="*", path = "../ossa-typeable-derive"}
+lazy_static = "1.5.0"
+im = {version = "15.1.0", optional = true}
+serde = {version = "1.0.219", optional = true}
+sha2 = "0.10.9"
+ossa-typeable-derive = {version="0.0.1", path = "../ossa-typeable-derive"}
