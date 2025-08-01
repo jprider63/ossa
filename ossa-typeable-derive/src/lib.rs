@@ -18,7 +18,7 @@ pub fn typeable_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
 fn impl_type_ident(t: &Type) -> TokenStream {
     quote! {
-        h.update(<#t as typeable::Typeable>::type_ident().identifier());
+        h.update(<#t as ossa_typeable::Typeable>::type_ident().identifier());
     }
 }
 
@@ -143,7 +143,7 @@ fn impl_where(ast: &syn::DeriveInput) -> TokenStream {
 
     let constraints = TokenStream::from_iter(extract_field_types(&ast.data).iter().map(|t| {
         quote! {
-            #t: typeable::Typeable,
+            #t: ossa_typeable::Typeable,
         }
     }));
 
@@ -220,9 +220,9 @@ fn impl_typeable_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
 
     let gen = quote! {
         #[automatically_derived]
-        impl<#type_args> typeable::Typeable for #name<#abbr_type_args> #where_clause {
-            fn type_ident() -> typeable::TypeId {
-                use typeable::internal::*;
+        impl<#type_args> ossa_typeable::Typeable for #name<#abbr_type_args> #where_clause {
+            fn type_ident() -> ossa_typeable::TypeId {
+                use ossa_typeable::internal::*;
 
                 let mut h = Sha256::new();
                 helper_type_constructor(&mut h, #name_lit);
@@ -231,7 +231,7 @@ fn impl_typeable_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
                 #tag
                 #body
 
-                typeable::TypeId::new(h.finalize().into())
+                ossa_typeable::TypeId::new(h.finalize().into())
             }
         }
     };

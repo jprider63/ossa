@@ -1,0 +1,12 @@
+[package]
+name = "ossa"
+version = "0.0.1"
+edition = "2024"
+license = "MPL-2.0"
+description = "Rust implementation of the Ossa Protocol."
+homepage = "https://github.com/jprider63/ossa"
+repository = "https://github.com/jprider63/ossa"
+
+
+[dependencies]
+ossa-core="0.0.1"
