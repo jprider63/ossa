@@ -2,6 +2,7 @@ use ossa_crdt::time::CausalState;
 // use futures::{SinkExt, StreamExt};
 // use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use ossa_crdt::CRDT;
+use ossa_typeable::Typeable;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Debug, Display};
@@ -16,7 +17,6 @@ use tokio::sync::{watch, RwLock};
 use tokio::task::JoinHandle;
 use tokio_util::codec::{self, LengthDelimitedCodec};
 use tracing::{debug, error, info, warn};
-use ossa_typeable::Typeable;
 
 use crate::auth::{generate_identity, DeviceId, Identity};
 use crate::network::protocol::{run_handshake_client, run_handshake_server, HandshakeError};

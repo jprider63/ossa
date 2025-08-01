@@ -1,10 +1,10 @@
 use im::{OrdMap, OrdSet};
+use ossa_typeable::Typeable;
 use serde::de::{MapAccess, Visitor};
 use serde::ser::{SerializeStruct, Serializer};
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug};
 use std::marker::PhantomData;
-use ossa_typeable::Typeable;
 
 use crate::time::CausalState;
 use crate::CRDT;

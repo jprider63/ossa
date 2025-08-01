@@ -3,6 +3,7 @@ pub mod merkle_tree;
 use bytes::{Bytes, BytesMut};
 use futures;
 use futures::task::{Context, Poll};
+use ossa_typeable::Typeable;
 use rand::{rngs::OsRng, TryRngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -11,7 +12,6 @@ use std::marker::PhantomData;
 use std::ops::{Add, Range};
 use std::pin::Pin;
 use tokio::sync::mpsc::{Receiver, Sender};
-use ossa_typeable::Typeable;
 
 use crate::network::protocol::ProtocolError;
 use crate::store::Nonce;

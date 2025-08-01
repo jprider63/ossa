@@ -1,5 +1,6 @@
 use itertools::Itertools;
 use ossa_crdt::CRDT;
+use ossa_typeable::{TypeId, Typeable};
 use rand::{seq::SliceRandom as _, thread_rng};
 use replace_with::replace_with_or_abort;
 use serde::{Deserialize, Serialize};
@@ -16,7 +17,6 @@ use tokio::{
     task::JoinHandle,
 };
 use tracing::{debug, error, warn};
-use ossa_typeable::{TypeId, Typeable};
 
 use crate::store::v0::BLOCK_SIZE;
 use crate::time::ConcretizeTime;
