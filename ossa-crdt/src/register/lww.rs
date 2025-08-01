@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
-use typeable::Typeable;
+use ossa_typeable::Typeable;
 
 use crate::{
     time::{compare_with_tiebreak, CausalState},

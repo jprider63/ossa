@@ -11,7 +11,7 @@ use std::marker::PhantomData;
 use std::ops::{Add, Range};
 use std::pin::Pin;
 use tokio::sync::mpsc::{Receiver, Sender};
-use typeable::Typeable;
+use ossa_typeable::Typeable;
 
 use crate::network::protocol::ProtocolError;
 use crate::store::Nonce;

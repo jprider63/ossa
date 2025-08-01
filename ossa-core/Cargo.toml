@@ -1,7 +1,11 @@
 [package]
 name = "ossa-core"
-version = "0.0.1"
+version = "0.0.1-alpha.1"
 edition = "2021"
+license = "MPL-2.0"
+description = "Rust implementation of the Ossa Protocol."
+homepage = "https://github.com/jprider63/ossa"
+repository = "https://github.com/jprider63/ossa"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -27,7 +31,7 @@ tokio = {version="1.43.0", features=["io-util","rt","rt-multi-thread","net"]}
 tokio-util = {version="*", features=["codec"]}
 tokio-stream = "*"
 tracing = "*"
-typeable = {path="../typeable", features=["serde"]}
+ossa-typeable = {path="../ossa-typeable", features=["serde"]}
 
 [dev-dependencies]
 petgraph = "*"

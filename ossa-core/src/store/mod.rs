@@ -16,7 +16,7 @@ use tokio::{
     task::JoinHandle,
 };
 use tracing::{debug, error, warn};
-use typeable::{TypeId, Typeable};
+use ossa_typeable::{TypeId, Typeable};
 
 use crate::store::v0::BLOCK_SIZE;
 use crate::time::ConcretizeTime;

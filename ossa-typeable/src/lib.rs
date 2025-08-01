@@ -8,7 +8,7 @@ use internal::helper_string_non_ascii;
 use lazy_static::lazy_static;
 use sha2::{Digest, Sha256};
 use std::fmt;
-pub use typeable_derive::Typeable;
+pub use ossa_typeable_derive::Typeable;
 
 use crate::internal::{
     helper_type_args_count, helper_type_constructor, helper_type_ident, helper_usize,

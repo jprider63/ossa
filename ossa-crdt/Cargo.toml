@@ -1,11 +1,15 @@
 [package]
 name = "ossa-crdt"
-version = "0.0.1"
+version = "0.0.1-alpha.1"
 edition = "2021"
+license = "MPL-2.0"
+description = "CRDTs for the Ossa Protocol."
+homepage = "https://github.com/jprider63/ossa"
+repository = "https://github.com/jprider63/ossa"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 im = {version = "*", features = ["serde"] }
 serde = "*"
-typeable = {path="../typeable"}
+ossa-typeable = {path="../ossa-typeable"}
