@@ -1,8 +1,4 @@
-use igd_next::aio::tokio::search_gateway;
-use igd_next::{PortMappingProtocol, SearchOptions};
 use ossa_crdt::time::CausalState;
-// use futures::{SinkExt, StreamExt};
-// use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use ossa_crdt::CRDT;
 use ossa_typeable::Typeable;
 use serde::{Deserialize, Serialize};
@@ -10,6 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Debug, Display};
 use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddrV4};
+use std::num::NonZero;
 use std::sync::Arc;
 use std::thread;
 use tokio::net::{TcpListener, TcpStream};
@@ -25,7 +22,7 @@ use crate::network::protocol::{run_handshake_client, run_handshake_server, Hands
 use crate::protocol::manager::v0::PeerManagerCommand;
 use crate::protocol::MiniProtocolArgs;
 use crate::storage::Storage;
-use crate::store::ecg::{self, ECGBody, ECGHeader};
+use crate::store::ecg::{ECGBody, ECGHeader};
 use crate::store::{self, StateUpdate, StoreCommand, UntypedStoreCommand};
 use crate::time::ConcretizeTime;
 use crate::util::{self, TypedStream};
@@ -152,7 +149,7 @@ impl<OT: OssaType> Ossa<OT> {
                 };
 
                 // If UPNP is enabled, attempt to open port.
-                if config.upnp {
+                if config.nat_traversal {
                     tokio::spawn(async move {
                         manage_nat(addr).await;
                     });
@@ -502,30 +499,27 @@ impl<OT: OssaType> Ossa<OT> {
 
 /// Thread to handle NAT traversals using UPnP IGD.
 async fn manage_nat(local_addr: SocketAddrV4) {
-    let options = SearchOptions::default();
-    let gateway_e = search_gateway(options).await;
-    let gateway = match gateway_e {
-        Err(e) => {
-            warn!("Error seaching for UPnP gateway: {e}");
-            // TODO: Exponential backoff and retry.
-            return;
-        }
-        Ok(gateway) => {
-            gateway
-        }
+    let config = portmapper::Config {
+        // enable_upnp: false,
+        .. Default::default()
     };
+    let portmapper = portmapper::Client::new(config);
+    let mut watcher = portmapper.watch_external_address();
 
-    let lease_in_seconds = 10*60;
-    let local_addr = std::net::SocketAddr::V4(local_addr);
-    let res = gateway.get_any_address(PortMappingProtocol::TCP, local_addr, lease_in_seconds, "Ossa").await;
-    match res {
-        Ok(addr) => info!("External IP address: {addr}"),
-        Err(err) => warn!("Failed to bind external IP address: {err}"),
+    let res = portmapper.probe().await.unwrap().unwrap();
+    debug!("Available NAT traversal protocols: {res:?}");
+
+    let port = NonZero::new(local_addr.port()).expect("0 is not a valid port");
+    portmapper.update_local_port(port);
+
+    loop {
+        println!("External IP address: {:?}", *watcher.borrow_and_update());
+        if watcher.changed().await.is_err() {
+            break;
+        }
     }
 
-    // loop {
-    // TODO: Keep renewing port
-    // }
+    info!("External NAT IP address terminated");
 }
 
 /// Initiates a peer by creating a channel to send commands and by inserting it into the shared state. On success, returns the receiver. If the peer already exists, fails with `None`.
@@ -551,7 +545,7 @@ pub struct OssaConfig {
     /// IPv4 port to run Ossa on.
     pub port: u16,
     /// Whether or not to attempt NAT traversal using UPnP IGD.
-    pub upnp: bool,
+    pub nat_traversal: bool,
 }
 
 pub struct StoreHandle<
