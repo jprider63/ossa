@@ -501,7 +501,7 @@ impl<OT: OssaType> Ossa<OT> {
 async fn manage_nat(local_addr: SocketAddrV4) {
     let config = portmapper::Config {
         // enable_upnp: false,
-        .. Default::default()
+        ..Default::default()
     };
     let portmapper = portmapper::Client::new(config);
     let mut watcher = portmapper.watch_external_address();
