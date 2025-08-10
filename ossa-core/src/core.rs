@@ -373,13 +373,14 @@ impl<OT: OssaType> Ossa<OT> {
         // Spawn async.
         let future_handle = self.tokio_runtime.spawn(async move {
             // Attempt to connect to peer, returning message on failure.
+            info!("Connecting to peer: {address}");
             let mut stream = match TcpStream::connect(address).await {
                 Ok(tcpstream) => {
                     let stream = codec::Framed::new(tcpstream, LengthDelimitedCodec::new());
                     TypedStream::new(stream)
                 }
                 Err(err) => {
-                    todo!("TODO: Log error");
+                    warn!("Failed to connect to peer: {err}");
                     return;
                 }
             };
@@ -510,10 +511,11 @@ async fn manage_nat(local_addr: SocketAddrV4) {
     debug!("Available NAT traversal protocols: {res:?}");
 
     let port = NonZero::new(local_addr.port()).expect("0 is not a valid port");
+    info!("Attempting to create external address for port: {:?}", port);
     portmapper.update_local_port(port);
 
     loop {
-        println!("External IP address: {:?}", *watcher.borrow_and_update());
+        info!("External IP address: {:?}", *watcher.borrow_and_update());
         if watcher.changed().await.is_err() {
             break;
         }
