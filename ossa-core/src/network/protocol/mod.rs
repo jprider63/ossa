@@ -5,9 +5,7 @@ use std::any::type_name;
 use std::fmt::Debug;
 use std::future::Future;
 use std::marker::Send;
-use tokio_util::{
-    sync::PollSendError,
-};
+use tokio_util::sync::PollSendError;
 use tracing::{error, info, trace};
 
 use crate::protocol::v0::{
@@ -16,10 +14,7 @@ use crate::protocol::v0::{
 use crate::protocol::Version;
 use crate::store::v0::MetadataHeader;
 use crate::util::Stream;
-use crate::{
-    auth::DeviceId,
-    network::multiplexer,
-};
+use crate::{auth::DeviceId, network::multiplexer};
 
 // TODO: Move these tests over and delete these old modules
 #[cfg(test)]

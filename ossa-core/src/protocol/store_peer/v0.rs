@@ -6,7 +6,7 @@ use tokio::sync::{
     mpsc::{UnboundedReceiver, UnboundedSender},
     oneshot,
 };
-use tracing::{debug};
+use tracing::debug;
 
 use crate::{
     auth::DeviceId,

@@ -1,7 +1,5 @@
 #[cfg(test)]
-use daggy::petgraph::visit::{
-    EdgeRef, IntoEdgeReferences, IntoNodeReferences, NodeRef,
-};
+use daggy::petgraph::visit::{EdgeRef, IntoEdgeReferences, IntoNodeReferences, NodeRef};
 use daggy::stable_dag::StableDag;
 use daggy::Walker;
 use ossa_crdt::CRDT;

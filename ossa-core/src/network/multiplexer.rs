@@ -12,16 +12,14 @@ use tokio::sync::oneshot;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
-    sync::{
-        mpsc::{self, Receiver, Sender},
-    },
+    sync::mpsc::{self, Receiver, Sender},
     task::JoinHandle,
 };
 use tokio_stream::wrappers::ReceiverStream;
-use tokio_util::sync::{PollSender};
+use tokio_util::sync::PollSender;
 use tracing::{debug, error, trace, warn};
 
-use crate::core::{OssaType};
+use crate::core::OssaType;
 use crate::store::ecg::ECGHeader;
 use crate::{
     network::protocol::{MiniProtocol, ProtocolError},

@@ -6,11 +6,7 @@ use serde::{
     ser::{SerializeStruct, Serializer},
     Deserialize, Serialize,
 };
-use std::{
-    collections::BTreeSet,
-    fmt::Debug,
-    marker::PhantomData,
-};
+use std::{collections::BTreeSet, fmt::Debug, marker::PhantomData};
 
 use crate::{
     store::ecg::{self, ECGBody, ECGHeader},

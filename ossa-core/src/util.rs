@@ -330,7 +330,7 @@ impl<T> futures::Sink<T> for Channel<T> {
 }
 
 #[cfg(test)]
-use tokio::sync::mpsc::{UnboundedSender};
+use tokio::sync::mpsc::UnboundedSender;
 #[cfg(test)]
 use tokio_stream::wrappers::UnboundedReceiverStream;
 

@@ -2,9 +2,7 @@ use rand::{rng, Rng};
 use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::time::SystemTime;
-use tokio::{
-    time::{sleep, Duration},
-};
+use tokio::time::{sleep, Duration};
 use tracing::debug;
 
 use crate::{

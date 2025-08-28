@@ -1,6 +1,6 @@
 use itertools::Itertools;
 use ossa_crdt::CRDT;
-use ossa_typeable::{Typeable};
+use ossa_typeable::Typeable;
 use rand::{seq::SliceRandom as _, thread_rng};
 use replace_with::replace_with_or_abort;
 use serde::{Deserialize, Serialize};
@@ -9,11 +9,9 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     ops::Range,
 };
-use tokio::{
-    sync::{
-        mpsc::{UnboundedReceiver, UnboundedSender},
-        oneshot::{self, Sender},
-    },
+use tokio::sync::{
+    mpsc::{UnboundedReceiver, UnboundedSender},
+    oneshot::{self, Sender},
 };
 use tracing::{debug, error, warn};
 
@@ -23,9 +21,7 @@ use crate::util::merkle_tree::{MerkleTree, Potential};
 use crate::{
     auth::DeviceId,
     core::{OssaType, SharedState},
-    network::{
-        multiplexer::{run_miniprotocol_async, SpawnMultiplexerTask},
-    },
+    network::multiplexer::{run_miniprotocol_async, SpawnMultiplexerTask},
     protocol::{
         manager::v0::PeerManagerCommand,
         store_peer::v0::{StoreSync, StoreSyncCommand},

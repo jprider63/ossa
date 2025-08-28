@@ -6,9 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use tokio::{
     net::TcpStream,
-    sync::{
-        mpsc::{self, Receiver, Sender, UnboundedSender},
-    },
+    sync::mpsc::{self, Receiver, Sender, UnboundedSender},
 };
 
 use crate::protocol::heartbeat::v0::Heartbeat;
@@ -16,9 +14,9 @@ use crate::protocol::manager::v0::Manager;
 use crate::protocol::MiniProtocolArgs;
 use crate::store;
 use crate::{
-    core::{OssaType},
-    network::{
-        multiplexer::{run_miniprotocol_async, Multiplexer, MultiplexerCommand, Party, StreamId},
+    core::OssaType,
+    network::multiplexer::{
+        run_miniprotocol_async, Multiplexer, MultiplexerCommand, Party, StreamId,
     },
     store::ecg::ECGHeader,
 };
