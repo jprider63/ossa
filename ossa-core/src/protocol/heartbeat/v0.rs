@@ -1,16 +1,13 @@
 use rand::{rng, Rng};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
 use std::future::Future;
 use std::time::SystemTime;
 use tokio::{
-    sync::watch,
     time::{sleep, Duration},
 };
 use tracing::debug;
 
 use crate::{
-    core::{OssaType, StoreStatuses},
     network::protocol::{receive, send, MiniProtocol},
     util::Stream,
 };

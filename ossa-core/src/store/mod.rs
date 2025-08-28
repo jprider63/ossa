@@ -1,6 +1,6 @@
 use itertools::Itertools;
 use ossa_crdt::CRDT;
-use ossa_typeable::{TypeId, Typeable};
+use ossa_typeable::{Typeable};
 use rand::{seq::SliceRandom as _, thread_rng};
 use replace_with::replace_with_or_abort;
 use serde::{Deserialize, Serialize};
@@ -14,7 +14,6 @@ use tokio::{
         mpsc::{UnboundedReceiver, UnboundedSender},
         oneshot::{self, Sender},
     },
-    task::JoinHandle,
 };
 use tracing::{debug, error, warn};
 
@@ -26,11 +25,10 @@ use crate::{
     core::{OssaType, SharedState},
     network::{
         multiplexer::{run_miniprotocol_async, SpawnMultiplexerTask},
-        protocol::MiniProtocol,
     },
     protocol::{
         manager::v0::PeerManagerCommand,
-        store_peer::v0::{MsgStoreSyncRequest, StoreSync, StoreSyncCommand},
+        store_peer::v0::{StoreSync, StoreSyncCommand},
     },
     store::{
         ecg::{ECGBody, ECGHeader, RawECGBody},
@@ -1025,7 +1023,7 @@ async fn manage_peers<OT: OssaType, T: CRDT<Time = OT::Time> + Clone + Send + 's
 
                 // Start miniprotocol as server.
                 let mp = StoreSync::<OT::Hash, _, _>::new_server(peer_id, recv_peer, send_commands);
-                run_miniprotocol_async::<_, OT>(mp, false, stream_id, sender, receiver).await;
+                run_miniprotocol_async(mp, false, stream_id, sender, receiver).await;
 
                 debug!("Store sync with peer (with initiative) exited.")
 
@@ -1272,7 +1270,7 @@ pub(crate) async fn run_handler<OT: OssaType, T>(
 
                                             // Start miniprotocol as client.
                                             let mp = StoreSync::<OT::Hash, _, _>::new_client(peer, send_commands_untyped);
-                                            run_miniprotocol_async::<_, OT>(mp, true, stream_id, sender, receiver).await;
+                                            run_miniprotocol_async(mp, true, stream_id, sender, receiver).await;
                                             debug!("Store sync with peer (without initiative) exited.")
                                         })
                                     });

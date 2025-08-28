@@ -1,6 +1,6 @@
 use crate::store::ecg::{self, ECGHeader};
 use crate::util::is_power_of_two;
-use async_session_types::{Eps, Recv, Send};
+use async_session_types::{Eps, Send};
 use bitvec::{order::Msb0, BitArr};
 use ossa_crdt::CRDT;
 use std::cmp::Reverse;

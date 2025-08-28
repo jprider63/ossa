@@ -1,4 +1,4 @@
-use std::{fmt::Debug, future::Future, marker::PhantomData, ops::Range};
+use std::{fmt::Debug, future::Future, ops::Range};
 
 use bitvec::{order::Msb0, BitArr};
 use serde::{Deserialize, Serialize};
@@ -6,7 +6,7 @@ use tokio::sync::{
     mpsc::{UnboundedReceiver, UnboundedSender},
     oneshot,
 };
-use tracing::{debug, warn};
+use tracing::{debug};
 
 use crate::{
     auth::DeviceId,

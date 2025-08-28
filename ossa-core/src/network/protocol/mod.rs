@@ -1,19 +1,14 @@
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
-use serde_cbor::to_vec;
 use std::any::type_name;
-use std::collections::BTreeSet;
 use std::fmt::Debug;
 use std::future::Future;
 use std::marker::Send;
-use tokio::net::TcpStream;
-use tokio::sync::watch;
 use tokio_util::{
-    codec::{self, LengthDelimitedCodec},
     sync::PollSendError,
 };
-use tracing::{debug, error, info, trace};
+use tracing::{error, info, trace};
 
 use crate::protocol::v0::{
     MsgStoreMetadataHeader, StoreMetadataHeaderRequest, StoreMetadataHeaderResponse,
@@ -23,11 +18,13 @@ use crate::store::v0::MetadataHeader;
 use crate::util::Stream;
 use crate::{
     auth::DeviceId,
-    core::{OssaType, StoreStatuses},
     network::multiplexer,
 };
 
+// TODO: Move these tests over and delete these old modules
+#[cfg(test)]
 pub mod ecg_sync;
+#[cfg(test)]
 pub mod keep_alive;
 
 pub(crate) trait MiniProtocol: Send {

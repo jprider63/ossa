@@ -5,7 +5,7 @@ use tracing::warn;
 
 use crate::util::merkle_tree::MerkleTree;
 use crate::util::{generate_nonce, Hash};
-use crate::{protocol, util};
+use crate::{protocol};
 
 // pub struct Store<Id, T> {
 //     id: Id,

@@ -4,30 +4,29 @@ use futures;
 use futures::task::{Context, Poll};
 use serde::{Deserialize, Serialize};
 use std::cmp::min;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::marker::PhantomData;
 use std::pin::Pin;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::oneshot;
 use tokio::{
-    io::{simplex, AsyncReadExt, AsyncWriteExt, SimplexStream, WriteHalf},
+    io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
     sync::{
         mpsc::{self, Receiver, Sender},
-        watch,
     },
     task::JoinHandle,
 };
 use tokio_stream::wrappers::ReceiverStream;
-use tokio_util::sync::{PollSendError, PollSender};
+use tokio_util::sync::{PollSender};
 use tracing::{debug, error, trace, warn};
 
-use crate::core::{OssaType, StoreStatuses};
+use crate::core::{OssaType};
 use crate::store::ecg::ECGHeader;
 use crate::{
     network::protocol::{MiniProtocol, ProtocolError},
     protocol::v0::MiniProtocols,
-    util::{self, TypedStream},
+    util,
 };
 
 const OUTGOING_CAPACITY: usize = 32;
@@ -103,7 +102,7 @@ impl Multiplexer {
             let (sender, receiver) = mpsc::channel(PROTOCOL_INCOMING_CAPACITY);
 
             // Spawn async for the miniprotocol.
-            let handle = tokio::spawn(p.run_async::<O>(
+            let handle = tokio::spawn(p.run_async(
                 self.party.is_client(),
                 protocol_id,
                 outgoing_channel_send,
@@ -336,7 +335,7 @@ struct MiniprotocolState {
 }
 
 // JP: TODO: This O probably isn't needed.
-pub(crate) async fn run_miniprotocol_async<P: MiniProtocol, O: OssaType>(
+pub(crate) async fn run_miniprotocol_async<P: MiniProtocol>(
     p: P,
     is_client: bool,
     stream_id: StreamId,

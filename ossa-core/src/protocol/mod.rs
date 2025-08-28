@@ -47,7 +47,7 @@ impl Version {
         *self as u8
     }
 
-    pub async fn run_miniprotocols_server<O: OssaType>(
+    pub(crate) async fn run_miniprotocols_server<O: OssaType>(
         &self,
         stream: TcpStream,
         args: MiniProtocolArgs<
@@ -62,7 +62,7 @@ impl Version {
         }
     }
 
-    pub async fn run_miniprotocols_client<O: OssaType>(
+    pub(crate) async fn run_miniprotocols_client<O: OssaType>(
         &self,
         stream: TcpStream,
         args: MiniProtocolArgs<

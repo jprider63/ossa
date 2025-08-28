@@ -1,34 +1,24 @@
-use std::collections::BTreeSet;
 use std::marker::Send;
 
 // use async_session_types::{Eps, Recv, Send};
-use bytes::{BufMut, Bytes, BytesMut};
-use futures::{SinkExt, StreamExt};
+use bytes::{Bytes, BytesMut};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
-    runtime::Runtime,
     sync::{
         mpsc::{self, Receiver, Sender, UnboundedSender},
-        watch,
     },
 };
-use tokio_stream::wrappers::ReceiverStream;
-use tokio_util::sync::{PollSendError, PollSender};
 
 use crate::protocol::heartbeat::v0::Heartbeat;
 use crate::protocol::manager::v0::Manager;
 use crate::protocol::MiniProtocolArgs;
 use crate::store;
-use crate::util;
 use crate::{
-    auth::DeviceId,
-    core::{OssaType, StoreStatuses},
+    core::{OssaType},
     network::{
         multiplexer::{run_miniprotocol_async, Multiplexer, MultiplexerCommand, Party, StreamId},
-        protocol::MiniProtocol,
     },
     store::ecg::ECGHeader,
 };
@@ -46,7 +36,7 @@ impl<
         Header: Send,
     > MiniProtocols<StoreId, Hash, HeaderId, Header>
 {
-    pub(crate) async fn run_async<O: OssaType>(
+    pub(crate) async fn run_async(
         self,
         is_client: bool,
         stream_id: StreamId,
@@ -55,10 +45,10 @@ impl<
     ) {
         match self {
             MiniProtocols::Heartbeat(p) => {
-                run_miniprotocol_async::<_, O>(p, is_client, stream_id, sender, receiver).await
+                run_miniprotocol_async(p, is_client, stream_id, sender, receiver).await
             }
             MiniProtocols::Manager(p) => {
-                run_miniprotocol_async::<_, O>(p, is_client, stream_id, sender, receiver).await
+                run_miniprotocol_async(p, is_client, stream_id, sender, receiver).await
             }
         }
     }

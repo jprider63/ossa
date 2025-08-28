@@ -1,5 +1,6 @@
+#[cfg(test)]
 use daggy::petgraph::visit::{
-    Bfs, EdgeRef, IntoEdgeReferences, IntoNodeReferences, NodeRef, Reversed,
+    EdgeRef, IntoEdgeReferences, IntoNodeReferences, NodeRef,
 };
 use daggy::stable_dag::StableDag;
 use daggy::Walker;

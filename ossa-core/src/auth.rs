@@ -10,7 +10,7 @@ pub(crate) struct DeviceId {
 
 impl PartialOrd for DeviceId {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(&other))
+        Some(self.cmp(other))
     }
 }
 
@@ -36,7 +36,7 @@ impl DeviceId {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Identity {
+pub struct Identity {
     // Authentication key.
     auth_key: ed25519_dalek::SigningKey,
     // Signing key.

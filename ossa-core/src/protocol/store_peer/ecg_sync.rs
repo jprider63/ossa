@@ -47,7 +47,6 @@ use std::{
     cmp::Reverse,
     collections::{BTreeSet, BinaryHeap, VecDeque},
     fmt::Debug,
-    future::Future,
     marker::PhantomData,
 };
 

@@ -7,7 +7,7 @@ use serde::{
     Deserialize, Serialize,
 };
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeSet,
     fmt::Debug,
     marker::PhantomData,
 };

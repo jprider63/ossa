@@ -1,5 +1,5 @@
 use crate::network::protocol::ecg_sync::v0::{
-    ecg, handle_received_ecg_sync, handle_received_have, mark_as_known, prepare_haves,
+    ecg, handle_received_ecg_sync, handle_received_have, prepare_haves,
     prepare_headers, ECGSyncError, ECGSyncMessage, HeaderBitmap, MsgECGSync, MsgECGSyncData,
     MsgECGSyncRequest, MsgECGSyncResponse, MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS,
 };
@@ -7,8 +7,7 @@ use crate::network::ConnectionManager;
 use crate::store::ecg::ECGHeader;
 use crate::util::Stream;
 use ossa_crdt::CRDT;
-use std::cmp::min;
-use std::collections::{BTreeSet, BinaryHeap, VecDeque};
+use std::collections::{BTreeSet, BinaryHeap};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 

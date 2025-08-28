@@ -1,17 +1,15 @@
 use bitvec::{prelude::Msb0, BitArr};
 use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap};
 use std::fmt::Debug;
-use std::future::Future;
-use std::marker::PhantomData;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::{oneshot, watch};
 use tokio::time::{sleep, Duration};
 use tracing::{debug, error, info, warn};
 
 use crate::auth::DeviceId;
-use crate::core::{OssaType, StoreStatus, StoreStatuses};
+use crate::core::{StoreStatuses};
 use crate::network::multiplexer::{MultiplexerCommand, SpawnMultiplexerTask, StreamId};
 use crate::store::UntypedStoreCommand;
 use crate::{
@@ -19,7 +17,7 @@ use crate::{
         multiplexer::Party,
         protocol::{receive, send, MiniProtocol},
     },
-    util::{Channel, Hash, Sha256Hash, Stream},
+    util::{Hash, Sha256Hash, Stream},
 };
 
 // MiniProtocol instance for stream/connection management.
