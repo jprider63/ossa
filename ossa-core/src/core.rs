@@ -98,7 +98,6 @@ impl<Hash, HeaderId, Header> StoreStatus<Hash, HeaderId, Header> {
 impl<OT: OssaType> Ossa<OT> {
     async fn bind_server_ipv4(mut port: u16) -> Option<(TcpListener, SocketAddrV4)> {
         for _ in 0..10 {
-            // let address = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), port);
             let address = SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), port);
             match TcpListener::bind(&address).await {
                 Ok(l) => {
