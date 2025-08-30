@@ -1001,7 +1001,7 @@ async fn manage_peers<OT: OssaType, T: CRDT<Time = OT::Time> + Clone + Send + 's
 
         // Create closure that spawns task to sync store with peer.
         let send_commands = send_commands.clone();
-        let spawn_task = Box::new(move |_party, stream_id, sender, receiver| {
+        let spawn_task_ec = Box::new(move |_party, stream_id, sender, receiver| {
             // Create miniprotocol
             // Spawn task that syncs store with peer.
             // JP: Should run with initiative?
@@ -1038,11 +1038,19 @@ async fn manage_peers<OT: OssaType, T: CRDT<Time = OT::Time> + Clone + Send + 's
             })
         });
 
+        let spawn_task_sc = Box::new(move |_party, stream_id, sender, receiver| {
+            tokio::spawn(async move {
+                // TODO: Run SC miniprotocol as server
+                warn!("TODO: Run SC miniprotocol as server")
+            })
+        });
+
         // Send request to peer's manager for stream.
         let store_id = store.store_id();
         let cmd = PeerManagerCommand::RequestStoreSync {
             store_id,
-            spawn_task,
+            spawn_task_ec,
+            spawn_task_sc,
         };
         command_chan.send(cmd).expect("TODO");
     }
@@ -1251,7 +1259,7 @@ pub(crate) async fn run_handler<OT: OssaType, T>(
 
                                     // Create closure that spawns task to sync store with peer.
                                     let send_commands_untyped = send_commands_untyped.clone();
-                                    let spawn_task: Box<SpawnMultiplexerTask> = Box::new(move |party, stream_id, sender, receiver| {
+                                    let spawn_task_ec: Box<SpawnMultiplexerTask> = Box::new(move |party, stream_id, sender, receiver| {
                                         // Create miniprotocol
                                         // Spawn task that syncs store with peer.
                                         // JP: Should run without initiative so that other peer can setup their handler?
@@ -1270,7 +1278,13 @@ pub(crate) async fn run_handler<OT: OssaType, T>(
                                             debug!("Store sync with peer (without initiative) exited.")
                                         })
                                     });
-                                    Some(spawn_task)
+                                    let spawn_task_sc: Box<SpawnMultiplexerTask> = Box::new(move |party, stream_id, sender, receiver| {
+                                        tokio::spawn(async move {
+                                            // TODO: Spawn strongly sync miniprotocol client
+                                            warn!("TODO: Spawn strongly sync miniprotocol client")
+                                        })
+                                    });
+                                    Some((spawn_task_ec, spawn_task_sc))
                                 } else {
                                     debug!("Store is already running");
                                     None
@@ -1378,7 +1392,7 @@ pub(crate) enum UntypedStoreCommand<Hash, HeaderId, Header> {
     /// Request store to sync with peer. Store can refuse.
     SyncWithPeer {
         peer: DeviceId,
-        response_chan: oneshot::Sender<Option<Box<SpawnMultiplexerTask>>>,
+        response_chan: oneshot::Sender<Option<(Box<SpawnMultiplexerTask>, Box<SpawnMultiplexerTask>)>>,
     },
     RegisterOutgoingPeerSyncing {
         peer: DeviceId,

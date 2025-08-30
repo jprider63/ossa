@@ -56,6 +56,24 @@ impl<StoreId, Hash, HeaderId, Header> Manager<StoreId, Hash, HeaderId, Header> {
             Party::Server => true,
         }
     }
+
+    async fn create_multiplexer_stream(
+        &self,
+        stream_id: u32,
+        spawn_task: Box<SpawnMultiplexerTask>,
+    ) -> bool { // TODO: Result<bool, Error>
+        // Tell multiplexer to create miniprotocol.
+        let (response_chan, rx) = oneshot::channel();
+        let cmd = MultiplexerCommand::CreateStream {
+            stream_id,
+            spawn_task,
+            response_chan,
+        };
+        self.multiplexer_channel.send(cmd).expect("TODO");
+
+        // Wait for stream to be created and return success.
+        rx.await.expect("TODO")
+    }
 }
 
 impl<
@@ -125,9 +143,10 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug, Hash, HeaderId, He
                             debug!("Manager command channel closed.");
                             // TODO: Do something here?
                         }
-                        Some(PeerManagerCommand::RequestStoreSync { store_id, spawn_task }) => {
-                            let stream_id = self.next_stream_id();
-                            let _response = self.run_request_new_stream_server(&mut stream, stream_id, store_id, spawn_task).await;
+                        Some(PeerManagerCommand::RequestStoreSync { store_id, spawn_task_ec, spawn_task_sc }) => {
+                            let ec_stream_id = self.next_stream_id();
+                            let sc_stream_id = self.next_stream_id();
+                            let _response = self.run_request_new_stream_server(&mut stream, store_id, ec_stream_id, spawn_task_ec, sc_stream_id, spawn_task_sc).await;
                             debug!("Requested to sync store with peer.");
                         }
                     }
@@ -160,13 +179,14 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug, Hash, HeaderId, He
                     handle_shared_stores(self.peer_id, shared_stores);
                 }
                 MsgManagerRequest::CreateStoreStream {
-                    stream_id,
                     store_id,
+                    ec_stream_id,
+                    sc_stream_id,
                 } => {
                     debug!(
-                        "Received MsgManagerRequest::CreateStoreStream: {stream_id}, {store_id:?}"
+                        "Received MsgManagerRequest::CreateStoreStream: {ec_stream_id}, {store_id:?}"
                     );
-                    self.run_request_new_stream_client(&mut stream, stream_id, store_id)
+                    self.run_request_new_stream_client(&mut stream, store_id, ec_stream_id, sc_stream_id)
                         .await;
                 }
             }
@@ -200,13 +220,15 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug, Hash, HeaderId, He
     async fn run_request_new_stream_client<S: Stream<MsgManager<StoreId>>>(
         &self,
         stream: &mut S,
-        stream_id: StreamId,
         store_id: StoreId,
+        ec_stream_id: StreamId,
+        sc_stream_id: StreamId,
     ) {
         let accept = {
             // Check if stream is valid (it can be allocated by peer and is available).
-            let is_valid_id = self.is_valid_stream_id(false, &stream_id);
-            if !is_valid_id {
+            let is_valid_id_ec = self.is_valid_stream_id(false, &ec_stream_id);
+            let is_valid_id_sc = self.is_valid_stream_id(false, &sc_stream_id);
+            if !is_valid_id_ec || !is_valid_id_sc {
                 debug!("Peer sent invalid stream id.");
                 Err(MsgManagerError::InvalidStreamId)
             } else {
@@ -227,19 +249,23 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug, Hash, HeaderId, He
                         .expect("TODO");
 
                     let spawn_task = rx.await.expect("TODO");
-                    if let Some(spawn_task) = spawn_task {
-                        // Tell multiplexer to create miniprotocol.
-                        let (response_chan, rx) = oneshot::channel();
-                        let cmd = MultiplexerCommand::CreateStream {
-                            stream_id,
-                            spawn_task,
-                            response_chan,
-                        };
-                        self.multiplexer_channel.send(cmd).expect("TODO");
+                    if let Some((ec_spawn_task, sc_spawn_task)) = spawn_task {
+                        // Tell multiplexer to create EC miniprotocol.
+                        let is_running_ec = self.create_multiplexer_stream(ec_stream_id, ec_spawn_task).await;
 
-                        // Wait for stream to be created and return success.
-                        let is_running = rx.await.expect("TODO");
-                        Ok(is_running)
+                        if is_running_ec {
+                            // Tell multiplexer to create SC miniprotocol.
+                            let is_running_sc = self.create_multiplexer_stream(sc_stream_id, sc_spawn_task).await;
+
+                            if !is_running_sc {
+                                error!("Failed to create miniprotocol stream to strongly sync store.");
+                                panic!("TODO: Shutdown EC miniprotocol...");
+                            }
+
+                            Ok(is_running_sc)
+                        } else {
+                            Ok(is_running_ec)
+                        }
                     } else {
                         debug!("Store rejected syncing.");
                         Ok(false)
@@ -260,14 +286,17 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug, Hash, HeaderId, He
     async fn run_request_new_stream_server<S: Stream<MsgManager<StoreId>>>(
         &self,
         stream: &mut S,
-        stream_id: StreamId,
         store_id: StoreId,
-        spawn_task: Box<SpawnMultiplexerTask>,
+        ec_stream_id: StreamId,
+        ec_spawn_task: Box<SpawnMultiplexerTask>,
+        sc_stream_id: StreamId,
+        sc_spawn_task: Box<SpawnMultiplexerTask>,
     ) {
         // Send request message.
         let req = MsgManagerRequest::CreateStoreStream {
-            stream_id,
             store_id,
+            ec_stream_id,
+            sc_stream_id,
         };
         send(stream, req).await.expect("TODO");
 
@@ -284,17 +313,18 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug, Hash, HeaderId, He
                 todo!("Restore status to Known");
             }
             Ok(true) => {
-                // Tell multiplexer to create miniprotocol.
-                let (response_chan, rx) = oneshot::channel();
-                let cmd = MultiplexerCommand::CreateStream {
-                    stream_id,
-                    spawn_task,
-                    response_chan,
-                };
-                self.multiplexer_channel.send(cmd).expect("TODO");
+                // Tell multiplexer to create EC miniprotocol.
+                let is_running = self.create_multiplexer_stream(ec_stream_id, ec_spawn_task).await;
 
-                // Wait for stream to be created and return success.
-                let is_running = rx.await.expect("TODO");
+                if !is_running {
+                    error!("Failed to create miniprotocol stream to sync store.");
+                    panic!(
+                        "TODO: Send shutdown for this miniprotocol and restore status to Known."
+                    );
+                }
+
+                // Tell multiplexer to create SC miniprotocol.
+                let is_running = self.create_multiplexer_stream(sc_stream_id, sc_spawn_task).await;
 
                 if !is_running {
                     error!("Failed to create miniprotocol stream to sync store.");
@@ -465,8 +495,12 @@ pub(crate) enum MsgManagerRequest<StoreId> {
     },
     /// Request to create a store stream.
     CreateStoreStream {
-        stream_id: StreamId,
+        /// Store id to create streams for.
         store_id: StoreId,
+        /// Eventually consistent stream id.
+        ec_stream_id: StreamId,
+        /// Strongly consistent stream id.
+        sc_stream_id: StreamId,
     },
 }
 
@@ -544,6 +578,7 @@ pub(crate) enum PeerManagerCommand<StoreId> {
     /// Request that the peer sync the given store. Creates a new multiplexer stream.
     RequestStoreSync {
         store_id: StoreId,
-        spawn_task: Box<SpawnMultiplexerTask>,
+        spawn_task_ec: Box<SpawnMultiplexerTask>,
+        spawn_task_sc: Box<SpawnMultiplexerTask>,
     },
 }

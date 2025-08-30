@@ -440,7 +440,7 @@ impl<
                                 self.send_chan.send(msg).expect("TODO");
                             }
                             StoreSyncResponse::Wait =>
-                            // Wait for response (Must be Reject or Repsonse).
+                            // Wait for response (Must be Reject or Response).
                             {
                                 todo!()
                             }
