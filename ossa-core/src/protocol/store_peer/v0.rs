@@ -14,7 +14,7 @@ use crate::{
     protocol::store_peer::ecg_sync::{ECGSyncInitiator, ECGSyncResponder},
     store::{
         self,
-        ecg::{self, RawECGBody},
+        dag::{self, RawECGBody},
         HandlePeerRequest, UntypedStoreCommand,
     },
     util::Stream,
@@ -291,7 +291,7 @@ impl<Hash, HeaderId, Header> StoreSync<Hash, HeaderId, Header> {
     async fn request_ecg_state(
         &self,
         responder: &mut ECGSyncResponder<Hash, HeaderId, Header>,
-    ) -> ecg::UntypedState<HeaderId, Header>
+    ) -> dag::UntypedState<HeaderId, Header>
     where
         HeaderId: Ord + Copy,
     {
@@ -332,7 +332,7 @@ pub(crate) enum StoreSyncCommand<HeaderId, Header> {
     InitialStateBlockRequest(Vec<Range<u64>>),
     ECGSyncRequest {
         // ecg_status: ECGStatus<HeaderId>,
-        ecg_state: ecg::UntypedState<HeaderId, Header>,
+        ecg_state: dag::UntypedState<HeaderId, Header>,
     },
 }
 

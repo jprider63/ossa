@@ -6,10 +6,14 @@ use serde::{
     ser::{SerializeStruct, Serializer},
     Deserialize, Serialize,
 };
-use std::{collections::BTreeSet, fmt::Debug, marker::PhantomData};
+use std::{
+    collections::BTreeSet,
+    fmt::Debug,
+    marker::PhantomData,
+};
 
 use crate::{
-    store::ecg::{self, ECGBody, ECGHeader},
+    store::dag::{self, ECGBody, ECGHeader},
     time::{CausalTime, ConcretizeTime},
     util,
 };
@@ -324,7 +328,7 @@ impl<HeaderId> OperationId<HeaderId> {
     }
 }
 
-impl<Header: ECGHeader, T: CRDT> CausalState for ecg::State<Header, T> {
+impl<Header: ECGHeader, T: CRDT> CausalState for dag::State<Header, T> {
     type Time = OperationId<Header::HeaderId>;
 
     fn happens_before(&self, a: &Self::Time, b: &Self::Time) -> bool {

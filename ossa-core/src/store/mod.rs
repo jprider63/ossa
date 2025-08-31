@@ -27,18 +27,18 @@ use crate::{
         store_peer::v0::{StoreSync, StoreSyncCommand},
     },
     store::{
-        ecg::{ECGBody, ECGHeader, RawECGBody},
+        dag::{ECGBody, ECGHeader, RawECGBody},
         v0::{BLOCK_REQUEST_LIMIT, MERKLE_REQUEST_LIMIT},
     },
     util::{self, compress_consecutive_into_ranges},
 };
 
-pub mod ecg;
+pub mod dag;
 pub mod v0; // TODO: Move this to network::protocol
 
 pub use v0::{MetadataBody, MetadataHeader, Nonce};
 
-pub struct State<StoreId, Header: ecg::ECGHeader, T: CRDT, Hash> {
+pub struct State<StoreId, Header: dag::ECGHeader, T: CRDT, Hash> {
     // Peers that also have this store (that we are potentially connected to?).
     peers: BTreeMap<DeviceId, PeerInfo<Header::HeaderId, Header>>, // BTreeSet<DeviceId>,
     state_machine: StateMachine<StoreId, Header, T, Hash>,
@@ -52,7 +52,7 @@ pub struct State<StoreId, Header: ecg::ECGHeader, T: CRDT, Hash> {
         ),
     >,
     ecg_subscribers:
-        BTreeMap<DeviceId, oneshot::Sender<ecg::UntypedState<Header::HeaderId, Header>>>,
+        BTreeMap<DeviceId, oneshot::Sender<dag::UntypedState<Header::HeaderId, Header>>>,
     // listeners: Vec<UnboundedSender<StateUpdate<Header, T>>>,
 }
 
@@ -60,7 +60,7 @@ pub struct State<StoreId, Header: ecg::ECGHeader, T: CRDT, Hash> {
 // - Initializing - Setting up the thread that owns the store (not defined here).
 // - DownloadingMetadata - Don't have the header so we're downloading it.
 // - Syncing - Have the header and syncing updates between peers.
-pub enum StateMachine<StoreId, Header: ecg::ECGHeader, T: CRDT, Hash> {
+pub enum StateMachine<StoreId, Header: dag::ECGHeader, T: CRDT, Hash> {
     DownloadingMetadata {
         store_id: StoreId,
     },
@@ -79,14 +79,14 @@ pub enum StateMachine<StoreId, Header: ecg::ECGHeader, T: CRDT, Hash> {
         metadata: MetadataHeader<Hash>,
         merkle_tree: MerkleTree<Hash>,
         initial_state: Vec<u8>, // Or just T?
-        ecg_state: ecg::State<Header, T>,
+        ecg_state: dag::State<Header, T>,
         decrypted_state: DecryptedState<Header, T>, // Temporary
                                                     // decrypted_state: Option<DecryptedState<Header, T>>, // JP: Is this actually used?
                                                     // Does it make sense?
     },
 }
 
-pub struct DecryptedState<Header: ecg::ECGHeader, T: CRDT> {
+pub struct DecryptedState<Header: dag::ECGHeader, T: CRDT> {
     /// Latest ECG application state we've seen.
     latest_state: T,
 
@@ -177,7 +177,7 @@ impl<T> PeerStatus<T> {
 
 impl<
         StoreId: Copy + Eq,
-        Header: ecg::ECGHeader + Clone + Debug,
+        Header: dag::ECGHeader + Clone + Debug,
         T: CRDT + Clone,
         Hash: util::Hash + Debug + Into<StoreId>,
     > State<StoreId, Header, T, Hash>
@@ -202,7 +202,7 @@ impl<
             metadata: store_header,
             merkle_tree,
             initial_state,
-            ecg_state: ecg::State::new(),
+            ecg_state: dag::State::new(),
             decrypted_state, // : Some(decrypted_state),
         };
         State {
@@ -538,7 +538,7 @@ impl<
         &mut self,
         peer: DeviceId,
         tips: Option<BTreeSet<Header::HeaderId>>,
-        response_chan: oneshot::Sender<ecg::UntypedState<Header::HeaderId, Header>>,
+        response_chan: oneshot::Sender<dag::UntypedState<Header::HeaderId, Header>>,
     ) {
         // Respond immediately if peer thread is stale (or they requested it immediately with None).
         if let StateMachine::Syncing { ecg_state, .. } = &self.state_machine {
@@ -877,7 +877,7 @@ impl<
                 merkle_tree,
                 initial_state,
             } => {
-                let ecg_state = ecg::State::new();
+                let ecg_state = dag::State::new();
                 let initial_state: Vec<u8> = initial_state
                     .into_iter()
                     .flatten()
@@ -929,14 +929,14 @@ impl<
     }
 }
 
-fn update_listeners<Header: ecg::ECGHeader + Clone + Debug, T: CRDT + Clone>(
+fn update_listeners<Header: dag::ECGHeader + Clone + Debug, T: CRDT + Clone>(
     ecg_subscribers: &mut BTreeMap<
         DeviceId,
-        oneshot::Sender<ecg::UntypedState<Header::HeaderId, Header>>,
+        oneshot::Sender<dag::UntypedState<Header::HeaderId, Header>>,
     >,
     listeners: &[UnboundedSender<StateUpdate<Header, T>>],
     latest_state: &T,
-    ecg_state: &ecg::State<Header, T>,
+    ecg_state: &dag::State<Header, T>,
     from_peer: Option<DeviceId>,
 ) {
     for l in listeners {
@@ -1058,7 +1058,7 @@ async fn manage_peers<OT: OssaType, T: CRDT<Time = OT::Time> + Clone + Send + 's
 
 fn apply_operations<OT: OssaType, T>(
     decrypted_state: &mut DecryptedState<OT::ECGHeader, T>,
-    ecg_state: &ecg::State<OT::ECGHeader, T>,
+    ecg_state: &dag::State<OT::ECGHeader, T>,
     operation_header: &OT::ECGHeader,
     operation_body: OT::ECGBody<T>,
 ) where
@@ -1369,7 +1369,7 @@ pub enum StateUpdate<Header: ECGHeader, T> {
     },
     Snapshot {
         snapshot: T,
-        ecg_state: ecg::State<Header, T>,
+        ecg_state: dag::State<Header, T>,
         // TODO: ECG DAG
     },
 }
@@ -1426,7 +1426,7 @@ pub(crate) enum UntypedStoreCommand<Hash, HeaderId, Header> {
     SubscribeECG {
         peer: DeviceId,
         tips: Option<BTreeSet<HeaderId>>,
-        response_chan: oneshot::Sender<ecg::UntypedState<HeaderId, Header>>,
+        response_chan: oneshot::Sender<dag::UntypedState<HeaderId, Header>>,
     },
 }
 
@@ -1456,7 +1456,7 @@ fn handle_merkle_peer_request_helper<H: Copy>(
     hashes
 }
 
-fn handle_block_peer_request_helper<StoreId, Header: ecg::ECGHeader, T: CRDT, Hash>(
+fn handle_block_peer_request_helper<StoreId, Header: dag::ECGHeader, T: CRDT, Hash>(
     state_machine: &StateMachine<StoreId, Header, T, Hash>,
     block_ids: &[Range<u64>],
 ) -> Option<Vec<Option<Vec<u8>>>> {

@@ -1,4 +1,4 @@
-use crate::store::ecg::{self, ECGHeader};
+use crate::store::dag::{self, ECGHeader};
 use crate::util::is_power_of_two;
 use async_session_types::{Eps, Send};
 use bitvec::{order::Msb0, BitArr};
@@ -142,7 +142,7 @@ impl<Header: ECGHeader + Debug, T: CRDT> Debug for MsgECGSyncData<Header, T> {
 use std::cmp::min;
 use std::collections::{BTreeSet, BinaryHeap, VecDeque};
 fn prepare_haves<Header: ECGHeader, T: CRDT>(
-    state: &ecg::State<Header, T>,
+    state: &dag::State<Header, T>,
     queue: &mut BinaryHeap<(bool, u64, Header::HeaderId, u64)>,
     their_known: &BTreeSet<Header::HeaderId>,
     haves: &mut Vec<Header::HeaderId>,
@@ -150,7 +150,7 @@ fn prepare_haves<Header: ECGHeader, T: CRDT>(
     Header::HeaderId: Copy + Ord,
 {
     fn go<Header: ECGHeader, T: CRDT>(
-        state: &ecg::State<Header, T>,
+        state: &dag::State<Header, T>,
         queue: &mut BinaryHeap<(bool, u64, Header::HeaderId, u64)>,
         their_known: &BTreeSet<Header::HeaderId>,
         haves: &mut Vec<Header::HeaderId>,
@@ -192,7 +192,7 @@ fn prepare_haves<Header: ECGHeader, T: CRDT>(
 // Handle the haves that the peer sent to us.
 // Returns the bitmap of which haves we know.
 fn handle_received_have<Header: ECGHeader, T: CRDT>(
-    state: &ecg::State<Header, T>,
+    state: &dag::State<Header, T>,
     their_tips_remaining: &mut usize,
     their_tips: &mut Vec<Header::HeaderId>,
     their_known: &mut BTreeSet<Header::HeaderId>,
@@ -232,7 +232,7 @@ fn handle_received_have<Header: ECGHeader, T: CRDT>(
 // Handle (and verify) headers they sent to us.
 // Returns if all the headers were valid.
 fn handle_received_headers<Header: ECGHeader, T: CRDT>(
-    state: &mut ecg::State<Header, T>,
+    state: &mut dag::State<Header, T>,
     headers: Vec<Header>,
 ) -> bool {
     let mut all_valid = true;
@@ -256,14 +256,14 @@ fn handle_received_headers<Header: ECGHeader, T: CRDT>(
 // Invariant: if a header is in `their_known`, all the header's ancestors are in `their_known`.
 // JP: Can we avoid this linear time + memory?
 fn mark_as_known<Header: ECGHeader, T: CRDT>(
-    state: &ecg::State<Header, T>,
+    state: &dag::State<Header, T>,
     their_known: &mut BTreeSet<Header::HeaderId>,
     header_id: Header::HeaderId,
 ) where
     Header::HeaderId: Copy + Ord,
 {
     fn go<Header: ECGHeader, T: CRDT>(
-        state: &ecg::State<Header, T>,
+        state: &dag::State<Header, T>,
         their_known: &mut BTreeSet<Header::HeaderId>,
         mut queue: VecDeque<Header::HeaderId>,
     ) where
@@ -291,7 +291,7 @@ fn mark_as_known<Header: ECGHeader, T: CRDT>(
 
 // Build the headers we will send to the peer.
 fn prepare_headers<Header: ECGHeader, T: CRDT>(
-    state: &ecg::State<Header, T>,
+    state: &dag::State<Header, T>,
     send_queue: &mut BinaryHeap<(Reverse<u64>, Header::HeaderId)>,
     their_known: &mut BTreeSet<Header::HeaderId>,
     headers: &mut Vec<Header>,
@@ -300,7 +300,7 @@ fn prepare_headers<Header: ECGHeader, T: CRDT>(
     Header: Clone,
 {
     fn go<Header: ECGHeader, T: CRDT>(
-        state: &ecg::State<Header, T>,
+        state: &dag::State<Header, T>,
         send_queue: &mut BinaryHeap<(Reverse<u64>, Header::HeaderId)>,
         their_known: &mut BTreeSet<Header::HeaderId>,
         headers: &mut Vec<Header>,
@@ -343,7 +343,7 @@ fn prepare_headers<Header: ECGHeader, T: CRDT>(
 }
 
 fn handle_received_known<Header: ECGHeader, T: CRDT>(
-    state: &ecg::State<Header, T>,
+    state: &dag::State<Header, T>,
     their_known: &mut BTreeSet<Header::HeaderId>,
     sent_haves: &Vec<Header::HeaderId>,
     received_known: &HeaderBitmap,
@@ -400,7 +400,7 @@ fn handle_received_known<Header: ECGHeader, T: CRDT>(
 
 fn handle_received_ecg_sync<Header: ECGHeader, T: CRDT>(
     sync_msg: MsgECGSyncData<Header, T>,
-    state: &mut ecg::State<Header, T>,
+    state: &mut dag::State<Header, T>,
     their_tips_remaining: &mut usize,
     their_tips: &mut Vec<Header::HeaderId>,
     their_known: &mut BTreeSet<Header::HeaderId>,

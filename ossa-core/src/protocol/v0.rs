@@ -18,7 +18,7 @@ use crate::{
     network::multiplexer::{
         run_miniprotocol_async, Multiplexer, MultiplexerCommand, Party, StreamId,
     },
-    store::ecg::ECGHeader,
+    store::dag::ECGHeader,
 };
 
 // Required since Rust can't handle proper existentials.
