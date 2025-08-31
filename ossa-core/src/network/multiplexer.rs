@@ -20,7 +20,7 @@ use tokio_util::sync::PollSender;
 use tracing::{debug, error, trace, warn};
 
 use crate::core::OssaType;
-use crate::store::ecg::ECGHeader;
+use crate::store::dag::ECGHeader;
 use crate::{
     network::protocol::{MiniProtocol, ProtocolError},
     protocol::v0::MiniProtocols,

@@ -1,10 +1,10 @@
 use crate::network::protocol::ecg_sync::v0::{
-    ecg, handle_received_ecg_sync, handle_received_have, prepare_haves, prepare_headers,
+    handle_received_ecg_sync, handle_received_have, prepare_haves, prepare_headers,
     ECGSyncError, ECGSyncMessage, HeaderBitmap, MsgECGSync, MsgECGSyncData, MsgECGSyncRequest,
     MsgECGSyncResponse, MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS,
 };
 use crate::network::ConnectionManager;
-use crate::store::ecg::ECGHeader;
+use crate::store::dag::{self, ECGHeader};
 use crate::util::Stream;
 use ossa_crdt::CRDT;
 use std::collections::{BTreeSet, BinaryHeap};
@@ -14,7 +14,7 @@ use std::marker::PhantomData;
 pub(crate) async fn ecg_sync_server<S: Stream<MsgECGSync<Header, T>>, StoreId, Header, T: CRDT>(
     conn: &mut ConnectionManager<S>,
     store_id: &StoreId,
-    state: &mut ecg::State<Header, T>,
+    state: &mut dag::State<Header, T>,
 ) -> Result<(), ECGSyncError>
 where
     Header: Clone + ECGHeader + Debug,

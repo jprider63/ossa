@@ -8,19 +8,19 @@ use crate::network::protocol::ecg_sync::v0::client::ecg_sync_client;
 use crate::network::protocol::ecg_sync::v0::server::ecg_sync_server;
 use crate::network::protocol::ecg_sync::v0::MsgECGSync;
 use crate::network::ConnectionManager;
-use crate::store::ecg::v0::TestHeader;
-use crate::store::ecg::{self, ECGHeader};
+use crate::store::dag::v0::TestHeader;
+use crate::store::dag::{self, ECGHeader};
 use crate::util::UnboundChannel;
 
 fn run_ecg_sync<Header: ECGHeader + Send + Clone + Debug, T: CRDT + Send>(
-    st1: &mut ecg::State<Header, T>,
-    st2: &mut ecg::State<Header, T>,
+    st1: &mut dag::State<Header, T>,
+    st2: &mut dag::State<Header, T>,
 ) where
     <Header as ECGHeader>::HeaderId: Send,
 {
     async fn future<Header: ECGHeader + Send + Clone + Debug, T: CRDT + Send>(
-        st1: &mut ecg::State<Header, T>,
-        st2: &mut ecg::State<Header, T>,
+        st1: &mut dag::State<Header, T>,
+        st2: &mut dag::State<Header, T>,
     ) where
         <Header as ECGHeader>::HeaderId: Send,
     {
@@ -47,7 +47,7 @@ fn run_ecg_sync<Header: ECGHeader + Send + Clone + Debug, T: CRDT + Send>(
     rt.block_on(future(st1, st2));
 }
 
-fn add_ops<T: CRDT>(st: &mut ecg::State<TestHeader<T>, T>, ops: &[(u32, &[u32])]) {
+fn add_ops<T: CRDT>(st: &mut dag::State<TestHeader<T>, T>, ops: &[(u32, &[u32])]) {
     for (header_id, parent_ids) in ops {
         let header = TestHeader {
             header_id: *header_id,
@@ -59,7 +59,7 @@ fn add_ops<T: CRDT>(st: &mut ecg::State<TestHeader<T>, T>, ops: &[(u32, &[u32])]
 }
 
 fn test_helper(common: &[(u32, &[u32])], left: &[(u32, &[u32])], right: &[(u32, &[u32])]) {
-    let mut left_tree = ecg::State::<_, LWW<(), ()>>::new();
+    let mut left_tree = dag::State::<_, LWW<(), ()>>::new();
     add_ops(&mut left_tree, common);
 
     let mut right_tree = left_tree.clone();
@@ -67,15 +67,15 @@ fn test_helper(common: &[(u32, &[u32])], left: &[(u32, &[u32])], right: &[(u32, 
     add_ops(&mut left_tree, left);
     add_ops(&mut right_tree, right);
 
-    crate::store::ecg::print_dag(&left_tree);
-    crate::store::ecg::print_dag(&right_tree);
+    crate::store::dag::print_dag(&left_tree);
+    crate::store::dag::print_dag(&right_tree);
 
     run_ecg_sync(&mut left_tree, &mut right_tree);
 
-    crate::store::ecg::print_dag(&left_tree);
-    crate::store::ecg::print_dag(&right_tree);
+    crate::store::dag::print_dag(&left_tree);
+    crate::store::dag::print_dag(&right_tree);
 
-    assert!(ecg::equal_dags(&left_tree, &right_tree));
+    assert!(dag::equal_dags(&left_tree, &right_tree));
 }
 
 fn test_both(common: &[(u32, &[u32])], left: &[(u32, &[u32])], right: &[(u32, &[u32])]) {

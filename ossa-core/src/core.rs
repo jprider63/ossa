@@ -22,7 +22,7 @@ use crate::network::protocol::{run_handshake_client, run_handshake_server, Hands
 use crate::protocol::manager::v0::PeerManagerCommand;
 use crate::protocol::MiniProtocolArgs;
 use crate::storage::Storage;
-use crate::store::ecg::{ECGBody, ECGHeader};
+use crate::store::dag::{ECGBody, ECGHeader};
 use crate::store::{self, StateUpdate, StoreCommand, UntypedStoreCommand};
 use crate::time::ConcretizeTime;
 use crate::util::{self, TypedStream};
@@ -589,7 +589,7 @@ pub trait OssaType: 'static {
         + for<'a> Deserialize<'a>
         + Into<Self::StoreId>; // Hashable instead of AsRef???
                                // type ECGHeader<T: CRDT<Time = Self::Time, Op: Serialize>>: store::ecg::ECGHeader + Debug + Send;
-    type ECGHeader: store::ecg::ECGHeader<HeaderId: Send + Sync + Serialize + for<'a> Deserialize<'a>>
+    type ECGHeader: store::dag::ECGHeader<HeaderId: Send + Sync + Serialize + for<'a> Deserialize<'a>>
         + Debug
         + Send
         + Serialize
@@ -603,7 +603,7 @@ pub trait OssaType: 'static {
 
     // TODO: This should be refactored and provided automatically.
     fn to_causal_state<T: CRDT<Time = Self::Time>>(
-        st: &store::ecg::State<Self::ECGHeader, T>,
+        st: &store::dag::State<Self::ECGHeader, T>,
     ) -> &Self::CausalState<T>;
 }
 

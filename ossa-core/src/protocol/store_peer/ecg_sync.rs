@@ -61,7 +61,7 @@ use crate::{
         MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS,
     },
     store::{
-        ecg::{self, RawECGBody},
+        dag::{self, RawECGBody},
         UntypedStoreCommand,
     },
     util::{is_power_of_two, Stream},
@@ -103,7 +103,7 @@ impl<
     // TODO: Eventually take an Arc<RWLock>
     pub(crate) async fn run_new<S: Stream<MsgStoreSync<Hash, HeaderId, Header>>>(
         stream: &mut S,
-        ecg_state: &ecg::UntypedState<HeaderId, Header>,
+        ecg_state: &dag::UntypedState<HeaderId, Header>,
     ) -> (Self, Vec<(Header, RawECGBody)>) {
         // TODO: Limit on tips (128? 64? 32? MAX_HAVE_HEADERS)
         warn!("TODO: Check request sizes.");
@@ -127,7 +127,7 @@ impl<
     pub(crate) async fn run_round<S: Stream<MsgStoreSync<Hash, HeaderId, Header>>>(
         &mut self,
         stream: &mut S,
-        ecg_state: &ecg::UntypedState<HeaderId, Header>,
+        ecg_state: &dag::UntypedState<HeaderId, Header>,
     ) -> Vec<(Header, RawECGBody)> {
         // Check which headers they sent us that we know.
         let mut known_bitmap = BitArray::ZERO;
@@ -168,7 +168,7 @@ pub(crate) struct ECGSyncResponder<Hash, HeaderId, Header> {
 
 pub(crate) fn mark_as_known_helper<HeaderId, Header>(
     their_known: &mut BTreeSet<HeaderId>,
-    state: &ecg::UntypedState<HeaderId, Header>,
+    state: &dag::UntypedState<HeaderId, Header>,
     header_id: HeaderId,
 ) where
     HeaderId: Copy + Ord,
@@ -202,7 +202,7 @@ impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
     // JP: Can we avoid this linear time + memory?
     pub(crate) fn mark_as_known(
         &mut self,
-        state: &ecg::UntypedState<HeaderId, Header>,
+        state: &dag::UntypedState<HeaderId, Header>,
         // their_known: &mut BTreeSet<Header::HeaderId>,
         header_id: HeaderId,
     ) where
@@ -229,7 +229,7 @@ impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
         &mut self,
         store_peer: &StoreSync<Hash, HeaderId, Header>,
         stream: &mut S,
-        mut ecg_state: ecg::UntypedState<HeaderId, Header>,
+        mut ecg_state: dag::UntypedState<HeaderId, Header>,
         their_tips: Vec<HeaderId>,
     ) where
         HeaderId: Debug + Ord + Copy,
@@ -297,7 +297,7 @@ impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
         &mut self,
         store_peer: &StoreSync<Hash, HeaderId, Header>,
         stream: &mut S,
-        ecg_state: ecg::UntypedState<HeaderId, Header>,
+        ecg_state: dag::UntypedState<HeaderId, Header>,
         their_tips: Vec<HeaderId>,
     ) where
         HeaderId: Debug + Ord + Copy,
@@ -314,7 +314,7 @@ impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
         &mut self,
         store_peer: &StoreSync<Hash, HeaderId, Header>,
         stream: &mut S,
-        ecg_state: ecg::UntypedState<HeaderId, Header>,
+        ecg_state: dag::UntypedState<HeaderId, Header>,
         their_tips: Vec<HeaderId>,
         their_known: HeaderBitmap,
     ) where
@@ -333,7 +333,7 @@ impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
 
     fn prepare_operations(
         &mut self,
-        ecg_state: &ecg::UntypedState<HeaderId, Header>,
+        ecg_state: &dag::UntypedState<HeaderId, Header>,
     ) -> Vec<(Header, RawECGBody)>
     where
         HeaderId: Ord + Copy,
@@ -371,7 +371,7 @@ impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
     }
 
     // Prepares and stores the sent_haves we will send back to peer.
-    fn prepare_sent_haves(&mut self, ecg_state: &ecg::UntypedState<HeaderId, Header>)
+    fn prepare_sent_haves(&mut self, ecg_state: &dag::UntypedState<HeaderId, Header>)
     where
         HeaderId: Ord + Copy,
     {
@@ -406,7 +406,7 @@ impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
 
     fn handle_their_tips(
         &mut self,
-        ecg_state: &ecg::UntypedState<HeaderId, Header>,
+        ecg_state: &dag::UntypedState<HeaderId, Header>,
         their_tips: &[HeaderId],
     ) where
         HeaderId: Ord + Copy,
@@ -435,7 +435,7 @@ impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
         });
     }
 
-    fn prepare_our_tips(&mut self, ecg_state: &ecg::UntypedState<HeaderId, Header>)
+    fn prepare_our_tips(&mut self, ecg_state: &dag::UntypedState<HeaderId, Header>)
     where
         HeaderId: std::cmp::Ord + Copy,
     {
@@ -458,7 +458,7 @@ impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
 
     fn handle_their_known(
         &mut self,
-        ecg_state: &ecg::UntypedState<HeaderId, Header>,
+        ecg_state: &dag::UntypedState<HeaderId, Header>,
         their_known: HeaderBitmap,
     ) where
         HeaderId: Copy + Ord,
@@ -494,7 +494,7 @@ impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
         }
     }
 
-    pub(crate) fn update_our_unknown(&mut self, ecg_state: &ecg::UntypedState<HeaderId, Header>)
+    pub(crate) fn update_our_unknown(&mut self, ecg_state: &dag::UntypedState<HeaderId, Header>)
     where
         HeaderId: Ord + Copy,
     {

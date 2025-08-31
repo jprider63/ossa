@@ -13,9 +13,9 @@ use std::rc::Rc;
 use ossa_core::Ossa;
 use ossa_core::core::OssaType;
 use ossa_core::core::StoreHandle;
-use ossa_core::store::ecg::v0::{Body, Header, HeaderId, OperationId};
-use ossa_core::store::ecg::{ECGBody, ECGHeader};
-use ossa_core::store::{StateUpdate, ecg};
+use ossa_core::store::dag::v0::{Body, Header, HeaderId, OperationId};
+use ossa_core::store::dag::{ECGBody, ECGHeader};
+use ossa_core::store::{StateUpdate, dag};
 use ossa_core::time::{CausalTime, ConcretizeTime};
 use ossa_core::util::Sha256Hash;
 use ossa_crdt::CRDT;
@@ -57,10 +57,10 @@ impl OssaType for DefaultSetup {
 
     type Time = OperationId<HeaderId<Sha256Hash>>;
 
-    type CausalState<T: CRDT<Time = Self::Time>> = ecg::State<Self::ECGHeader, T>;
+    type CausalState<T: CRDT<Time = Self::Time>> = dag::State<Self::ECGHeader, T>;
 
     fn to_causal_state<T: CRDT<Time = Self::Time>>(
-        st: &ecg::State<Self::ECGHeader, T>,
+        st: &dag::State<Self::ECGHeader, T>,
     ) -> &Self::CausalState<T> {
         st
     }
@@ -104,7 +104,7 @@ impl<
 // #[derive(Clone)]
 pub struct StoreState<OT: OssaType, T: CRDT<Time = OT::Time>> {
     state: T,
-    ecg: ecg::State<OT::ECGHeader, T>,
+    ecg: dag::State<OT::ECGHeader, T>,
 }
 
 impl<OT: OssaType, T: CRDT<Time = OT::Time>> StoreState<OT, T> {
@@ -112,7 +112,7 @@ impl<OT: OssaType, T: CRDT<Time = OT::Time>> StoreState<OT, T> {
         &self.state
     }
 
-    pub fn ecg(&self) -> &ecg::State<OT::ECGHeader, T> {
+    pub fn ecg(&self) -> &dag::State<OT::ECGHeader, T> {
         &self.ecg
     }
 }

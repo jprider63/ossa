@@ -8,7 +8,7 @@ use crate::{
     auth::DeviceId,
     core::{OssaType, StoreStatuses},
     protocol::manager::v0::PeerManagerCommand,
-    store::ecg::ECGHeader,
+    store::dag::ECGHeader,
 };
 
 pub mod heartbeat;
