@@ -12,6 +12,7 @@ use tracing::{debug, error};
 pub mod v0;
 
 /// Trait that ECG headers (nodes?) must implement.
+// TODO(JP): Rename this to DAGHeader
 pub trait ECGHeader {
     type HeaderId: Ord + Copy + Debug;
 
@@ -242,7 +243,7 @@ impl<Header: ECGHeader + Clone, T: CRDT> Clone for State<Header, T> {
     }
 }
 
-impl<Header: ECGHeader, T: CRDT> State<Header, T> {
+impl<Header: ECGHeader, T> State<Header, T> {
     pub fn new() -> State<Header, T> {
         let state = UntypedState {
             dependency_graph: StableDag::new(),
