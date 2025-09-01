@@ -41,10 +41,34 @@ pub mod v0; // TODO: Move this to network::protocol
 pub use v0::{MetadataBody, MetadataHeader, Nonce};
 
 // TODO: Concretize StoreId to Sha256Hash.
+// #[derive(PartialEq, Eq, PartialOrd, Ord)]
+/// A typed reference to another store.
 pub struct StoreRef<StoreId, S,C> {
     store_id: StoreId,
     phantom: PhantomData<fn(S,C)>,
 }
+
+impl<StoreId: Ord, S, C> PartialOrd for StoreRef<StoreId, S, C> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<StoreId: Ord, S, C> Ord for StoreRef<StoreId, S, C> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.store_id.cmp(&other.store_id)
+    }
+}
+
+impl<StoreId: PartialEq, S, C> PartialEq for StoreRef<StoreId, S, C> {
+    fn eq(&self, other: &Self) -> bool {
+        self.store_id == other.store_id
+    }
+}
+
+impl<StoreId: Eq, S, C> Eq for StoreRef<StoreId, S, C> {
+}
+
 
 pub struct State<StoreId, Header: dag::ECGHeader, T: CRDT, Hash> {
     // Peers that also have this store (that we are potentially connected to?).
