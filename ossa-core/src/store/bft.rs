@@ -8,8 +8,8 @@ pub trait SCDT {
     type Operation;
 
     fn update(self, op: Self::Operation) -> Self;
-    
-    // fn is_valid_operation(self, op: Self::Operation) -> bool;
+
+    fn is_valid_operation(self, op: Self::Operation) -> bool;
 }
 
 pub(crate) struct State<Header: dag::ECGHeader, S> {
