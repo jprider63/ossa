@@ -17,7 +17,7 @@ use tokio::task::JoinHandle;
 use tokio_util::codec::{self, LengthDelimitedCodec};
 use tracing::{debug, error, info, warn};
 
-use crate::auth::{generate_identity, DeviceId, Identity};
+use crate::auth::{DeviceId, identity::DevicePrivateKeys};
 use crate::network::protocol::{run_handshake_client, run_handshake_server, HandshakeError};
 use crate::protocol::manager::v0::PeerManagerCommand;
 use crate::protocol::MiniProtocolArgs;
@@ -40,7 +40,7 @@ pub struct Ossa<OT: OssaType> {
     shared_state: SharedState<OT::StoreId>, // JP: Could have another thread own and manage this state
     // instead?
     phantom: PhantomData<OT>,
-    identity_keys: Identity,
+    device_keys: DevicePrivateKeys,
 }
 pub type StoreStatuses<StoreId, Hash, HeaderId, Header> =
     BTreeMap<StoreId, StoreStatus<Hash, HeaderId, Header>>; // Rename this MiniProtocolArgs?
@@ -117,7 +117,7 @@ impl<OT: OssaType> Ossa<OT> {
     // Start ossa.
     pub fn start(config: OssaConfig) -> Self {
         // TODO: Load identity or take it as an argument.
-        let identity_keys = generate_identity();
+        let identity_keys = DevicePrivateKeys::generate_device_keys();
 
         // // Create channels to communicate with Ossa thread.
         // let (send_ossa_commands, mut recv_ossa_commands) = futures_channel::mpsc::unbounded();
@@ -238,7 +238,7 @@ impl<OT: OssaType> Ossa<OT> {
             active_stores,
             phantom: PhantomData,
             shared_state: shared_state_,
-            identity_keys,
+            device_keys: identity_keys,
         }
     }
 
@@ -361,7 +361,7 @@ impl<OT: OssaType> Ossa<OT> {
     }
 
     fn device_id(&self) -> DeviceId {
-        DeviceId::new(self.identity_keys.auth_key().verifying_key())
+        DeviceId::new(self.device_keys.auth_key().verifying_key())
     }
 
     // Connect to a peer over ipv4.

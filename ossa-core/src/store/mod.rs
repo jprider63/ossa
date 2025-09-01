@@ -5,6 +5,7 @@ use rand::{seq::SliceRandom as _, thread_rng};
 use replace_with::replace_with_or_abort;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
+use std::marker::PhantomData;
 use std::{
     collections::{BTreeMap, BTreeSet},
     ops::Range,
@@ -33,10 +34,17 @@ use crate::{
     util::{self, compress_consecutive_into_ranges},
 };
 
+pub mod bft;
 pub mod dag;
 pub mod v0; // TODO: Move this to network::protocol
 
 pub use v0::{MetadataBody, MetadataHeader, Nonce};
+
+// TODO: Concretize StoreId to Sha256Hash.
+pub struct StoreRef<StoreId, S,C> {
+    store_id: StoreId,
+    phantom: PhantomData<fn(S,C)>,
+}
 
 pub struct State<StoreId, Header: dag::ECGHeader, T: CRDT, Hash> {
     // Peers that also have this store (that we are potentially connected to?).
@@ -60,7 +68,7 @@ pub struct State<StoreId, Header: dag::ECGHeader, T: CRDT, Hash> {
 // - Initializing - Setting up the thread that owns the store (not defined here).
 // - DownloadingMetadata - Don't have the header so we're downloading it.
 // - Syncing - Have the header and syncing updates between peers.
-pub enum StateMachine<StoreId, Header: dag::ECGHeader, T: CRDT, Hash> {
+pub(crate) enum StateMachine<StoreId, Header: dag::ECGHeader, T: CRDT, Hash> {
     DownloadingMetadata {
         store_id: StoreId,
     },
@@ -80,6 +88,7 @@ pub enum StateMachine<StoreId, Header: dag::ECGHeader, T: CRDT, Hash> {
         merkle_tree: MerkleTree<Hash>,
         initial_state: Vec<u8>, // Or just T?
         ecg_state: dag::State<Header, T>,
+        sc_state: bft::State<Header, T>,
         decrypted_state: DecryptedState<Header, T>, // Temporary
                                                     // decrypted_state: Option<DecryptedState<Header, T>>, // JP: Is this actually used?
                                                     // Does it make sense?
@@ -203,6 +212,7 @@ impl<
             merkle_tree,
             initial_state,
             ecg_state: dag::State::new(),
+            sc_state: bft::State::new(),
             decrypted_state, // : Some(decrypted_state),
         };
         State {
@@ -890,11 +900,13 @@ impl<
                     latest_state,
                     latest_headers: BTreeSet::new(),
                 };
+                let sc_state = bft::State::new();
                 StateMachine::Syncing {
                     metadata,
                     merkle_tree,
                     initial_state,
                     ecg_state,
+                    sc_state,
                     decrypted_state,
                 }
             }
@@ -1157,7 +1169,7 @@ pub(crate) async fn run_handler<OT: OssaType, T>(
 
                             //     StateMachine::DownloadingInitialState { metadata, piece_hashes, initial_state }
                             // }
-                            StateMachine::Syncing { metadata, merkle_tree, initial_state , ecg_state, decrypted_state } => {
+                            StateMachine::Syncing { metadata, merkle_tree, initial_state , ecg_state, decrypted_state, sc_state } => {
                                 let mut ecg_state = ecg_state;
                                 let mut decrypted_state = decrypted_state;
 
@@ -1178,7 +1190,7 @@ pub(crate) async fn run_handler<OT: OssaType, T>(
                                 // Send state to subscribers.
                                 update_listeners(&mut store.ecg_subscribers, &listeners, &decrypted_state.latest_state, &ecg_state, None);
 
-                                StateMachine::Syncing { metadata, merkle_tree, initial_state, ecg_state, decrypted_state }
+                                StateMachine::Syncing { metadata, merkle_tree, initial_state, ecg_state, decrypted_state, sc_state }
                             }
                             _ => {
                                 warn!("JP: Does this ever happen?");
