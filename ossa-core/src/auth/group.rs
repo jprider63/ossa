@@ -8,10 +8,12 @@ pub type GroupId = StoreRef<Sha256Hash, Group, ()>;
 pub enum MemberId {
     User(IdentityId),
     Group(GroupId),
+    Public,
 }
 
 /// Access control role for group members.
 pub enum Role {
+    Relay,
     Read,
     Commenter,
     Write,
