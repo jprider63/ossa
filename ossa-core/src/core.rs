@@ -242,8 +242,12 @@ impl<OT: OssaType> Ossa<OT> {
         }
     }
 
-    pub fn create_store<T, S: Storage>(&self, initial_state: T, _storage: S) -> StoreHandle<OT, T>
+    pub fn create_store<S, T, ST: Storage>(&self, initial_sc_state: S, initial_ec_state: T, _storage: ST) -> StoreHandle<OT, S, T>
     where
+        S: Serialize
+            + Typeable
+            + Clone
+            + 'static,
         T: CRDT<Time = OT::Time>
             + Clone
             + Debug
@@ -270,8 +274,9 @@ impl<OT: OssaType> Ossa<OT> {
         <OT::ECGHeader as ECGHeader>::HeaderId: Send + Serialize + for<'d> Deserialize<'d>,
     {
         // Create store by generating nonce, etc.
-        let store = store::State::<OT::StoreId, OT::ECGHeader, T, OT::Hash>::new_syncing(
-            initial_state.clone(),
+        let store = store::State::<OT::StoreId, OT::ECGHeader, S, T, OT::Hash>::new_syncing(
+            initial_sc_state.clone(),
+            initial_ec_state.clone(),
         );
         let store_id = store.store_id();
 
@@ -286,8 +291,9 @@ impl<OT: OssaType> Ossa<OT> {
             false
         });
         if already_exists {
+            // TODO: Pull out initial_state from store to eliminate clone.
             // This will generate a new nonce if there's a conflict.
-            return self.create_store(initial_state, _storage);
+            return self.create_store(initial_sc_state, initial_ec_state, _storage);
         }
 
         // Launch the store.
@@ -296,13 +302,14 @@ impl<OT: OssaType> Ossa<OT> {
         store_handle
     }
 
-    pub fn connect_to_store<T>(
+    pub fn connect_to_store<S, T>(
         &self,
         store_id: OT::StoreId,
         // storage: S,
-    ) -> StoreHandle<OT, T>
+    ) -> StoreHandle<OT, S, T>
     where
         OT::ECGHeader: Send + Sync + Clone + 'static,
+        S: 'static,
         T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
         OT::ECGBody<T>: Send
             + Serialize
@@ -423,13 +430,14 @@ impl<OT: OssaType> Ossa<OT> {
     }
 
     // TODO: Separate state (that keeps state, syncs with other peers, etc) and optional user API (that sends state updates)?
-    fn launch_store<T>(
+    fn launch_store<S, T>(
         &self,
         store_id: OT::StoreId,
-        store: store::State<OT::StoreId, OT::ECGHeader, T, OT::Hash>,
-    ) -> StoreHandle<OT, T>
+        store: store::State<OT::StoreId, OT::ECGHeader, S, T, OT::Hash>,
+    ) -> StoreHandle<OT, S, T>
     where
         OT::ECGHeader: Send + Sync + Clone + 'static + for<'d> Deserialize<'d> + Serialize,
+        S: 'static,
         T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
         OT::ECGBody<T>: Send
             + Serialize
@@ -468,7 +476,7 @@ impl<OT: OssaType> Ossa<OT> {
         let shared_state = self.shared_state.clone();
         let send_commands_untyped_ = send_commands_untyped.clone();
         let future_handle = self.tokio_runtime.spawn(async move {
-            store::run_handler::<OT, T>(
+            store::run_handler::<OT, S, T>(
                 store,
                 recv_commands,
                 send_commands_untyped_,
@@ -553,6 +561,7 @@ pub struct OssaConfig {
 
 pub struct StoreHandle<
     O: OssaType,
+    S,
     T: CRDT<Time = O::Time, Op: ConcretizeTime<<O::ECGHeader as ECGHeader>::HeaderId>>,
 >
 // where
@@ -561,7 +570,7 @@ pub struct StoreHandle<
 {
     // future_handle: JoinHandle<()>, // JP: Maybe this should be owned by `Ossa`?
     send_command_chan: UnboundedSender<StoreCommand<O::ECGHeader, O::ECGBody<T>, T>>,
-    phantom: PhantomData<O>,
+    phantom: PhantomData<fn(O, S)>,
 }
 
 /// Trait to define newtype wrapers that instantiate type families required by Ossa.
@@ -609,8 +618,9 @@ pub trait OssaType: 'static {
 
 impl<
         O: OssaType,
+        S,
         T: CRDT<Time = O::Time, Op: ConcretizeTime<<O::ECGHeader as ECGHeader>::HeaderId>>,
-    > StoreHandle<O, T>
+    > StoreHandle<O, S, T>
 // where
 //     T::Op<CausalTime<T::Time>>: Serialize,
 {

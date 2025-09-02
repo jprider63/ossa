@@ -1,3 +1,4 @@
+use itertools::Itertools as _;
 use ossa_typeable::{TypeId, Typeable};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
@@ -52,13 +53,20 @@ pub struct MetadataHeader<Hash> {
     /// The protocol version of this store.
     pub protocol_version: protocol::Version,
 
-    /// Type of state that the store holds.
-    pub store_type: TypeId,
+    /// Type of strongly consistent state that the store holds.
+    pub sc_store_type: TypeId,
 
-    /// Size in bytes of the initial state.
-    pub initial_state_size: u64,
+    /// Type of CRDT state that the store holds.
+    pub ec_store_type: TypeId,
+
+    /// Size in bytes of the strongly consistent initial state.
+    pub initial_sc_state_size: u64,
+
+    /// Size in bytes of the initial CRDT state.
+    pub initial_ec_state_size: u64,
 
     /// Hash (merkle root) of the hashes of the initial state's blocks.
+    /// The initial strongly consistent state is appended to the CRDT state.
     pub merkle_root: Hash, // TODO: Make this an actual binary (or 512-ary) tree?
                            //
                            // TODO:
@@ -70,17 +78,21 @@ pub struct MetadataHeader<Hash> {
 // TODO: Signature of MetadataHeader by `owner`.
 
 impl<H: Hash + Debug> MetadataHeader<H> {
-    pub fn generate<T: Typeable>(initial_state: &MetadataBody<H>) -> MetadataHeader<H> {
+    pub fn generate<S: Typeable, T: Typeable>(initial_state: &MetadataBody<H>) -> MetadataHeader<H> {
         let nonce = generate_nonce();
         let protocol_version = protocol::LATEST_VERSION;
-        let store_type = T::type_ident();
-        let initial_state_size = initial_state.initial_state.len() as u64;
+        let sc_store_type = S::type_ident();
+        let ec_store_type = T::type_ident();
+        let initial_sc_state_size = initial_state.initial_sc_state.len() as u64;
+        let initial_ec_state_size = initial_state.initial_ec_state.len() as u64;
         let merkle_root = initial_state.merkle_root();
         MetadataHeader {
             nonce,
             protocol_version,
-            store_type,
-            initial_state_size,
+            sc_store_type,
+            ec_store_type,
+            initial_sc_state_size,
+            initial_ec_state_size,
             merkle_root,
         }
     }
@@ -94,8 +106,9 @@ impl<H: Hash + Debug> MetadataHeader<H> {
         let mut h = H::new();
         H::update(&mut h, self.nonce);
         H::update(&mut h, [self.protocol_version.as_byte()]);
-        H::update(&mut h, self.store_type);
-        H::update(&mut h, self.initial_state_size.to_be_bytes());
+        H::update(&mut h, self.ec_store_type);
+        H::update(&mut h, self.initial_sc_state_size.to_be_bytes());
+        H::update(&mut h, self.initial_ec_state_size.to_be_bytes());
         H::update(&mut h, self.merkle_root);
         H::finalize(h).into()
     }
@@ -110,25 +123,35 @@ impl<H: Hash + Debug> MetadataHeader<H> {
     }
 
     pub fn block_count(&self) -> u64 {
-        self.initial_state_size.div_ceil(BLOCK_SIZE)
+        self.merkle_size().div_ceil(BLOCK_SIZE as u128).try_into().expect("TODO")
+    }
+
+    /// Size of the contents of the merkle tree in bytes.
+    pub(crate) fn merkle_size(&self) -> u128 {
+        self.initial_ec_state_size as u128 + self.initial_sc_state_size as u128
     }
 }
 
 #[derive(Debug)] // , Deserialize, Serialize)]
                  // TODO: Get rid of this? Or rename it? InitialStateBuilder?
 pub struct MetadataBody<Hash> {
-    /// Serialized (and encrypted) initial state of the store.
-    //  TODO: Eventually merkelize the initial state in chunks.
-    initial_state: Vec<u8>,
+    /// Serialized (and encrypted) initial strongly consistent state of the store.
+    initial_sc_state: Vec<u8>,
+    /// Serialized (and encrypted) initial causally consistent state of the store.
+    initial_ec_state: Vec<u8>,
     merkle_tree: MerkleTree<Hash>,
 }
 
 impl<H: Hash + Debug> MetadataBody<H> {
-    pub(crate) fn new<T: Serialize>(initial_state: &T) -> MetadataBody<H> {
-        let initial_state = serde_cbor::to_vec(initial_state).expect("TODO");
-        let merkle_tree = MerkleTree::from_chunks(initial_state.chunks(BLOCK_SIZE as usize));
+    pub(crate) fn new<S: Serialize, T: Serialize>(initial_sc_state: &S, initial_ec_state: &T) -> MetadataBody<H> {
+        let mut initial_sc_state = serde_cbor::to_vec(initial_sc_state).expect("TODO");
+        let mut initial_ec_state = serde_cbor::to_vec(initial_ec_state).expect("TODO");
+        // let appended = initial_sc_state.iter().chain(initial_ec_state.iter()).chunks(BLOCK_SIZE as usize);
+        initial_sc_state.append(&mut initial_ec_state);
+        let merkle_tree = MerkleTree::from_chunks(initial_sc_state.chunks(BLOCK_SIZE as usize));
         MetadataBody {
-            initial_state,
+            initial_sc_state,
+            initial_ec_state,
             merkle_tree,
         }
     }
@@ -138,7 +161,7 @@ impl<H: Hash + Debug> MetadataBody<H> {
     }
 
     pub fn build(self) -> (MerkleTree<H>, Vec<u8>) {
-        (self.merkle_tree, self.initial_state)
+        (self.merkle_tree, self.initial_ec_state)
     }
 }
 

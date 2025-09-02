@@ -66,14 +66,13 @@ impl<StoreId: PartialEq, S, C> PartialEq for StoreRef<StoreId, S, C> {
     }
 }
 
-impl<StoreId: Eq, S, C> Eq for StoreRef<StoreId, S, C> {
-}
+impl<StoreId: Eq, S, C> Eq for StoreRef<StoreId, S, C> {}
 
 
-pub struct State<StoreId, Header: dag::ECGHeader, T: CRDT, Hash> {
+pub struct State<StoreId, Header: dag::ECGHeader, S, T: CRDT, Hash> {
     // Peers that also have this store (that we are potentially connected to?).
     peers: BTreeMap<DeviceId, PeerInfo<Header::HeaderId, Header>>, // BTreeSet<DeviceId>,
-    state_machine: StateMachine<StoreId, Header, T, Hash>,
+    state_machine: StateMachine<StoreId, Header, S, T, Hash>,
     metadata_subscribers: BTreeMap<DeviceId, oneshot::Sender<Option<v0::MetadataHeader<Hash>>>>,
     merkle_subscribers: BTreeMap<DeviceId, (Vec<Range<u64>>, oneshot::Sender<Option<Vec<Hash>>>)>,
     block_subscribers: BTreeMap<
@@ -92,7 +91,7 @@ pub struct State<StoreId, Header: dag::ECGHeader, T: CRDT, Hash> {
 // - Initializing - Setting up the thread that owns the store (not defined here).
 // - DownloadingMetadata - Don't have the header so we're downloading it.
 // - Syncing - Have the header and syncing updates between peers.
-pub(crate) enum StateMachine<StoreId, Header: dag::ECGHeader, T: CRDT, Hash> {
+pub(crate) enum StateMachine<StoreId, Header: dag::ECGHeader, S, T: CRDT, Hash> {
     DownloadingMetadata {
         store_id: StoreId,
     },
@@ -112,7 +111,7 @@ pub(crate) enum StateMachine<StoreId, Header: dag::ECGHeader, T: CRDT, Hash> {
         merkle_tree: MerkleTree<Hash>,
         initial_state: Vec<u8>, // Or just T?
         ecg_state: dag::State<Header, T>,
-        sc_state: bft::State<Header, T>,
+        sc_state: bft::State<Header, S>,
         decrypted_state: DecryptedState<Header, T>, // Temporary
                                                     // decrypted_state: Option<DecryptedState<Header, T>>, // JP: Is this actually used?
                                                     // Does it make sense?
@@ -211,21 +210,23 @@ impl<T> PeerStatus<T> {
 impl<
         StoreId: Copy + Eq,
         Header: dag::ECGHeader + Clone + Debug,
+        S,
         T: CRDT + Clone,
         Hash: util::Hash + Debug + Into<StoreId>,
-    > State<StoreId, Header, T, Hash>
+    > State<StoreId, Header, S, T, Hash>
 {
     /// Initialize a new store with the given state. This initializes the header, including
     /// generating a random nonce.
-    pub fn new_syncing(initial_state: T) -> State<StoreId, Header, T, Hash>
+    pub fn new_syncing(initial_sc_state: S, initial_ec_state: T) -> State<StoreId, Header, S, T, Hash>
     where
+        S: Serialize + Typeable,
         T: Serialize + Typeable,
     {
-        let init_body = MetadataBody::new(&initial_state);
+        let init_body = MetadataBody::new(&initial_sc_state, &initial_ec_state);
         debug!("Initialized body: {:?}", init_body);
-        let store_header = MetadataHeader::generate::<T>(&init_body);
+        let store_header = MetadataHeader::generate::<S, T>(&init_body);
         let decrypted_state = DecryptedState {
-            latest_state: initial_state,
+            latest_state: initial_ec_state,
             latest_headers: BTreeSet::new(),
         };
 
@@ -893,7 +894,7 @@ impl<
         }
 
         // If there's no initial state, we already know all the blocks so move onto syncing.
-        if self.metadata().unwrap().initial_state_size == 0 {
+        if self.metadata().unwrap().merkle_size() == 0 {
             self.update_state_to_syncing(peer, listeners);
         }
     }
@@ -1000,8 +1001,8 @@ fn update_listeners<Header: dag::ECGHeader + Clone + Debug, T: CRDT + Clone>(
 
 // JP: Or should Ossa own this/peers?
 /// Manage peers by ranking them, randomize, potentially connecting to some of them, etc.
-async fn manage_peers<OT: OssaType, T: CRDT<Time = OT::Time> + Clone + Send + 'static>(
-    store: &mut State<OT::StoreId, OT::ECGHeader, T, OT::Hash>,
+async fn manage_peers<OT: OssaType, S, T: CRDT<Time = OT::Time> + Clone + Send + 'static>(
+    store: &mut State<OT::StoreId, OT::ECGHeader, S, T, OT::Hash>,
     shared_state: &SharedState<OT::StoreId>,
     send_commands: &UnboundedSender<
         UntypedStoreCommand<OT::Hash, <OT::ECGHeader as ECGHeader>::HeaderId, OT::ECGHeader>,
@@ -1117,8 +1118,8 @@ fn apply_operations<OT: OssaType, T>(
 
 /// Run the handler that owns this store and manages its state. This handler is typically run in
 /// its own tokio thread.
-pub(crate) async fn run_handler<OT: OssaType, T>(
-    mut store: State<OT::StoreId, OT::ECGHeader, T, OT::Hash>,
+pub(crate) async fn run_handler<OT: OssaType, S, T>(
+    mut store: State<OT::StoreId, OT::ECGHeader, S, T, OT::Hash>,
     mut recv_commands: UnboundedReceiver<StoreCommand<OT::ECGHeader, OT::ECGBody<T>, T>>,
     send_commands_untyped: UnboundedSender<
         UntypedStoreCommand<OT::Hash, <OT::ECGHeader as ECGHeader>::HeaderId, OT::ECGHeader>,
@@ -1232,11 +1233,11 @@ pub(crate) async fn run_handler<OT: OssaType, T>(
                                 StateUpdate::Downloading { percent: 0 }
                             }
                             StateMachine::DownloadingInitialState { metadata, initial_state, .. } => {
-                                let percent = if metadata.initial_state_size == 0 {
+                                let percent = if metadata.merkle_size() == 0 {
                                     0
                                 } else {
                                     let downloaded = initial_state.iter().filter(|p| p.is_some()).count() as u64;
-                                    100 * downloaded * BLOCK_SIZE / metadata.initial_state_size
+                                    100 * downloaded * BLOCK_SIZE / (metadata.merkle_size() as u64)
                                 };
                                 StateUpdate::Downloading { percent }
                             }
@@ -1275,7 +1276,7 @@ pub(crate) async fn run_handler<OT: OssaType, T>(
                         // Spawn sync threads for each shared store.
                         // TODO: Only do this if server?
                         // Check if we already are syncing these.
-                        manage_peers::<OT,T>(&mut store, &shared_state, &send_commands_untyped).await;
+                        manage_peers::<OT, S, T>(&mut store, &shared_state, &send_commands_untyped).await;
                     }
                     // Sets up task to respond to a request to sync this store from a peer (without initiative).
                     // Called when:
@@ -1492,8 +1493,8 @@ fn handle_merkle_peer_request_helper<H: Copy>(
     hashes
 }
 
-fn handle_block_peer_request_helper<StoreId, Header: dag::ECGHeader, T: CRDT, Hash>(
-    state_machine: &StateMachine<StoreId, Header, T, Hash>,
+fn handle_block_peer_request_helper<StoreId, Header: dag::ECGHeader, S, T: CRDT, Hash>(
+    state_machine: &StateMachine<StoreId, Header, S, T, Hash>,
     block_ids: &[Range<u64>],
 ) -> Option<Vec<Option<Vec<u8>>>> {
     // TODO: Can we avoid these clones?
