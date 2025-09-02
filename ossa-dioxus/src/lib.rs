@@ -68,10 +68,11 @@ impl OssaType for DefaultSetup {
 
 pub struct UseStore<
     OT: OssaType + 'static,
+    S,
     T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>> + 'static,
 > {
     future: Task,
-    handle: Rc<RefCell<StoreHandle<OT, T>>>,
+    handle: Rc<RefCell<StoreHandle<OT, S, T>>>,
     // handle: StoreHandle<OT, T>,
     state: Signal<Option<StoreState<OT, T>>>,
     // peers, connections, etc
@@ -89,8 +90,9 @@ pub struct UseStore<
 
 impl<
     OT: OssaType + 'static,
+    S,
     T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>,
-> Clone for UseStore<OT, T>
+> Clone for UseStore<OT, S, T>
 {
     fn clone(&self) -> Self {
         UseStore {
@@ -131,13 +133,14 @@ where
 
 pub fn use_store<
     OT: OssaType + 'static,
+    S: 'static,
     T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>,
     F,
 >(
     build_store_handle: F,
-) -> UseStore<OT, T>
+) -> UseStore<OT, S, T>
 where
-    F: FnOnce(&Ossa<OT>) -> StoreHandle<OT, T>,
+    F: FnOnce(&Ossa<OT>) -> StoreHandle<OT, S, T>,
 {
     let scope = current_scope_id().expect("Failed to get scope id");
     let ossa = use_context::<OssaProp<OT>>().ossa;
@@ -147,6 +150,7 @@ where
 
 fn new_store_helper<
     OT: OssaType + 'static,
+    S,
     T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>,
     F,
 >(
@@ -154,9 +158,9 @@ fn new_store_helper<
     scope: ScopeId,
     caller: &'static Location,
     build_store_handle: F,
-) -> Option<UseStore<OT, T>>
+) -> Option<UseStore<OT, S, T>>
 where
-    F: FnOnce(&Ossa<OT>) -> StoreHandle<OT, T>,
+    F: FnOnce(&Ossa<OT>) -> StoreHandle<OT, S, T>,
 {
     let mut handle = build_store_handle(ossa);
     let mut recv_st = handle.subscribe_to_state();
@@ -202,14 +206,15 @@ where
 
 pub fn new_store_in_scope<
     OT: OssaType + 'static,
+    S,
     T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>,
     F,
 >(
     scope: ScopeId,
     build_store_handle: F,
-) -> Option<UseStore<OT, T>>
+) -> Option<UseStore<OT, S, T>>
 where
-    F: FnOnce(&Ossa<OT>) -> StoreHandle<OT, T>,
+    F: FnOnce(&Ossa<OT>) -> StoreHandle<OT, S, T>,
 {
     let ossa = use_context::<OssaProp<OT>>().ossa;
     let caller = std::panic::Location::caller();
@@ -218,9 +223,10 @@ where
 
 pub struct OperationBuilder<
     OT: OssaType,
+    S,
     T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>,
 > {
-    handle: Rc<RefCell<StoreHandle<OT, T>>>,
+    handle: Rc<RefCell<StoreHandle<OT, S, T>>>,
     parents: BTreeSet<<<OT as OssaType>::ECGHeader as ECGHeader>::HeaderId>,
     operations: Vec<<T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized>,
 }
@@ -228,8 +234,9 @@ pub struct OperationBuilder<
 const MAX_OPS: usize = 256; // TODO: This is already defined somewhere else?
 impl<
     OT: OssaType,
+    S,
     T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>,
-> OperationBuilder<OT, T>
+> OperationBuilder<OT, S, T>
 {
     /// Queue up an operation to apply.
     /// Cannot queue up more than 256 operations inside a single queue.
@@ -270,8 +277,9 @@ impl<
 
 impl<
     OT: OssaType,
+    S,
     T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>,
-> UseStore<OT, T>
+> UseStore<OT, S, T>
 {
     pub fn get_current_state(&self) -> Option<T>
     where
@@ -348,7 +356,7 @@ impl<
     //     (*self.handle).borrow_mut().apply_batch(parents, op)
     // }
 
-    pub fn operations_builder(&self) -> OperationBuilder<OT, T>
+    pub fn operations_builder(&self) -> OperationBuilder<OT, S, T>
     where
         T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
     {

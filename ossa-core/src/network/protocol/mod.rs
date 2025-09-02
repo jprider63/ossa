@@ -119,8 +119,10 @@ where
         header: MetadataHeader {
             nonce: [0; 32],
             protocol_version: Version::V0,
-            store_type: todo!(), // [1;32],
-            initial_state_size: 0,
+            sc_store_type: todo!(), // [1;32],
+            ec_store_type: todo!(), // [1;32],
+            initial_sc_state_size: 0,
+            initial_ec_state_size: 0,
             merkle_root: todo!(), // [2;32],
         },
         // body: None,
