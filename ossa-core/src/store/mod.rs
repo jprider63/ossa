@@ -237,7 +237,7 @@ impl<
             merkle_tree,
             initial_state,
             ecg_state: dag::State::new(),
-            sc_state: bft::State::new(),
+            sc_state: bft::State::new(initial_sc_state),
             decrypted_state, // : Some(decrypted_state),
         };
         State {
@@ -614,6 +614,7 @@ impl<
         metadata: MetadataHeader<Hash>,
         listeners: &[UnboundedSender<StateUpdate<Header, T>>],
     ) where
+        S: for<'d> Deserialize<'d>,
         T: for<'d> Deserialize<'d>,
     {
         debug!("Recieved metadata from peer ({peer}): {metadata:?}");
@@ -685,6 +686,7 @@ impl<
         their_node_hashes: Vec<Hash>,
         listeners: &[UnboundedSender<StateUpdate<Header, T>>],
     ) where
+        S: for<'d> Deserialize<'d>,
         T: for<'d> Deserialize<'d>,
     {
         warn!("TODO: Keep track if you received different hashes from different peers.");
@@ -730,6 +732,7 @@ impl<
         their_blocks: Vec<Option<Vec<u8>>>,
         listeners: &[UnboundedSender<StateUpdate<Header, T>>],
     ) where
+        S: for<'d> Deserialize<'d>,
         T: for<'d> Deserialize<'d>,
     {
         // Mark peer as ready.
@@ -843,6 +846,7 @@ impl<
         peer: DeviceId,
         listeners: &[UnboundedSender<StateUpdate<Header, T>>],
     ) where
+        S: for<'d> Deserialize<'d>,
         T: for<'d> Deserialize<'d>,
     {
         let StateMachine::DownloadingMerkle {
@@ -904,6 +908,7 @@ impl<
         peer: DeviceId,
         listeners: &[UnboundedSender<StateUpdate<Header, T>>],
     ) where
+        S: for<'d> Deserialize<'d>,
         T: for<'d> Deserialize<'d>,
     {
         replace_with_or_abort(&mut self.state_machine, |sm| match sm {
@@ -919,7 +924,7 @@ impl<
                     .flatten()
                     .collect::<Vec<u8>>();
                 debug_assert_eq!(initial_state.len(), metadata.merkle_size() as usize);
-                let Ok(latest_sc_state) = serde_cbor::de::from_slice::<T>(&initial_state[..metadata.initial_sc_state_size as usize]) else {
+                let Ok(latest_sc_state) = serde_cbor::de::from_slice::<S>(&initial_state[..metadata.initial_sc_state_size as usize]) else {
                     todo!("TODO: The store is invalid. Initial SC state does not parse.");
                 };
                 let Ok(latest_ec_state) = serde_cbor::de::from_slice::<T>(&initial_state[metadata.initial_sc_state_size as usize..]) else {
@@ -929,7 +934,7 @@ impl<
                     latest_ec_state,
                     latest_headers: BTreeSet::new(),
                 };
-                let sc_state = bft::State::new();
+                let sc_state = bft::State::new(latest_sc_state);
                 StateMachine::Syncing {
                     metadata,
                     merkle_tree,
@@ -1149,6 +1154,7 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
     <<OT as OssaType>::ECGHeader as ECGHeader>::HeaderId:
         Send + Serialize + for<'d> Deserialize<'d>,
     // T::Op<CausalTime<T::Time>>: Serialize,
+    S: for<'d> Deserialize<'d>,
     T: CRDT<Time = OT::Time> + Debug + Clone + Send + 'static + for<'d> Deserialize<'d>,
 {
     let mut listeners: Vec<UnboundedSender<StateUpdate<OT::ECGHeader, T>>> = vec![];

@@ -247,6 +247,8 @@ impl<OT: OssaType> Ossa<OT> {
         S: Serialize
             + Typeable
             + Clone
+            + Send
+            + for<'d> Deserialize<'d>
             + 'static,
         T: CRDT<Time = OT::Time>
             + Clone
@@ -309,7 +311,7 @@ impl<OT: OssaType> Ossa<OT> {
     ) -> StoreHandle<OT, S, T>
     where
         OT::ECGHeader: Send + Sync + Clone + 'static,
-        S: 'static,
+        S: for<'d> Deserialize<'d> + Send + 'static,
         T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
         OT::ECGBody<T>: Send
             + Serialize
@@ -437,7 +439,6 @@ impl<OT: OssaType> Ossa<OT> {
     ) -> StoreHandle<OT, S, T>
     where
         OT::ECGHeader: Send + Sync + Clone + 'static + for<'d> Deserialize<'d> + Serialize,
-        S: 'static,
         T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
         OT::ECGBody<T>: Send
             + Serialize
@@ -453,6 +454,7 @@ impl<OT: OssaType> Ossa<OT> {
         <<OT as OssaType>::ECGHeader as ECGHeader>::HeaderId:
             Send + for<'d> Deserialize<'d> + Serialize,
         // T::Op<CausalTime<OT::Time>>: Serialize,
+        S: for<'d> Deserialize<'d> + Send + 'static,
         T: CRDT<Time = OT::Time> + Debug + Clone + Send + 'static + for<'d> Deserialize<'d>,
     {
         // Initialize storage for this store.

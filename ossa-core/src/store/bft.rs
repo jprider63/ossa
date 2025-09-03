@@ -13,12 +13,14 @@ pub trait SCDT {
 }
 
 pub(crate) struct State<Header: dag::ECGHeader, S> {
+    current_state: S, // JP: Should this go somewhere else? Potentially `DecryptedState`?
     dag_state: dag::State<Header, S>,
 }
 
 impl<Header: dag::ECGHeader, S> State<Header, S> {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(current_state: S) -> Self {
         Self {
+            current_state,
             dag_state: dag::State::new(),
         }
     }
