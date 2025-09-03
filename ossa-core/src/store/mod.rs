@@ -120,7 +120,7 @@ pub(crate) enum StateMachine<StoreId, Header: dag::ECGHeader, S, T: CRDT, Hash> 
 
 pub struct DecryptedState<Header: dag::ECGHeader, T: CRDT> {
     /// Latest ECG application state we've seen.
-    latest_state: T,
+    latest_ec_state: T,
 
     /// Headers corresponding to the latest ECG application state.
     // TODO: Remove this.
@@ -226,7 +226,7 @@ impl<
         debug!("Initialized body: {:?}", init_body);
         let store_header = MetadataHeader::generate::<S, T>(&init_body);
         let decrypted_state = DecryptedState {
-            latest_state: initial_ec_state,
+            latest_ec_state: initial_ec_state,
             latest_headers: BTreeSet::new(),
         };
 
@@ -825,13 +825,13 @@ impl<
                 apply_operations::<OT, _>(decrypted_state, ecg_state, &header, operations);
             }
         });
-        debug!("New decrypted state {:?}", decrypted_state.latest_state);
+        debug!("New decrypted state {:?}", decrypted_state.latest_ec_state);
 
         // Update listeners (except peer).
         update_listeners(
             &mut self.ecg_subscribers,
             listeners,
-            &decrypted_state.latest_state,
+            &decrypted_state.latest_ec_state,
             ecg_state,
             Some(peer),
         );
@@ -918,11 +918,15 @@ impl<
                     .flatten()
                     .flatten()
                     .collect::<Vec<u8>>();
-                let Ok(latest_state) = serde_cbor::de::from_slice::<T>(&initial_state) else {
-                    todo!("TODO: The store is invalid. Initial state does not parse.");
+                debug_assert_eq!(initial_state.len(), metadata.merkle_size() as usize);
+                let Ok(latest_sc_state) = serde_cbor::de::from_slice::<T>(&initial_state[..metadata.initial_sc_state_size as usize]) else {
+                    todo!("TODO: The store is invalid. Initial SC state does not parse.");
+                };
+                let Ok(latest_ec_state) = serde_cbor::de::from_slice::<T>(&initial_state[metadata.initial_sc_state_size as usize..]) else {
+                    todo!("TODO: The store is invalid. Initial EC state does not parse.");
                 };
                 let decrypted_state = DecryptedState {
-                    latest_state,
+                    latest_ec_state,
                     latest_headers: BTreeSet::new(),
                 };
                 let sc_state = bft::State::new();
@@ -950,7 +954,7 @@ impl<
         update_listeners(
             &mut self.ecg_subscribers,
             listeners,
-            &decrypted_state.latest_state,
+            &decrypted_state.latest_ec_state,
             ecg_state,
             Some(peer),
         );
@@ -1110,7 +1114,7 @@ fn apply_operations<OT: OssaType, T>(
 {
     let causal_state = OT::to_causal_state(ecg_state);
     for operation in operation_body.operations(operation_header.get_header_id()) {
-        replace_with_or_abort(&mut decrypted_state.latest_state, |s| {
+        replace_with_or_abort(&mut decrypted_state.latest_ec_state, |s| {
             s.apply(causal_state, operation)
         });
     }
@@ -1213,7 +1217,7 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
                                 apply_operations::<OT, _>(&mut decrypted_state, &ecg_state, &operation_header, operation_body);
 
                                 // Send state to subscribers.
-                                update_listeners(&mut store.ecg_subscribers, &listeners, &decrypted_state.latest_state, &ecg_state, None);
+                                update_listeners(&mut store.ecg_subscribers, &listeners, &decrypted_state.latest_ec_state, &ecg_state, None);
 
                                 StateMachine::Syncing { metadata, merkle_tree, initial_state, ecg_state, decrypted_state, sc_state }
                             }
@@ -1243,7 +1247,7 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
                             }
                             StateMachine::Syncing { ref ecg_state, ref decrypted_state, .. } => {
                                 StateUpdate::Snapshot {
-                                    snapshot: decrypted_state.latest_state.clone(),
+                                    snapshot: decrypted_state.latest_ec_state.clone(),
                                     ecg_state: ecg_state.clone(),
                                 }
                             }
