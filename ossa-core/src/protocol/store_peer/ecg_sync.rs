@@ -61,7 +61,7 @@ use crate::{
         MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS,
     },
     store::{
-        dag::{self, RawECGBody},
+        dag::{self, RawDAGBody},
         UntypedStoreCommand,
     },
     util::{is_power_of_two, Stream},
@@ -81,7 +81,7 @@ impl<
 {
     async fn receive_response_helper<S: Stream<MsgStoreSync<Hash, HeaderId, Header>>>(
         stream: &mut S,
-    ) -> (Vec<HeaderId>, Vec<(Header, RawECGBody)>) {
+    ) -> (Vec<HeaderId>, Vec<(Header, RawDAGBody)>) {
         let response = receive(stream).await.expect("TODO");
         let (have, operations) = match response {
             MsgStoreECGSyncResponse::Response { have, operations } => (have, operations),
@@ -104,7 +104,7 @@ impl<
     pub(crate) async fn run_new<S: Stream<MsgStoreSync<Hash, HeaderId, Header>>>(
         stream: &mut S,
         ecg_state: &dag::UntypedState<HeaderId, Header>,
-    ) -> (Self, Vec<(Header, RawECGBody)>) {
+    ) -> (Self, Vec<(Header, RawDAGBody)>) {
         // TODO: Limit on tips (128? 64? 32? MAX_HAVE_HEADERS)
         warn!("TODO: Check request sizes.");
         let req = MsgStoreSyncRequest::ECGInitialSync {
@@ -128,7 +128,7 @@ impl<
         &mut self,
         stream: &mut S,
         ecg_state: &dag::UntypedState<HeaderId, Header>,
-    ) -> Vec<(Header, RawECGBody)> {
+    ) -> Vec<(Header, RawDAGBody)> {
         // Check which headers they sent us that we know.
         let mut known_bitmap = BitArray::ZERO;
         for (i, header_id) in self.have.iter().enumerate() {
@@ -334,7 +334,7 @@ impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
     fn prepare_operations(
         &mut self,
         ecg_state: &dag::UntypedState<HeaderId, Header>,
-    ) -> Vec<(Header, RawECGBody)>
+    ) -> Vec<(Header, RawDAGBody)>
     where
         HeaderId: Ord + Copy,
         Header: Clone,

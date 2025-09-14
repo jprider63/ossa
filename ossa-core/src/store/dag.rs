@@ -78,7 +78,7 @@ pub trait ECGBody<Op, SerializedOp> {
 }
 
 // Serialized ECG body
-pub(crate) type RawECGBody = Vec<u8>;
+pub(crate) type RawDAGBody = Vec<u8>;
 
 #[derive(Clone, Debug)]
 pub(crate) struct NodeInfo<Header> {
@@ -89,7 +89,7 @@ pub(crate) struct NodeInfo<Header> {
     /// The header this node is storing.
     header: Header,
     /// Raw serialized and potentially encrypted operations.
-    operations: RawECGBody,
+    operations: RawDAGBody,
 }
 
 impl<Header> NodeInfo<Header> {
@@ -305,7 +305,7 @@ impl<Header: ECGHeader, T> State<Header, T> {
         self.state.get_header_depth(n)
     }
 
-    pub fn insert_header(&mut self, header: Header, operations: RawECGBody) -> bool {
+    pub fn insert_header(&mut self, header: Header, operations: RawDAGBody) -> bool {
         let header_id = header.get_header_id();
 
         // Validate header.

@@ -14,7 +14,7 @@ use crate::{
     protocol::store_peer::ecg_sync::{ECGSyncInitiator, ECGSyncResponder},
     store::{
         self,
-        dag::{self, RawECGBody},
+        dag::{self, RawDAGBody},
         HandlePeerRequest, UntypedStoreCommand,
     },
     util::Stream,
@@ -77,7 +77,7 @@ pub(crate) struct MsgStoreSyncBlockResponse(StoreSyncResponse<Vec<Option<Vec<u8>
 pub(crate) enum MsgStoreECGSyncResponse<HeaderId, Header> {
     Response {
         have: Vec<HeaderId>,
-        operations: Vec<(Header, RawECGBody)>, // ECG headers and serialized ECG body.
+        operations: Vec<(Header, RawDAGBody)>, // ECG headers and serialized ECG body.
     },
     Wait, // JP: Use StoreSyncResponse?
 }
@@ -199,7 +199,7 @@ impl<Hash, HeaderId, Header> TryInto<MsgStoreECGSyncResponse<HeaderId, Header>>
 
 pub(crate) struct StoreSync<Hash, HeaderId, Header> {
     peer: DeviceId,
-    // Receive commands from store if we have initiatives or send commands to store if we're the responder.
+    // Receive commands from store if we have initiative or send commands to store if we're the responder.
     recv_chan: Option<UnboundedReceiver<StoreSyncCommand<HeaderId, Header>>>,
     // Send commands to store if we're the responder and send results back to store if we're the initiator.
     send_chan: UnboundedSender<UntypedStoreCommand<Hash, HeaderId, Header>>, // JP: Make this a stream?

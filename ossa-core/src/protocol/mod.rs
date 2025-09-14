@@ -13,6 +13,7 @@ use crate::{
 
 pub mod heartbeat;
 pub mod manager;
+pub mod store_bft_dag;
 pub mod store_peer;
 pub mod v0;
 
