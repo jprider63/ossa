@@ -26,6 +26,7 @@ use crate::{
     protocol::{
         manager::v0::PeerManagerCommand,
         store_peer::v0::{StoreSync, StoreSyncCommand},
+        store_bft_dag::v0::{StoreDAGSync, StoreDAGSyncCommand},
     },
     store::{
         dag::{ECGBody, ECGHeader, RawDAGBody},
@@ -130,17 +131,17 @@ pub struct DecryptedState<Header: dag::ECGHeader, T: CRDT> {
 /// Information about a peer.
 #[derive(Debug)]
 struct PeerInfo<HeaderId, Header> {
-    ecg_status: PeerProtocolStatus<HeaderId, Header>,
-    scg_status: PeerProtocolStatus<HeaderId, Header>,
+    ecg_status: PeerProtocolStatus<StoreSyncCommand<HeaderId, Header>>, // ECGHeader?
+    scg_status: PeerProtocolStatus<StoreDAGSyncCommand<HeaderId, Header>>, // SCGHeader?
     // TODO: sc_status: PeerProtocolStatus<HeaderId, Header>,
 }
 
 #[derive(Debug)]
-struct PeerProtocolStatus<HeaderId, Header> {
+struct PeerProtocolStatus<CommandType> {
     /// Status of incoming sync status from peer.
     incoming_status: PeerStatus<()>,
     /// Status of outgoing sync status to peer.
-    outgoing_status: PeerStatus<OutgoingPeerStatus<HeaderId, Header>>,
+    outgoing_status: PeerStatus<OutgoingPeerStatus<CommandType>>,
     // ecg_status: ECGStatus<HeaderId>,
 }
 
@@ -157,7 +158,7 @@ struct PeerProtocolStatus<HeaderId, Header> {
 impl<Hash, Header> PeerInfo<Hash, Header> {
     /// Checks if the peer is ready for an ECG sync request.
     /// This means the peer is syncing and does not have an outstanding request.
-    fn is_ready_for_sync(&self, f: fn(&PeerInfo<Hash, Header>) -> &PeerProtocolStatus<Hash, Header>) -> bool {
+    fn is_ready_for_sync<CommandType>(&self, f: fn(&PeerInfo<Hash, Header>) -> &PeerProtocolStatus<CommandType>) -> bool {
         if let PeerStatus::Syncing(s) = &f(self).outgoing_status {
             !s.is_outstanding
         } else {
@@ -168,9 +169,9 @@ impl<Hash, Header> PeerInfo<Hash, Header> {
 
 #[derive(Debug)]
 /// Outgoing information about a syncing peer.
-struct OutgoingPeerStatus<HeaderId, Header> {
+struct OutgoingPeerStatus<CommandType> {
     /// Sender channel for requests to the outgoing peer store.
-    sender_peer: UnboundedSender<StoreSyncCommand<HeaderId, Header>>,
+    sender_peer: UnboundedSender<CommandType>, // StoreSyncCommand<HeaderId, Header>>,
     /// Whether we have an outgoing peer request that is outstanding.
     is_outstanding: bool,
 }
@@ -329,9 +330,10 @@ impl<
         }
     }
 
-    /// Update a known peer's outgoing status to initializing.
-    fn update_peer_ecg_to_initializing_outgoing(&mut self, peer: &DeviceId) {
+    /// Update a known peer's outgoing (ECG + SCG) status to initializing.
+    fn update_peer_to_initializing_outgoing(&mut self, peer: &DeviceId) {
         self.update_peer_to_initializing(peer, |info| &mut info.ecg_status.outgoing_status);
+        self.update_peer_to_initializing(peer, |info| &mut info.scg_status.outgoing_status);
     }
 
     /// Update a known peer's incoming status to initializing.
@@ -384,9 +386,17 @@ impl<
     fn update_peer_ecg_to_syncing_outgoing(
         &mut self,
         peer: &DeviceId,
-        sender: OutgoingPeerStatus<Header::HeaderId, Header>,
+        sender: OutgoingPeerStatus<StoreSyncCommand<Header::HeaderId, Header>>,
     ) {
         self.update_peer_to_syncing(peer, |info| &mut info.ecg_status.outgoing_status, sender);
+    }
+
+    fn update_peer_scg_to_syncing_outgoing(
+        &mut self,
+        peer: &DeviceId,
+        sender: OutgoingPeerStatus<StoreDAGSyncCommand<Header::HeaderId, Header>>,
+    ) {
+        self.update_peer_to_syncing(peer, |info| &mut info.scg_status.outgoing_status, sender);
     }
 
     fn update_outgoing_peer_ecg_to_ready(&mut self, peer: &DeviceId) {
@@ -417,9 +427,9 @@ impl<
 
     /// Send sync requests to peers.
     fn send_sync_requests(&mut self) {
-        fn send_command<Hash, Header>(
-            i: &mut PeerProtocolStatus<Hash, Header>,
-            message: StoreSyncCommand<Hash, Header>,
+        fn send_command<T>(
+            i: &mut PeerProtocolStatus<T>,
+            message: T,
         ) {
             let PeerStatus::Syncing(ref mut s) = i.outgoing_status else {
                 unreachable!("Already checked that the peer is ready.");
@@ -431,7 +441,7 @@ impl<
         }
 
         // Get and randomize peers (of this store) without outstanding requests.
-        fn get_outstanding_peers<Header: ECGHeader>(peers: &mut BTreeMap<DeviceId, PeerInfo<Header::HeaderId, Header>>, protocol_f: fn(&PeerInfo<Header::HeaderId, Header>) -> &PeerProtocolStatus<Header::HeaderId, Header>) -> Vec<(&DeviceId, &mut PeerInfo<Header::HeaderId, Header>)> {
+        fn get_outstanding_peers<Header: ECGHeader, CommandType>(peers: &mut BTreeMap<DeviceId, PeerInfo<Header::HeaderId, Header>>, protocol_f: fn(&PeerInfo<Header::HeaderId, Header>) -> &PeerProtocolStatus<CommandType>) -> Vec<(&DeviceId, &mut PeerInfo<Header::HeaderId, Header>)> {
             let mut peers: Vec<_> = peers
                 .iter_mut()
                 .filter(|(_, i)| i.is_ready_for_sync(protocol_f))
@@ -523,11 +533,14 @@ impl<
         }
 
         match &self.state_machine {
-            StateMachine::Syncing { ecg_state, .. } => {
+            StateMachine::Syncing { sc_state, .. } => {
                 debug!("Sending SCG sync requests to peers.");
                 let mut scg_peers = get_outstanding_peers(&mut self.peers, |i| &i.scg_status);
                 scg_peers.iter_mut().for_each(|p| {
-                    todo!("TODO: Implement me");
+                    let dag_state = sc_state.dag_state.state().clone();
+                    let message = StoreDAGSyncCommand::DAGSyncRequest { dag_state };
+                    debug!("Sending SCG sync request to peer ({})", p.0);
+                    send_command(&mut p.1.scg_status, message)
                 });
             }
             _ => { }
@@ -1073,10 +1086,10 @@ async fn manage_peers<OT: OssaType, S, T: CRDT<Time = OT::Time> + Clone + Send +
     };
     for (peer_id, command_chan) in peers {
         // Mark task as initializing.
-        store.update_peer_ecg_to_initializing_outgoing(&peer_id);
+        store.update_peer_to_initializing_outgoing(&peer_id);
 
         // Create closure that spawns task to sync store with peer.
-        let send_commands = send_commands.clone();
+        let send_commands_ = send_commands.clone();
         let spawn_task_ec = Box::new(move |_party, stream_id, sender, receiver| {
             // Create miniprotocol
             // Spawn task that syncs store with peer.
@@ -1091,10 +1104,10 @@ async fn manage_peers<OT: OssaType, S, T: CRDT<Time = OT::Time> + Clone + Send +
                     peer: peer_id,
                     send_peer,
                 };
-                send_commands.send(register_cmd).expect("TODO");
+                send_commands_.send(register_cmd).expect("TODO");
 
                 // Start miniprotocol as server.
-                let mp = StoreSync::<OT::Hash, _, _>::new_server(peer_id, recv_peer, send_commands);
+                let mp = StoreSync::<OT::Hash, _, _>::new_server(peer_id, recv_peer, send_commands_);
                 run_miniprotocol_async(mp, false, stream_id, sender, receiver).await;
 
                 debug!("Store sync with peer (with initiative) exited.")
@@ -1114,11 +1127,21 @@ async fn manage_peers<OT: OssaType, S, T: CRDT<Time = OT::Time> + Clone + Send +
             })
         });
 
-        todo!("TODO: Mark SCG status as initializing");
+        let send_commands = send_commands.clone();
         let spawn_task_sc = Box::new(move |_party, stream_id, sender, receiver| {
             tokio::spawn(async move {
-                // TODO: Run SC miniprotocol as server
-                warn!("TODO: Run SC miniprotocol as server")
+                // Tell store we're running and send it our channel.
+                let (send_peer, recv_peer) = tokio::sync::mpsc::unbounded_channel();
+                let register_cmd = UntypedStoreCommand::RegisterOutgoingSCGSyncing {
+                    peer: peer_id,
+                    send_peer,
+                };
+                send_commands.send(register_cmd).expect("TODO");
+
+                // Run SC miniprotocol as server
+                let mp = StoreDAGSync::<OT::Hash, _, _>::new_server(peer_id, recv_peer, send_commands);
+                run_miniprotocol_async(mp, false, stream_id, sender, receiver).await;
+
             })
         });
 
@@ -1427,6 +1450,17 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
                     UntypedStoreCommand::ReceivedSCGOperations { peer, operations } => {
                         todo!();
                     }
+                    UntypedStoreCommand::RegisterOutgoingSCGSyncing { peer, send_peer } => {
+                        // Update peer's state to syncing and register channel.
+                        let outgoing_status = OutgoingPeerStatus {
+                            sender_peer: send_peer,
+                            is_outstanding: false,
+                        };
+                        store.update_peer_scg_to_syncing_outgoing(&peer, outgoing_status);
+
+                        // Sync with peer(s). Do this for all commands??
+                        store.send_sync_requests();
+                    }
                 }
             }
         }
@@ -1514,6 +1548,10 @@ pub(crate) enum UntypedStoreCommand<Hash, HeaderId, Header> {
     ReceivedSCGOperations {
         peer: DeviceId,
         operations: Vec<(Header, RawDAGBody)>,
+    },
+    RegisterOutgoingSCGSyncing {
+        peer: DeviceId,
+        send_peer: UnboundedSender<StoreDAGSyncCommand<HeaderId, Header>>,
     },
 }
 

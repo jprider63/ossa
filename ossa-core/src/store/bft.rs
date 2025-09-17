@@ -13,8 +13,8 @@ pub trait SCDT {
 }
 
 pub(crate) struct State<Header: dag::ECGHeader, S> {
-    initial_state: S, // JP: Should this go somewhere else? Potentially `DecryptedState`?
-    dag_state: dag::State<Header, S>,
+    pub(crate) initial_state: S, // JP: Should this go somewhere else? Potentially `DecryptedState`?
+    pub(crate) dag_state: dag::State<Header, S>,
 }
 
 impl<Header: dag::ECGHeader, S> State<Header, S> {

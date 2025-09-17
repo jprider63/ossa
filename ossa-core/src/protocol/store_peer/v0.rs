@@ -326,6 +326,7 @@ impl<Hash, HeaderId, Header> StoreSync<Hash, HeaderId, Header> {
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum StoreSyncCommand<HeaderId, Header> {
     MetadataHeaderRequest,
     MerkleRequest(Vec<Range<u64>>),
@@ -482,7 +483,7 @@ impl<
                 }
             }
 
-            debug!("StoreSyncCommand receiver channel closed");
+            debug!("StorePeer client miniprotocol ended");
 
             // ??
             // Send our store's status.
@@ -578,6 +579,7 @@ impl<
                     }
                 }
             }
+            debug!("StoreSyncCommand receiver channel closed");
         }
     }
 }

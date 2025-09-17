@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tracing::debug;
 
-use crate::{auth::DeviceId, network::protocol::MiniProtocol, protocol::store_peer::{ecg_sync::ECGSyncInitiator, v0::MsgStoreSync}, store::{dag::v0::HeaderId, UntypedStoreCommand}};
+use crate::{auth::DeviceId, network::protocol::{receive, MiniProtocol}, protocol::store_peer::{ecg_sync::ECGSyncInitiator, v0::MsgStoreSync}, store::{dag::v0::HeaderId, UntypedStoreCommand}};
 
 
 /// Miniprotocol to sync the DAG in the strongly consistent BFT consensus protocol.
@@ -17,11 +17,38 @@ pub(crate) struct StoreDAGSync<Hash, HeaderId, Header> {
     send_chan: UnboundedSender<UntypedStoreCommand<Hash, HeaderId, Header>>, // JP: Make this a stream?
 }
 
+impl<Hash, HeaderId, Header> StoreDAGSync<Hash, HeaderId, Header> {
+    pub(crate) fn new_server(
+        peer: DeviceId,
+        recv_chan: UnboundedReceiver<StoreDAGSyncCommand<HeaderId, Header>>,
+        send_chan: UnboundedSender<UntypedStoreCommand<Hash, HeaderId, Header>>,
+    ) -> Self {
+        let recv_chan = Some(recv_chan);
+        StoreDAGSync {
+            peer,
+            recv_chan,
+            send_chan,
+        }
+    }
+
+    pub(crate) fn new_client(
+        peer: DeviceId,
+        send_chan: UnboundedSender<UntypedStoreCommand<Hash, HeaderId, Header>>,
+    ) -> Self {
+        StoreDAGSync {
+            peer,
+            recv_chan: None,
+            send_chan,
+        }
+    }
+}
+
 // TODO: Switch to this.
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) enum MsgStoreDAGSync {
 }
 
+#[derive(Debug)]
 pub(crate) enum StoreDAGSyncCommand<HeaderId, Header> {
     DAGSyncRequest {
         // ecg_status: ECGStatus<HeaderId>,
@@ -65,7 +92,7 @@ where
 
                         // JP: Should we check if the operation set is empty?
                         // if !operations.is_empty() {
-                        let msg = UntypedStoreCommand::ReceivedBFTDAGOperations {
+                        let msg = UntypedStoreCommand::ReceivedSCGOperations {
                             peer: self.peer,
                             operations,
                         };
@@ -81,7 +108,16 @@ where
 
     fn run_client<S: crate::util::Stream<Self::Message>>(self, stream: S) -> impl Future<Output = ()> + Send {
         async move {
-            todo!()
+            let mut dag_sync: Option<ECGSyncInitiator<Hash, HeaderId, Header>> = None;
+
+            // TODO: Check when done.
+            loop {
+                todo!()
+                // // Receive request.
+                // let request = receive(&mut stream).await.expect("TODO");
+                // match request {
+                // }
+            }
         }
     }
 }
