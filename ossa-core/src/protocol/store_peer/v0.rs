@@ -11,10 +11,10 @@ use tracing::debug;
 use crate::{
     auth::DeviceId,
     network::protocol::{receive, send, MiniProtocol},
-    protocol::store_peer::ecg_sync::{ECGSyncInitiator, ECGSyncResponder},
+    protocol::store_peer::ecg_sync::{ECGSyncInitiator, ECGSyncResponder, MsgDAGSyncRequest, MsgDAGSyncResponse},
     store::{
         self,
-        dag::{self, RawDAGBody},
+        dag,
         HandlePeerRequest, UntypedStoreCommand,
     },
     util::Stream,
@@ -26,7 +26,7 @@ pub(crate) enum MsgStoreSync<Hash, HeaderId, Header> {
     MetadataHeaderResponse(MsgStoreSyncMetadataResponse<Hash>),
     MerkleResponse(MsgStoreSyncMerkleResponse<Hash>),
     BlocksResponse(MsgStoreSyncBlockResponse),
-    ECGResponse(MsgStoreECGSyncResponse<HeaderId, Header>),
+    ECGResponse(MsgDAGSyncResponse<HeaderId, Header>),
 }
 
 /// The maximum number of `have` hashes that can be sent in each message.
@@ -34,7 +34,6 @@ pub const MAX_HAVE_HEADERS: u16 = 32;
 /// The maximum number of headers that can be sent in each message.
 pub const MAX_DELIVER_HEADERS: u16 = 32;
 
-pub type HeaderBitmap = BitArr!(for MAX_HAVE_HEADERS as usize, in u8, Msb0);
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) enum MsgStoreSyncRequest<HeaderId> {
     MetadataHeader,
@@ -44,12 +43,8 @@ pub(crate) enum MsgStoreSyncRequest<HeaderId> {
     InitialStateBlocks {
         ranges: Vec<Range<u64>>,
     },
-    ECGInitialSync {
-        tips: Vec<HeaderId>,
-    },
     ECGSync {
-        tips: Vec<HeaderId>,
-        known: HeaderBitmap,
+        request: MsgDAGSyncRequest<HeaderId>,
     },
 }
 
@@ -72,15 +67,6 @@ pub(crate) struct MsgStoreSyncMerkleResponse<Hash>(StoreSyncResponse<Vec<Hash>>)
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct MsgStoreSyncBlockResponse(StoreSyncResponse<Vec<Option<Vec<u8>>>>);
-
-#[derive(Debug, Serialize, Deserialize)]
-pub(crate) enum MsgStoreECGSyncResponse<HeaderId, Header> {
-    Response {
-        have: Vec<HeaderId>,
-        operations: Vec<(Header, RawDAGBody)>, // ECG headers and serialized ECG body.
-    },
-    Wait, // JP: Use StoreSyncResponse?
-}
 
 impl<Hash, HeaderId, Header> Into<MsgStoreSync<Hash, HeaderId, Header>>
     for MsgStoreSyncRequest<HeaderId>
@@ -175,18 +161,18 @@ impl<Hash, HeaderId, Header> TryInto<MsgStoreSyncBlockResponse>
 }
 
 impl<Hash, HeaderId, Header> Into<MsgStoreSync<Hash, HeaderId, Header>>
-    for MsgStoreECGSyncResponse<HeaderId, Header>
+    for MsgDAGSyncResponse<HeaderId, Header>
 {
     fn into(self) -> MsgStoreSync<Hash, HeaderId, Header> {
         MsgStoreSync::ECGResponse(self)
     }
 }
 
-impl<Hash, HeaderId, Header> TryInto<MsgStoreECGSyncResponse<HeaderId, Header>>
+impl<Hash, HeaderId, Header> TryInto<MsgDAGSyncResponse<HeaderId, Header>>
     for MsgStoreSync<Hash, HeaderId, Header>
 {
     type Error = ();
-    fn try_into(self) -> Result<MsgStoreECGSyncResponse<HeaderId, Header>, ()> {
+    fn try_into(self) -> Result<MsgDAGSyncResponse<HeaderId, Header>, ()> {
         match self {
             MsgStoreSync::Request(_) => Err(()),
             MsgStoreSync::MetadataHeaderResponse(_) => Err(()),
@@ -550,32 +536,36 @@ impl<
 
                         self.run_client_helper::<_, Vec<Range<u64>>, Vec<Option<Vec<u8>>>, MsgStoreSyncBlockResponse>(&mut stream, ranges, build_command, build_response).await;
                     }
-                    MsgStoreSyncRequest::ECGInitialSync { tips } => {
-                        debug!("Received initial ECG sync request with tips: {tips:?}");
+                    MsgStoreSyncRequest::ECGSync { request } => {
+                        match request {
+                            MsgDAGSyncRequest::DAGInitialSync { tips } => {
+                                debug!("Received initial ECG sync request with tips: {tips:?}");
 
-                        if ecg_sync.is_some() {
-                            todo!("TODO: Error, ECG sync has already been initialized.");
+                                if ecg_sync.is_some() {
+                                    todo!("TODO: Error, ECG sync has already been initialized.");
+                                }
+
+                                let mut ecg_sync_ = ECGSyncResponder::new();
+
+                                let ecg_state = self.request_ecg_state(&mut ecg_sync_).await;
+
+                                ecg_sync_
+                                    .run_initial(&self, &mut stream, ecg_state, tips)
+                                    .await;
+                                ecg_sync = Some(ecg_sync_);
+                            }
+                            MsgDAGSyncRequest::DAGSync { tips, known } => {
+                                let Some(ref mut ecg_sync) = ecg_sync else {
+                                    todo!("TODO: Error, ECG sync hasn't been initialized.");
+                                };
+
+                                let ecg_state = self.request_ecg_state(ecg_sync).await;
+
+                                ecg_sync
+                                    .run_round(&self, &mut stream, ecg_state, tips, known)
+                                    .await;
+                            }
                         }
-
-                        let mut ecg_sync_ = ECGSyncResponder::new();
-
-                        let ecg_state = self.request_ecg_state(&mut ecg_sync_).await;
-
-                        ecg_sync_
-                            .run_initial(&self, &mut stream, ecg_state, tips)
-                            .await;
-                        ecg_sync = Some(ecg_sync_);
-                    }
-                    MsgStoreSyncRequest::ECGSync { tips, known } => {
-                        let Some(ref mut ecg_sync) = ecg_sync else {
-                            todo!("TODO: Error, ECG sync hasn't been initialized.");
-                        };
-
-                        let ecg_state = self.request_ecg_state(ecg_sync).await;
-
-                        ecg_sync
-                            .run_round(&self, &mut stream, ecg_state, tips, known)
-                            .await;
                     }
                 }
             }
