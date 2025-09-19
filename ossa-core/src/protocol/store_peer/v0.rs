@@ -92,6 +92,14 @@ impl<Hash, HeaderId, Header> TryInto<MsgStoreSyncRequest<HeaderId>>
 }
 
 impl<Hash, HeaderId, Header> Into<MsgStoreSync<Hash, HeaderId, Header>>
+    for MsgDAGSyncRequest<HeaderId>
+{
+    fn into(self) -> MsgStoreSync<Hash, HeaderId, Header> {
+        MsgStoreSync::Request( MsgStoreSyncRequest::ECGSync { request: self })
+    }
+}
+
+impl<Hash, HeaderId, Header> Into<MsgStoreSync<Hash, HeaderId, Header>>
     for MsgStoreSyncMetadataResponse<Hash>
 {
     fn into(self) -> MsgStoreSync<Hash, HeaderId, Header> {

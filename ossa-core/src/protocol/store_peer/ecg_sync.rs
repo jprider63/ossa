@@ -58,8 +58,7 @@ use tracing::{debug, warn};
 use crate::{
     network::protocol::{receive, send},
     protocol::store_peer::v0::{
-        MsgStoreSync, MsgStoreSyncRequest, StoreSync,
-        MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS,
+        StoreSync, MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS,
     },
     store::{
         dag::{self, RawDAGBody},
@@ -101,9 +100,12 @@ impl<
         Header: Debug + Send + Sync,
     > ECGSyncInitiator<Hash, HeaderId, Header>
 {
-    async fn receive_response_helper<S: Stream<MsgStoreSync<Hash, HeaderId, Header>>>(
+    async fn receive_response_helper<S: Stream<Msg>, Msg>(
         stream: &mut S,
-    ) -> (Vec<HeaderId>, Vec<(Header, RawDAGBody)>) {
+    ) -> (Vec<HeaderId>, Vec<(Header, RawDAGBody)>)
+    where
+        Msg: TryInto<MsgDAGSyncResponse<HeaderId, Header>>,
+    {
         let response = receive(stream).await.expect("TODO");
         let (have, operations) = match response {
             MsgDAGSyncResponse::Response { have, operations } => (have, operations),
@@ -123,16 +125,18 @@ impl<
 
     /// Create a new ECGSyncInitiator and run the first round.
     // TODO: Eventually take an Arc<RWLock>
-    pub(crate) async fn run_new<S: Stream<MsgStoreSync<Hash, HeaderId, Header>>>(
+    pub(crate) async fn run_new<S: Stream<Msg>, Msg>(
         stream: &mut S,
         ecg_state: &dag::UntypedState<HeaderId, Header>,
-    ) -> (Self, Vec<(Header, RawDAGBody)>) {
+    ) -> (Self, Vec<(Header, RawDAGBody)>)
+    where
+        MsgDAGSyncRequest<HeaderId>: Into<Msg>,
+        Msg: TryInto<MsgDAGSyncResponse<HeaderId, Header>>,
+    {
         // TODO: Limit on tips (128? 64? 32? MAX_HAVE_HEADERS)
         warn!("TODO: Check request sizes.");
-        let req = MsgStoreSyncRequest::ECGSync {
-            request: MsgDAGSyncRequest::DAGInitialSync {
-                tips: ecg_state.tips().iter().cloned().collect(),
-            }
+        let req = MsgDAGSyncRequest::DAGInitialSync {
+            tips: ecg_state.tips().iter().cloned().collect(),
         };
         send(stream, req).await.expect("TODO");
 
@@ -148,11 +152,15 @@ impl<
     }
 
     /// Run a round of ECG sync, requesting new operations from peer.
-    pub(crate) async fn run_round<S: Stream<MsgStoreSync<Hash, HeaderId, Header>>>(
+    pub(crate) async fn run_round<S: Stream<Msg>, Msg>(
         &mut self,
         stream: &mut S,
         ecg_state: &dag::UntypedState<HeaderId, Header>,
-    ) -> Vec<(Header, RawDAGBody)> {
+    ) -> Vec<(Header, RawDAGBody)>
+    where
+        MsgDAGSyncRequest<HeaderId>: Into<Msg>,
+        Msg: TryInto<MsgDAGSyncResponse<HeaderId, Header>>,
+    {
         // Check which headers they sent us that we know.
         let mut known_bitmap = BitArray::ZERO;
         for (i, header_id) in self.have.iter().enumerate() {
@@ -164,11 +172,9 @@ impl<
 
         // TODO: Limit on tips (128? 64? 32? MAX_HAVE_HEADERS)
         warn!("TODO: Check request sizes.");
-        let req = MsgStoreSyncRequest::ECGSync {
-            request: MsgDAGSyncRequest::DAGSync {
-                tips: ecg_state.tips().iter().cloned().collect(),
-                known: known_bitmap,
-            }
+        let req = MsgDAGSyncRequest::DAGSync {
+            tips: ecg_state.tips().iter().cloned().collect(),
+            known: known_bitmap,
         };
         send(stream, req).await.expect("TODO");
 
@@ -251,7 +257,7 @@ impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
         }
     }
 
-    pub(crate) async fn run_response_helper<S: Stream<MsgStoreSync<Hash, HeaderId, Header>>>(
+    pub(crate) async fn run_response_helper<S: Stream<Msg>, Msg>(
         &mut self,
         store_peer: &StoreSync<Hash, HeaderId, Header>,
         stream: &mut S,
@@ -260,6 +266,7 @@ impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
     ) where
         HeaderId: Debug + Ord + Copy,
         Header: Debug + Clone,
+        MsgDAGSyncResponse<HeaderId, Header>: Into<Msg>,
     {
         let mut is_first_run = true;
         loop {
@@ -319,7 +326,7 @@ impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
 
     /// Create a new ECGSyncResponder and run the first round.
     // TODO: Eventually take an Arc<RWLock>? Could also take a watch::Receiver?
-    pub(crate) async fn run_initial<S: Stream<MsgStoreSync<Hash, HeaderId, Header>>>(
+    pub(crate) async fn run_initial<S: Stream<Msg>, Msg>(
         &mut self,
         store_peer: &StoreSync<Hash, HeaderId, Header>,
         stream: &mut S,
@@ -328,6 +335,7 @@ impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
     ) where
         HeaderId: Debug + Ord + Copy,
         Header: Debug + Clone,
+        MsgDAGSyncResponse<HeaderId, Header>: Into<Msg>,
     {
         // Process their tips.
         self.handle_their_tips(&ecg_state, &their_tips);
@@ -336,7 +344,7 @@ impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
             .await;
     }
 
-    pub(crate) async fn run_round<S: Stream<MsgStoreSync<Hash, HeaderId, Header>>>(
+    pub(crate) async fn run_round<S: Stream<Msg>, Msg>(
         &mut self,
         store_peer: &StoreSync<Hash, HeaderId, Header>,
         stream: &mut S,
@@ -346,6 +354,7 @@ impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
     ) where
         HeaderId: Debug + Copy + Ord,
         Header: Debug + Clone,
+        MsgDAGSyncResponse<HeaderId, Header>: Into<Msg>,
     {
         // Process their tips.
         self.handle_their_tips(&ecg_state, &their_tips);
