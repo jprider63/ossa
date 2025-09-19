@@ -50,14 +50,15 @@ use std::{
     marker::PhantomData,
 };
 
-use bitvec::array::BitArray;
+use bitvec::{array::BitArray, order::Msb0, BitArr};
+use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 use tracing::{debug, warn};
 
 use crate::{
     network::protocol::{receive, send},
     protocol::store_peer::v0::{
-        HeaderBitmap, MsgStoreECGSyncResponse, MsgStoreSync, MsgStoreSyncRequest, StoreSync,
+        MsgStoreSync, MsgStoreSyncRequest, StoreSync,
         MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS,
     },
     store::{
@@ -66,6 +67,27 @@ use crate::{
     },
     util::{is_power_of_two, Stream},
 };
+
+pub type HeaderBitmap = BitArr!(for MAX_HAVE_HEADERS as usize, in u8, Msb0);
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) enum MsgDAGSyncRequest<HeaderId> {
+    DAGInitialSync {
+        tips: Vec<HeaderId>,
+    },
+    DAGSync {
+        tips: Vec<HeaderId>,
+        known: HeaderBitmap,
+    },
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) enum MsgDAGSyncResponse<HeaderId, Header> {
+    Response {
+        have: Vec<HeaderId>,
+        operations: Vec<(Header, RawDAGBody)>, // ECG headers and serialized ECG body.
+    },
+    Wait, // JP: Use StoreSyncResponse?
+}
 
 // Has initiative
 pub(crate) struct ECGSyncInitiator<Hash, HeaderId, Header> {
@@ -84,9 +106,9 @@ impl<
     ) -> (Vec<HeaderId>, Vec<(Header, RawDAGBody)>) {
         let response = receive(stream).await.expect("TODO");
         let (have, operations) = match response {
-            MsgStoreECGSyncResponse::Response { have, operations } => (have, operations),
-            MsgStoreECGSyncResponse::Wait => {
-                let MsgStoreECGSyncResponse::Response { have, operations } =
+            MsgDAGSyncResponse::Response { have, operations } => (have, operations),
+            MsgDAGSyncResponse::Wait => {
+                let MsgDAGSyncResponse::Response { have, operations } =
                     receive(stream).await.expect("TODO")
                 else {
                     todo!("TODO: Prevent this with session types.");
@@ -107,8 +129,10 @@ impl<
     ) -> (Self, Vec<(Header, RawDAGBody)>) {
         // TODO: Limit on tips (128? 64? 32? MAX_HAVE_HEADERS)
         warn!("TODO: Check request sizes.");
-        let req = MsgStoreSyncRequest::ECGInitialSync {
-            tips: ecg_state.tips().iter().cloned().collect(),
+        let req = MsgStoreSyncRequest::ECGSync {
+            request: MsgDAGSyncRequest::DAGInitialSync {
+                tips: ecg_state.tips().iter().cloned().collect(),
+            }
         };
         send(stream, req).await.expect("TODO");
 
@@ -141,8 +165,10 @@ impl<
         // TODO: Limit on tips (128? 64? 32? MAX_HAVE_HEADERS)
         warn!("TODO: Check request sizes.");
         let req = MsgStoreSyncRequest::ECGSync {
-            tips: ecg_state.tips().iter().cloned().collect(),
-            known: known_bitmap,
+            request: MsgDAGSyncRequest::DAGSync {
+                tips: ecg_state.tips().iter().cloned().collect(),
+                known: known_bitmap,
+            }
         };
         send(stream, req).await.expect("TODO");
 
@@ -260,7 +286,7 @@ impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
                 // Tell them to wait if we haven't responded yet.
                 if is_first_run {
                     is_first_run = false;
-                    let msg = MsgStoreECGSyncResponse::Wait;
+                    let msg = MsgDAGSyncResponse::Wait;
                     send(stream, msg).await.expect("TODO");
                 }
 
@@ -281,7 +307,7 @@ impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
                 // self.run_response_helper(store_peer, stream, &ecg_state, false).await;
             } else {
                 // Send response.
-                let msg = MsgStoreECGSyncResponse::Response {
+                let msg = MsgDAGSyncResponse::Response {
                     have: self.sent_haves.clone(),
                     operations,
                 };
