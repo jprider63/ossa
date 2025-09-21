@@ -52,20 +52,20 @@ use std::{
 
 use bitvec::{array::BitArray, order::Msb0, BitArr};
 use serde::{Deserialize, Serialize};
-use tokio::sync::oneshot;
 use tracing::{debug, warn};
 
 use crate::{
     network::protocol::{receive, send},
-    protocol::store_peer::v0::{
-        StoreSync, MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS,
-    },
     store::{
         dag::{self, RawDAGBody},
-        UntypedStoreCommand,
     },
     util::{is_power_of_two, Stream},
 };
+
+/// The maximum number of `have` hashes that can be sent in each message.
+pub const MAX_HAVE_HEADERS: u16 = 32;
+/// The maximum number of headers that can be sent in each message.
+pub const MAX_DELIVER_HEADERS: u16 = 32;
 
 pub type HeaderBitmap = BitArr!(for MAX_HAVE_HEADERS as usize, in u8, Msb0);
 #[derive(Debug, Serialize, Deserialize)]
