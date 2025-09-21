@@ -6,7 +6,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot;
 use tracing::debug;
 
-use crate::protocol::store_peer::ecg_sync::DAGStateSubscriber;
+use crate::protocol::store_peer::ecg_sync::{DAGStateSubscriber, MsgDAGSyncResponse};
 use crate::store::dag;
 use crate::{auth::DeviceId, network::protocol::{receive, MiniProtocol}, protocol::store_peer::{ecg_sync::{ECGSyncInitiator, ECGSyncResponder, MsgDAGSyncRequest}, v0::{MsgStoreSync, MsgStoreSyncRequest}}, store::{dag::v0::HeaderId, UntypedStoreCommand}};
 
@@ -56,7 +56,9 @@ impl<Hash, HeaderId, Header> StoreDAGSync<Hash, HeaderId, Header> {
 
 // TODO: Switch to this.
 #[derive(Debug, Serialize, Deserialize)]
-pub(crate) enum MsgStoreDAGSync {
+pub(crate) enum MsgStoreDAGSync<HeaderId, Header> {
+    Request(MsgDAGSyncRequest<HeaderId>),
+    SCGResponse(MsgDAGSyncResponse<HeaderId, Header>),
 }
 
 #[derive(Debug)]
@@ -67,13 +69,54 @@ pub(crate) enum StoreDAGSyncCommand<HeaderId, Header> {
         dag_state: crate::store::dag::UntypedState<HeaderId, Header>,
     },
 }
+
+impl<HeaderId, Header> Into<MsgStoreDAGSync<HeaderId, Header>>
+    for MsgDAGSyncRequest<HeaderId>
+{
+    fn into(self) -> MsgStoreDAGSync<HeaderId, Header> {
+        MsgStoreDAGSync::Request(self)
+    }
+}
+
+impl<HeaderId, Header> Into<MsgStoreDAGSync<HeaderId, Header>>
+    for MsgDAGSyncResponse<HeaderId, Header>
+{
+    fn into(self) -> MsgStoreDAGSync<HeaderId, Header> {
+        MsgStoreDAGSync::SCGResponse(self)
+    }
+}
+
+impl<HeaderId, Header> TryInto<MsgDAGSyncRequest<HeaderId>>
+    for MsgStoreDAGSync<HeaderId, Header>
+{
+    type Error = ();
+    fn try_into(self) -> Result<MsgDAGSyncRequest<HeaderId>, ()> {
+        match self {
+            MsgStoreDAGSync::Request(r) => Ok(r),
+            MsgStoreDAGSync::SCGResponse(_) => Err(()),
+        }
+    }
+}
+
+impl<HeaderId, Header> TryInto<MsgDAGSyncResponse<HeaderId, Header>>
+    for MsgStoreDAGSync<HeaderId, Header>
+{
+    type Error = ();
+    fn try_into(self) -> Result<MsgDAGSyncResponse<HeaderId, Header>, ()> {
+        match self {
+            MsgStoreDAGSync::Request(_) => Err(()),
+            MsgStoreDAGSync::SCGResponse(r) => Ok(r),
+        }
+    }
+}
+
 impl<Hash, HeaderId, Header> MiniProtocol for StoreDAGSync<Hash, HeaderId, Header>
 where
     Hash: Send + Sync + for<'a> Deserialize<'a> + Serialize,
     HeaderId: Copy + Ord + Debug + Send + Sync + for<'a> Deserialize<'a> + Serialize,
     Header: Clone + Debug + Send + Sync + for<'a> Deserialize<'a> + Serialize,
 {
-    type Message = MsgStoreSync<Hash, HeaderId, Header>; // MsgStoreDAGSync;
+    type Message = MsgStoreDAGSync<HeaderId, Header>;
 
     // Has initiative
     fn run_server<S: crate::util::Stream<Self::Message>>(self, mut stream: S) -> impl Future<Output = ()> + Send {
@@ -127,39 +170,32 @@ where
                 // Receive request.
                 let request = receive(&mut stream).await.expect("TODO");
                 match request {
-                    MsgStoreSyncRequest::ECGSync { request } => {
-                        match request {
-                            MsgDAGSyncRequest::DAGInitialSync { tips } => {
-                                debug!("Received initial SCG sync request with tips: {tips:?}");
+                    MsgDAGSyncRequest::DAGInitialSync { tips } => {
+                        debug!("Received initial SCG sync request with tips: {tips:?}");
 
-                                if dag_sync.is_some() {
-                                    todo!("TODO: Error, SCG sync has already been initialized.");
-                                }
-
-                                let mut dag_sync_ = ECGSyncResponder::new();
-
-                                let ecg_state = self.request_dag_state(&mut dag_sync_, None).await;
-
-                                dag_sync_
-                                    .run_initial(&self, &mut stream, ecg_state, tips)
-                                    .await;
-                                dag_sync = Some(dag_sync_);
-                            }
-                            MsgDAGSyncRequest::DAGSync { tips, known } => {
-                                let Some(ref mut dag_sync) = dag_sync else {
-                                    todo!("TODO: Error, SCG sync hasn't been initialized.");
-                                };
-
-                                let ecg_state = self.request_dag_state(dag_sync, None).await;
-
-                                dag_sync
-                                    .run_round(&self, &mut stream, ecg_state, tips, known)
-                                    .await;
-                            }
+                        if dag_sync.is_some() {
+                            todo!("TODO: Error, SCG sync has already been initialized.");
                         }
+
+                        let mut dag_sync_ = ECGSyncResponder::new();
+
+                        let ecg_state = self.request_dag_state(&mut dag_sync_, None).await;
+
+                        dag_sync_
+                            .run_initial(&self, &mut stream, ecg_state, tips)
+                            .await;
+                        dag_sync = Some(dag_sync_);
                     }
-                    _ => {
-                        todo!("Switch away from this type so that this is unreachable");
+                    MsgDAGSyncRequest::DAGSync { tips, known } => {
+                        let Some(ref mut dag_sync) = dag_sync else {
+                            todo!("TODO: Error, SCG sync hasn't been initialized.");
+                        };
+
+                        let ecg_state = self.request_dag_state(dag_sync, None).await;
+
+                        dag_sync
+                            .run_round(&self, &mut stream, ecg_state, tips, known)
+                            .await;
                     }
                 }
             }

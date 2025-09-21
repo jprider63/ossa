@@ -28,11 +28,6 @@ pub(crate) enum MsgStoreSync<Hash, HeaderId, Header> {
     ECGResponse(MsgDAGSyncResponse<HeaderId, Header>),
 }
 
-/// The maximum number of `have` hashes that can be sent in each message.
-pub const MAX_HAVE_HEADERS: u16 = 32;
-/// The maximum number of headers that can be sent in each message.
-pub const MAX_DELIVER_HEADERS: u16 = 32;
-
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) enum MsgStoreSyncRequest<HeaderId> {
     MetadataHeader,
