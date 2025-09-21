@@ -257,13 +257,14 @@ impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
         }
     }
 
-    pub(crate) async fn run_response_helper<S: Stream<Msg>, Msg>(
+    pub(crate) async fn run_response_helper<S: Stream<Msg>, Msg, DAGSubscriber>(
         &mut self,
-        store_peer: &StoreSync<Hash, HeaderId, Header>,
+        store_peer: &DAGSubscriber,
         stream: &mut S,
         mut ecg_state: dag::UntypedState<HeaderId, Header>,
         their_tips: Vec<HeaderId>,
     ) where
+        DAGSubscriber: DAGStateSubscriber<Hash, HeaderId, Header>,
         HeaderId: Debug + Ord + Copy,
         Header: Debug + Clone,
         MsgDAGSyncResponse<HeaderId, Header>: Into<Msg>,
@@ -298,20 +299,9 @@ impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
                 }
 
                 // Subscribe for updates.
-                debug!("Subscribing to ECG state");
-                let (response_chan, recv_chan) = oneshot::channel();
-                let cmd = UntypedStoreCommand::SubscribeECG {
-                    peer: store_peer.peer(),
-                    tips: Some(ecg_state.tips().iter().cloned().collect()),
-                    response_chan,
-                };
-                store_peer.send_chan().send(cmd).expect("TODO");
-
-                // Wait for ECG updates.
-                ecg_state = recv_chan.await.expect("TODO");
+                let tips = Some(ecg_state.tips().iter().cloned().collect());
+                ecg_state = store_peer.request_dag_state(self, tips).await;
                 self.update_our_unknown(&ecg_state);
-
-                // self.run_response_helper(store_peer, stream, &ecg_state, false).await;
             } else {
                 // Send response.
                 let msg = MsgDAGSyncResponse::Response {
@@ -326,13 +316,14 @@ impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
 
     /// Create a new ECGSyncResponder and run the first round.
     // TODO: Eventually take an Arc<RWLock>? Could also take a watch::Receiver?
-    pub(crate) async fn run_initial<S: Stream<Msg>, Msg>(
+    pub(crate) async fn run_initial<S: Stream<Msg>, Msg, DAGSubscriber>(
         &mut self,
-        store_peer: &StoreSync<Hash, HeaderId, Header>,
+        store_peer: &DAGSubscriber,
         stream: &mut S,
         ecg_state: dag::UntypedState<HeaderId, Header>,
         their_tips: Vec<HeaderId>,
     ) where
+        DAGSubscriber: DAGStateSubscriber<Hash, HeaderId, Header>,
         HeaderId: Debug + Ord + Copy,
         Header: Debug + Clone,
         MsgDAGSyncResponse<HeaderId, Header>: Into<Msg>,
@@ -344,14 +335,15 @@ impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
             .await;
     }
 
-    pub(crate) async fn run_round<S: Stream<Msg>, Msg>(
+    pub(crate) async fn run_round<S: Stream<Msg>, Msg, DAGSubscriber>(
         &mut self,
-        store_peer: &StoreSync<Hash, HeaderId, Header>,
+        store_peer: &DAGSubscriber,
         stream: &mut S,
         ecg_state: dag::UntypedState<HeaderId, Header>,
         their_tips: Vec<HeaderId>,
         their_known: HeaderBitmap,
     ) where
+        DAGSubscriber: DAGStateSubscriber<Hash, HeaderId, Header>,
         HeaderId: Debug + Copy + Ord,
         Header: Debug + Clone,
         MsgDAGSyncResponse<HeaderId, Header>: Into<Msg>,
@@ -541,4 +533,12 @@ impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
             mark_as_known_helper(&mut self.their_known, ecg_state, header_id);
         }
     }
+}
+
+pub(crate) trait DAGStateSubscriber<Hash, HeaderId, Header> {
+    async fn request_dag_state(
+        &self,
+        responder: &mut ECGSyncResponder<Hash, HeaderId, Header>,
+        tips: Option<BTreeSet<HeaderId>>,
+    ) -> dag::UntypedState<HeaderId, Header>;
 }

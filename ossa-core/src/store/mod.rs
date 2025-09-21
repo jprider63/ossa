@@ -622,7 +622,7 @@ impl<
             let respond_immediately = if let Some(tips) = tips {
                 debug!("our_tips: {:?}", ecg_state.tips());
                 debug!("their_tips: {:?}", tips);
-                !ecg_state.tips().eq(&tips)
+                !ecg_state.tips().eq(&tips) // JP: Only respond now if our tips exceed theirs??
             } else {
                 true
             };
@@ -1450,6 +1450,9 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
                     UntypedStoreCommand::ReceivedSCGOperations { peer, operations } => {
                         todo!();
                     }
+                    UntypedStoreCommand::SubscribeSCG { peer, tips, response_chan } => {
+                        todo!();
+                    }
                     UntypedStoreCommand::RegisterOutgoingSCGSyncing { peer, send_peer } => {
                         // Update peer's state to syncing and register channel.
                         let outgoing_status = OutgoingPeerStatus {
@@ -1548,6 +1551,11 @@ pub(crate) enum UntypedStoreCommand<Hash, HeaderId, Header> {
     ReceivedSCGOperations {
         peer: DeviceId,
         operations: Vec<(Header, RawDAGBody)>,
+    },
+    SubscribeSCG {
+        peer: DeviceId,
+        tips: Option<BTreeSet<HeaderId>>,
+        response_chan: oneshot::Sender<dag::UntypedState<HeaderId, Header>>,
     },
     RegisterOutgoingSCGSyncing {
         peer: DeviceId,

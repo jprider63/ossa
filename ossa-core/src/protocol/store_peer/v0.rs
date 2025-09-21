@@ -1,6 +1,5 @@
-use std::{fmt::Debug, future::Future, ops::Range};
+use std::{collections::BTreeSet, fmt::Debug, future::Future, ops::Range};
 
-use bitvec::{order::Msb0, BitArr};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{
     mpsc::{UnboundedReceiver, UnboundedSender},
@@ -11,7 +10,7 @@ use tracing::debug;
 use crate::{
     auth::DeviceId,
     network::protocol::{receive, send, MiniProtocol},
-    protocol::store_peer::ecg_sync::{ECGSyncInitiator, ECGSyncResponder, MsgDAGSyncRequest, MsgDAGSyncResponse},
+    protocol::store_peer::ecg_sync::{ECGSyncInitiator, ECGSyncResponder, DAGStateSubscriber, MsgDAGSyncRequest, MsgDAGSyncResponse},
     store::{
         self,
         dag,
@@ -199,6 +198,36 @@ pub(crate) struct StoreSync<Hash, HeaderId, Header> {
     send_chan: UnboundedSender<UntypedStoreCommand<Hash, HeaderId, Header>>, // JP: Make this a stream?
 }
 
+impl<Hash, HeaderId, Header> DAGStateSubscriber<Hash, HeaderId, Header> for StoreSync<Hash, HeaderId, Header>
+where
+    HeaderId: Ord + Copy,
+{
+    async fn request_dag_state(
+        &self,
+        responder: &mut ECGSyncResponder<Hash, HeaderId, Header>,
+        tips: Option<BTreeSet<HeaderId>>,
+    ) -> dag::UntypedState<HeaderId, Header> {
+        debug!("Requesting ECG state");
+
+        // Send request to store.
+        let (response_chan, recv_chan) = oneshot::channel(); // TODO: Use tokio::sync::watch?
+        let cmd = UntypedStoreCommand::SubscribeECG {
+            peer: self.peer(),
+            tips,
+            response_chan,
+        };
+        self.send_chan().send(cmd).expect("TODO");
+
+        // Wait for ECG updates.
+        let state = recv_chan.await.expect("TODO");
+        responder.update_our_unknown(&state);
+
+        debug!("Received ECG state");
+
+        state
+    }
+}
+
 impl<Hash, HeaderId, Header> StoreSync<Hash, HeaderId, Header> {
     pub(crate) fn new_server(
         peer: DeviceId,
@@ -280,33 +309,6 @@ impl<Hash, HeaderId, Header> StoreSync<Hash, HeaderId, Header> {
                 send(stream, build_response(response)).await.expect("TODO");
             }
         }
-    }
-
-    async fn request_ecg_state(
-        &self,
-        responder: &mut ECGSyncResponder<Hash, HeaderId, Header>,
-    ) -> dag::UntypedState<HeaderId, Header>
-    where
-        HeaderId: Ord + Copy,
-    {
-        debug!("Requesting ECG state");
-
-        // Send request to store.
-        let (response_chan, recv_chan) = oneshot::channel();
-        let cmd = UntypedStoreCommand::SubscribeECG {
-            peer: self.peer(),
-            tips: None,
-            response_chan,
-        };
-        self.send_chan().send(cmd).expect("TODO");
-
-        // Wait for ECG updates.
-        let state = recv_chan.await.expect("TODO");
-        responder.update_our_unknown(&state);
-
-        debug!("Received ECG state");
-
-        state
     }
 
     pub(crate) fn peer(&self) -> DeviceId {
@@ -555,7 +557,7 @@ impl<
 
                                 let mut ecg_sync_ = ECGSyncResponder::new();
 
-                                let ecg_state = self.request_ecg_state(&mut ecg_sync_).await;
+                                let ecg_state = self.request_dag_state(&mut ecg_sync_, None).await;
 
                                 ecg_sync_
                                     .run_initial(&self, &mut stream, ecg_state, tips)
@@ -567,7 +569,7 @@ impl<
                                     todo!("TODO: Error, ECG sync hasn't been initialized.");
                                 };
 
-                                let ecg_state = self.request_ecg_state(ecg_sync).await;
+                                let ecg_state = self.request_dag_state(ecg_sync, None).await;
 
                                 ecg_sync
                                     .run_round(&self, &mut stream, ecg_state, tips, known)
