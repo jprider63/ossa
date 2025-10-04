@@ -606,6 +606,9 @@ pub trait OssaType: 'static {
         + Serialize
         + for<'a> Deserialize<'a>;
     type ECGBody<T: CRDT<Op: ConcretizeTime<<Self::ECGHeader as ECGHeader>::HeaderId>>>; // : Serialize + for<'a> Deserialize<'a>; // : CRDT<Time = Self::Time, Op: Serialize>;
+    type SCGBody<S>: 
+          Serialize
+        + for<'a> Deserialize<'a>;
     type Time;
     // type CausalState<T: CRDT<Time = Self::Time, Op<CausalTime<Self::Time>>: Serialize>>: CausalState<Time = Self::Time>;
     type CausalState<T: CRDT<Time = Self::Time>>: CausalState<Time = Self::Time>;
