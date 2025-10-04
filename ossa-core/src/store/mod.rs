@@ -399,7 +399,10 @@ impl<
         self.update_peer_to_syncing(peer, |info| &mut info.scg_status.outgoing_status, sender);
     }
 
-    fn update_outgoing_peer_ecg_to_ready(&mut self, peer: &DeviceId) {
+    fn update_outgoing_peer_to_ready_helper<CommandType>(&mut self, peer: &DeviceId, f: fn(&mut PeerInfo<Header::HeaderId, Header>) -> &mut PeerProtocolStatus<CommandType>)
+    where
+        CommandType: Debug,
+    {
         let Some(info) = self.peers.get_mut(peer) else {
             error!(
                 "Invariant violated. Attempted to update an unknown peer: {}",
@@ -407,15 +410,16 @@ impl<
             );
             panic!();
         };
-        match info.ecg_status.outgoing_status {
+        let status = f(info);
+        match status.outgoing_status {
             PeerStatus::Initializing => {
-                error!("Invariant violated. Attempted to update a peer that is initializing: {} - {:?}", peer, info.ecg_status.outgoing_status);
+                error!("Invariant violated. Attempted to update a peer that is initializing: {} - {:?}", peer, status.outgoing_status);
                 panic!();
             }
             PeerStatus::Known => {
                 error!(
                     "Invariant violated. Attempted to update a peer that is not syncing: {} - {:?}",
-                    peer, info.ecg_status.outgoing_status
+                    peer, status.outgoing_status
                 );
                 panic!();
             }
@@ -423,6 +427,14 @@ impl<
                 status.is_outstanding = false;
             }
         }
+    }
+
+    fn update_outgoing_peer_ecg_to_ready(&mut self, peer: &DeviceId) {
+        self.update_outgoing_peer_to_ready_helper(peer, |info| &mut info.ecg_status)
+    }
+
+    fn update_outgoing_peer_scg_to_ready(&mut self, peer: &DeviceId) {
+        self.update_outgoing_peer_to_ready_helper(peer, |info| &mut info.scg_status)
     }
 
     /// Send sync requests to peers.
@@ -532,6 +544,7 @@ impl<
             }
         }
 
+        // Send SCG requests
         match &self.state_machine {
             StateMachine::Syncing { sc_state, .. } => {
                 debug!("Sending SCG sync requests to peers.");
@@ -824,6 +837,44 @@ impl<
         self.update_state_to_syncing(peer, listeners);
     }
 
+    fn handle_received_scg_operations<OT>(
+        &mut self,
+        peer: DeviceId,
+        operations: Vec<(Header, RawDAGBody)>,
+    ) where
+        OT: OssaType,
+        OT::SCGBody<S>: for<'d> Deserialize<'d>,
+    {
+        // Mark peer as ready.
+        self.update_outgoing_peer_scg_to_ready(&peer);
+
+        warn!("TODO: Validate operations from peer");
+
+        let StateMachine::Syncing {
+            ref mut sc_state,
+            ..
+        } = &mut self.state_machine
+        else {
+            unreachable!("We must be syncing");
+        };
+
+        // Parse all operations.
+        operations.into_iter().for_each(|(header, raw_operations)| {
+            let operations: OT::SCGBody<S> = serde_cbor::from_slice(&raw_operations)
+                .expect("TODO: Peer gave us improperly serialized operations");
+
+            // TODO: Get rid of this clone.
+            let success = sc_state.dag_state.insert_header(header.clone(), raw_operations);
+            if !success {
+                warn!("TODO: Failed to insert operations from peer.");
+            } else {
+                register_scg_operations(operations, sc_state.dag_state);
+            }
+        });
+
+        todo!("TODO: Update SCG listeners");
+    }
+
     fn handle_received_ecg_operations<OT>(
         &mut self,
         peer: DeviceId,
@@ -1016,6 +1067,10 @@ impl<
             sub.send(Some(msg)).expect("TODO");
         }
     }
+}
+
+fn register_scg_operations() -> _ {
+    todo!()
 }
 
 fn update_listeners<Header: dag::ECGHeader + Clone + Debug, T: CRDT + Clone>(
@@ -1448,10 +1503,11 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
                         store.handle_ecg_subscribe(peer, tips, response_chan);
                     }
                     UntypedStoreCommand::ReceivedSCGOperations { peer, operations } => {
-                        todo!();
+                        store.handle_received_scg_operations::<OT>(peer, operations, &listeners);
+                        store.send_sync_requests();
                     }
                     UntypedStoreCommand::SubscribeSCG { peer, tips, response_chan } => {
-                        todo!();
+                        todo!("...");
                     }
                     UntypedStoreCommand::RegisterOutgoingSCGSyncing { peer, send_peer } => {
                         // Update peer's state to syncing and register channel.
