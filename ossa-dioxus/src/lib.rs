@@ -1,6 +1,6 @@
 pub use dioxus;
 use dioxus::hooks::use_context;
-use dioxus::prelude::{current_scope_id, use_hook, Runtime, ScopeId, Task};
+use dioxus::prelude::{ScopeId, Task, current_scope_id, spawn_in_scope, use_hook};
 use dioxus::signals::{Readable as _, Signal, Writable as _};
 pub use dioxus_desktop;
 use tracing::debug;
@@ -362,11 +362,4 @@ impl<
             operations: vec![],
         }
     }
-}
-
-/// Dioxus helper that spawns a future in the provided scope. This task will automatically be canceled when the component's scope is dropped.
-///
-fn spawn_in_scope(scope: ScopeId, fut: impl Future<Output = ()> + 'static) -> Option<Task> {
-    let rt = Runtime::current().ok()?;
-    Some(rt.spawn(scope, fut))
 }
