@@ -18,21 +18,23 @@ use crate::{
     network::multiplexer::{
         run_miniprotocol_async, Multiplexer, MultiplexerCommand, Party, StreamId,
     },
-    store::dag::ECGHeader,
+    store::dag::DAGHeader,
 };
 
 // Required since Rust can't handle proper existentials.
-pub(crate) enum MiniProtocols<StoreId, Hash, HeaderId, Header> {
+pub(crate) enum MiniProtocols<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader> {
     Heartbeat(Heartbeat),
-    Manager(Manager<StoreId, Hash, HeaderId, Header>),
+    Manager(Manager<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>),
 }
 
 impl<
         StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug + Serialize + for<'a> Deserialize<'a>,
         Hash: Send,
-        HeaderId: Send,
-        Header: Send,
-    > MiniProtocols<StoreId, Hash, HeaderId, Header>
+        SHeaderId: Send,
+        SHeader: Send,
+        THeaderId: Send,
+        THeader: Send,
+    > MiniProtocols<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>
 {
     pub(crate) async fn run_async(
         self,
@@ -64,11 +66,11 @@ impl<
 // N - (N is odd for client, even for server):
 //     - StoreSync i
 /// Miniprotocols initially run when connected for V0.
-fn initial_miniprotocols<StoreId, Hash, HeaderId, Header>(
+fn initial_miniprotocols<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>(
     party: Party,
-    args: MiniProtocolArgs<StoreId, Hash, HeaderId, Header>,
+    args: MiniProtocolArgs<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>,
     multiplexer_cmd_send: UnboundedSender<MultiplexerCommand>,
-) -> Vec<MiniProtocols<StoreId, Hash, HeaderId, Header>> {
+) -> Vec<MiniProtocols<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>> {
     let (client_chan, server_chan) = if let Party::Client = party {
         (Some(args.manager_channel), None)
     } else {
@@ -102,7 +104,9 @@ pub(crate) async fn run_miniprotocols_server<O: OssaType>(
     args: MiniProtocolArgs<
         O::StoreId,
         O::Hash,
-        <O::ECGHeader as ECGHeader>::HeaderId,
+        <O::SCGHeader as DAGHeader>::HeaderId,
+        O::SCGHeader,
+        <O::ECGHeader as DAGHeader>::HeaderId,
         O::ECGHeader,
     >,
 ) {
@@ -114,7 +118,9 @@ pub(crate) async fn run_miniprotocols_client<O: OssaType>(
     args: MiniProtocolArgs<
         O::StoreId,
         O::Hash,
-        <O::ECGHeader as ECGHeader>::HeaderId,
+        <O::SCGHeader as DAGHeader>::HeaderId,
+        O::SCGHeader,
+        <O::ECGHeader as DAGHeader>::HeaderId,
         O::ECGHeader,
     >,
 ) {
@@ -126,7 +132,9 @@ async fn run_miniprotocols<O: OssaType>(
     args: MiniProtocolArgs<
         O::StoreId,
         O::Hash,
-        <O::ECGHeader as ECGHeader>::HeaderId,
+        <O::SCGHeader as DAGHeader>::HeaderId,
+        O::SCGHeader,
+        <O::ECGHeader as DAGHeader>::HeaderId,
         O::ECGHeader,
     >,
     party: Party,

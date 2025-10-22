@@ -79,9 +79,9 @@ pub enum IdentityOp {
 }
 
 impl SCDT for Identity {
-    type Operation = IdentityOp;
+    type Op = IdentityOp;
 
-    fn update(mut self, op: Self::Operation) -> Self {
+    fn update(mut self, op: Self::Op) -> Self {
         match op {
             IdentityOp::AddDevice { keys, role } => self.devices.insert(keys, role),
             IdentityOp::RemoveDevice { device } => self.devices.remove(&device),
@@ -91,7 +91,7 @@ impl SCDT for Identity {
         self
     }
 
-    fn is_valid_operation(self, op: Self::Operation) -> bool {
+    fn is_valid_operation(self, op: Self::Op) -> bool {
         match op {
             IdentityOp::AddDevice { keys, role: _ } => {
                 !self.devices.contains_key(&keys)

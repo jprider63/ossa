@@ -12,19 +12,19 @@ use crate::{auth::DeviceId, network::protocol::{receive, MiniProtocol}, protocol
 
 
 /// Miniprotocol to sync the DAG in the strongly consistent BFT consensus protocol.
-pub(crate) struct StoreDAGSync<Hash, HeaderId, Header> {
+pub(crate) struct StoreDAGSync<Hash, SHeaderId, SHeader, THeaderId, THeader> {
     peer: DeviceId,
     // Receive commands from store if we have initiative or send commands to store if we're the responder.
-    recv_chan: Option<UnboundedReceiver<StoreDAGSyncCommand<HeaderId, Header>>>,
+    recv_chan: Option<UnboundedReceiver<StoreDAGSyncCommand<SHeaderId, SHeader>>>,
     // Send commands to store if we're the responder and send results back to store if we're the initiator.
-    send_chan: UnboundedSender<UntypedStoreCommand<Hash, HeaderId, Header>>, // JP: Make this a stream?
+    send_chan: UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>, // JP: Make this a stream?
 }
 
-impl<Hash, HeaderId, Header> StoreDAGSync<Hash, HeaderId, Header> {
+impl<Hash, SHeaderId, SHeader, THeaderId, THeader> StoreDAGSync<Hash, SHeaderId, SHeader, THeaderId, THeader> {
     pub(crate) fn new_server(
         peer: DeviceId,
-        recv_chan: UnboundedReceiver<StoreDAGSyncCommand<HeaderId, Header>>,
-        send_chan: UnboundedSender<UntypedStoreCommand<Hash, HeaderId, Header>>,
+        recv_chan: UnboundedReceiver<StoreDAGSyncCommand<SHeaderId, SHeader>>,
+        send_chan: UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>,
     ) -> Self {
         let recv_chan = Some(recv_chan);
         StoreDAGSync {
@@ -36,7 +36,7 @@ impl<Hash, HeaderId, Header> StoreDAGSync<Hash, HeaderId, Header> {
 
     pub(crate) fn new_client(
         peer: DeviceId,
-        send_chan: UnboundedSender<UntypedStoreCommand<Hash, HeaderId, Header>>,
+        send_chan: UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>,
     ) -> Self {
         StoreDAGSync {
             peer,
@@ -49,7 +49,7 @@ impl<Hash, HeaderId, Header> StoreDAGSync<Hash, HeaderId, Header> {
         self.peer
     }
 
-    pub(crate) fn send_chan(&self) -> &UnboundedSender<UntypedStoreCommand<Hash, HeaderId, Header>> {
+    pub(crate) fn send_chan(&self) -> &UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>> {
         &self.send_chan
     }
 }
@@ -110,18 +110,20 @@ impl<HeaderId, Header> TryInto<MsgDAGSyncResponse<HeaderId, Header>>
     }
 }
 
-impl<Hash, HeaderId, Header> MiniProtocol for StoreDAGSync<Hash, HeaderId, Header>
+impl<Hash, SHeaderId, SHeader, THeaderId, THeader> MiniProtocol for StoreDAGSync<Hash, SHeaderId, SHeader, THeaderId, THeader>
 where
     Hash: Send + Sync + for<'a> Deserialize<'a> + Serialize,
-    HeaderId: Copy + Ord + Debug + Send + Sync + for<'a> Deserialize<'a> + Serialize,
-    Header: Clone + Debug + Send + Sync + for<'a> Deserialize<'a> + Serialize,
+    SHeaderId: Copy + Ord + Debug + Send + Sync + for<'a> Deserialize<'a> + Serialize,
+    SHeader: Clone + Debug + Send + Sync + for<'a> Deserialize<'a> + Serialize,
+    THeaderId: Copy + Ord + Debug + Send + Sync + for<'a> Deserialize<'a> + Serialize,
+    THeader: Clone + Debug + Send + Sync + for<'a> Deserialize<'a> + Serialize,
 {
-    type Message = MsgStoreDAGSync<HeaderId, Header>;
+    type Message = MsgStoreDAGSync<SHeaderId, SHeader>;
 
     // Has initiative
     fn run_server<S: crate::util::Stream<Self::Message>>(self, mut stream: S) -> impl Future<Output = ()> + Send {
         async move {
-            let mut dag_sync: Option<ECGSyncInitiator<Hash, HeaderId, Header>> = None;
+            let mut dag_sync: Option<ECGSyncInitiator<Hash, SHeaderId, SHeader>> = None;
 
             let mut recv_chan = self
                 .recv_chan
@@ -135,7 +137,7 @@ where
 
                                 // JP: Eventually switch ecg_state to an Arc<RWLock>?
                                 let (new_dag_sync, operations) =
-                                    ECGSyncInitiator::run_new(&mut stream, &dag_state).await; // TODO: Make the stream abstract over the type.
+                                    ECGSyncInitiator::<Hash, SHeaderId, SHeader>::run_new(&mut stream, &dag_state).await; // TODO: Make the stream abstract over the type.
                                 dag_sync = Some(new_dag_sync);
                                 operations
                             }
@@ -163,7 +165,7 @@ where
 
     fn run_client<S: crate::util::Stream<Self::Message>>(self, mut stream: S) -> impl Future<Output = ()> + Send {
         async move {
-            let mut dag_sync: Option<ECGSyncResponder<Hash, HeaderId, Header>> = None;
+            let mut dag_sync: Option<ECGSyncResponder<Hash, SHeaderId, SHeader>> = None;
 
             // TODO: Check when done.
             loop {
@@ -179,10 +181,10 @@ where
 
                         let mut dag_sync_ = ECGSyncResponder::new();
 
-                        let ecg_state = self.request_dag_state(&mut dag_sync_, None).await;
+                        let scg_state = self.request_dag_state(&mut dag_sync_, None).await;
 
                         dag_sync_
-                            .run_initial(&self, &mut stream, ecg_state, tips)
+                            .run_initial(&self, &mut stream, scg_state, tips)
                             .await;
                         dag_sync = Some(dag_sync_);
                     }
@@ -203,15 +205,15 @@ where
     }
 }
 
-impl<Hash, HeaderId, Header> DAGStateSubscriber<Hash, HeaderId, Header> for StoreDAGSync<Hash, HeaderId, Header>
+impl<Hash, SHeaderId, SHeader, THeaderId, THeader> DAGStateSubscriber<Hash, SHeaderId, SHeader> for StoreDAGSync<Hash, SHeaderId, SHeader, THeaderId, THeader>
 where
-    HeaderId: Ord + Copy,
+    SHeaderId: Ord + Copy,
 {
     async fn request_dag_state(
         &self,
-        responder: &mut ECGSyncResponder<Hash, HeaderId, Header>,
-        tips: Option<BTreeSet<HeaderId>>,
-    ) -> dag::UntypedState<HeaderId, Header> {
+        responder: &mut ECGSyncResponder<Hash, SHeaderId, SHeader>,
+        tips: Option<BTreeSet<SHeaderId>>,
+    ) -> dag::UntypedState<SHeaderId, SHeader> {
         debug!("Requesting SCG state");
 
         // Send request to store.

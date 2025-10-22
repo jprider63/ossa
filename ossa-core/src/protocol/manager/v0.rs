@@ -21,25 +21,25 @@ use crate::{
 };
 
 // MiniProtocol instance for stream/connection management.
-pub(crate) struct Manager<StoreId, Hash, HeaderId, Header> {
+pub(crate) struct Manager<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader> {
     party_with_initiative: Party,
     peer_id: DeviceId, // DeviceId of peer we're connected to.
-    active_stores: watch::Receiver<StoreStatuses<StoreId, Hash, HeaderId, Header>>,
+    active_stores: watch::Receiver<StoreStatuses<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>>,
     // `Some` implies we have initiative.
     manager_channel: Option<UnboundedReceiver<PeerManagerCommand<StoreId>>>,
     latest_stream_id: StreamId,
     multiplexer_channel: UnboundedSender<MultiplexerCommand>,
 }
 
-impl<StoreId, Hash, HeaderId, Header> Manager<StoreId, Hash, HeaderId, Header> {
+impl<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader> Manager<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader> {
     pub(crate) fn new(
         initiative: Party,
         peer_id: DeviceId,
-        active_stores: watch::Receiver<StoreStatuses<StoreId, Hash, HeaderId, Header>>,
+        active_stores: watch::Receiver<StoreStatuses<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>>,
         manager_channel: Option<UnboundedReceiver<PeerManagerCommand<StoreId>>>,
         latest_stream_id: StreamId,
         multiplexer_channel: UnboundedSender<MultiplexerCommand>,
-    ) -> Manager<StoreId, Hash, HeaderId, Header> {
+    ) -> Manager<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader> {
         Manager {
             party_with_initiative: initiative,
             peer_id,
@@ -79,9 +79,11 @@ impl<StoreId, Hash, HeaderId, Header> Manager<StoreId, Hash, HeaderId, Header> {
 impl<
         StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug + Serialize + for<'a> Deserialize<'a>,
         Hash: Send,
-        HeaderId: Send,
-        Header: Send,
-    > MiniProtocol for Manager<StoreId, Hash, HeaderId, Header>
+        SHeaderId: Send,
+        SHeader: Send,
+        THeaderId: Send,
+        THeader: Send,
+    > MiniProtocol for Manager<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>
 {
     type Message = MsgManager<StoreId>;
 
@@ -106,15 +108,15 @@ impl<
     }
 }
 
-impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug, Hash, HeaderId, Header>
-    Manager<StoreId, Hash, HeaderId, Header>
+impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug, Hash, SHeaderId, SHeader, THeaderId, THeader>
+    Manager<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>
 {
     /// Manager run in mode that sends requests to peer.
     async fn run_with_initiative<S: Stream<MsgManager<StoreId>>>(mut self, mut stream: S) {
         debug!("Mux manager started with initiative!");
 
         // Advertise stores.
-        let shared_stores = run_advertise_stores_server::<_, _, Hash, HeaderId, Header>(
+        let shared_stores = run_advertise_stores_server::<_, _, Hash, SHeaderId, SHeader, THeaderId, THeader>(
             &mut stream,
             &mut self.active_stores,
         )
@@ -132,7 +134,7 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug, Hash, HeaderId, He
                 changed_e = self.active_stores.changed() => {
                     changed_e.expect("TODO");
 
-                    let shared_stores = run_advertise_stores_server::<_, _, Hash, HeaderId, Header>(&mut stream, &mut self.active_stores).await;
+                    let shared_stores = run_advertise_stores_server::<_, _, Hash, SHeaderId, SHeader, THeaderId, THeader>(&mut stream, &mut self.active_stores).await;
                     debug!("Client sent store ids: {:?}", shared_stores);
                     handle_shared_stores(self.peer_id, shared_stores);
                 }
@@ -167,7 +169,7 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug, Hash, HeaderId, He
                 MsgManagerRequest::AdvertiseStores { nonce, store_ids } => {
                     debug!("Received MsgManagerRequest::AdvertiseStores: {nonce:?}, {store_ids:?}");
                     let shared_stores =
-                        run_advertise_stores_client::<_, _, Hash, HeaderId, Header>(
+                        run_advertise_stores_client::<_, _, Hash, SHeaderId, SHeader, THeaderId, THeader>(
                             &mut stream,
                             nonce,
                             store_ids,
@@ -346,11 +348,11 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug, Hash, HeaderId, He
 // Or: Map<StoreId, watch::Sender<Set<PeerId>>? ***
 // Or: Spawn sync threads for each shared store.
 
-fn handle_shared_stores<StoreId, Hash, HeaderId, Header>(
+fn handle_shared_stores<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>(
     peer_id: DeviceId,
     shared_stores: Vec<(
         StoreId,
-        UnboundedSender<UntypedStoreCommand<Hash, HeaderId, Header>>,
+        UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>,
     )>,
 ) {
     // Register the peer for this store.
@@ -381,14 +383,16 @@ async fn run_advertise_stores_server<
     S: Stream<MsgManager<StoreId>>,
     StoreId,
     Hash,
-    HeaderId,
-    Header,
+    SHeaderId,
+    SHeader,
+    THeaderId,
+    THeader,
 >(
     stream: &mut S,
-    store_ids: &mut watch::Receiver<StoreStatuses<StoreId, Hash, HeaderId, Header>>,
+    store_ids: &mut watch::Receiver<StoreStatuses<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>>,
 ) -> Vec<(
     StoreId,
-    UnboundedSender<UntypedStoreCommand<Hash, HeaderId, Header>>,
+    UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>,
 )>
 where
     StoreId: Copy + AsRef<[u8]>,
@@ -436,16 +440,18 @@ async fn run_advertise_stores_client<
     S: Stream<MsgManager<StoreId>>,
     StoreId: Copy + Ord + AsRef<[u8]>,
     Hash,
-    HeaderId,
-    Header,
+    SHeaderId,
+    SHeader,
+    THeaderId,
+    THeader,
 >(
     stream: &mut S,
     nonce: [u8; 4],
     their_store_ids: Vec<Sha256Hash>,
-    our_store_ids: &mut watch::Receiver<StoreStatuses<StoreId, Hash, HeaderId, Header>>,
+    our_store_ids: &mut watch::Receiver<StoreStatuses<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>>,
 ) -> Vec<(
     StoreId,
-    UnboundedSender<UntypedStoreCommand<Hash, HeaderId, Header>>,
+    UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>,
 )> {
     let mut our_store_ids: BTreeMap<Sha256Hash, (StoreId, UnboundedSender<_>)> = our_store_ids
         .borrow_and_update()

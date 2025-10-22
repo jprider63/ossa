@@ -13,7 +13,7 @@ use std::{
 };
 
 use crate::{
-    store::dag::{self, ECGBody, ECGHeader},
+    store::dag::{self, DAGBody, DAGHeader},
     time::{CausalTime, ConcretizeTime},
     util,
 };
@@ -126,7 +126,7 @@ where
 impl<
         Hash: Clone + Copy + Debug + Ord + util::Hash,
         // T : CRDT<Time = OperationId<HeaderId<Hash>>>,
-    > ECGHeader for Header<Hash>
+    > DAGHeader for Header<Hash>
 where
     // <T as CRDT>::Op: Serialize,
     Hash: Serialize, // TODO
@@ -191,7 +191,7 @@ where
 const MAX_OPERATION_COUNT: usize = 256;
 
 // impl<Hash, T> ECGBody<T::Op, <T::Op as ConcretizeTime<T::Time>>::Serialized> for Body<Hash, <T::Op as ConcretizeTime<T::Time>>::Serialized>
-impl<Hash, Op> ECGBody<Op, Op::Serialized> for Body<Hash, Op::Serialized>
+impl<Hash, Op> DAGBody<Op, Op::Serialized> for Body<Hash, Op::Serialized>
 where
     // T: CRDT<Time = OperationId<HeaderId<Hash>>>,
     Op: ConcretizeTime<HeaderId<Hash>>,
@@ -240,7 +240,7 @@ where
             .expect("Unreachable: Length is bound by MAX_OPERATION_COUNT.")
     }
 
-    fn new_header(&self, parents: BTreeSet<<Self::Header as ECGHeader>::HeaderId>) -> Self::Header {
+    fn new_header(&self, parents: BTreeSet<<Self::Header as DAGHeader>::HeaderId>) -> Self::Header {
         let mut rng = rand::thread_rng();
         let nonce = rng.gen();
 
@@ -252,7 +252,7 @@ where
         Header {
             parent_ids: parents,
             nonce,
-            operations_count: <Self as ECGBody<Op, Op::Serialized>>::operations_count(self),
+            operations_count: <Self as DAGBody<Op, Op::Serialized>>::operations_count(self),
             operations_hash: self.get_hash(),
             // phantom: PhantomData,
         }
@@ -328,7 +328,7 @@ impl<HeaderId> OperationId<HeaderId> {
     }
 }
 
-impl<Header: ECGHeader, T: CRDT> CausalState for dag::State<Header, T> {
+impl<Header: DAGHeader, T: CRDT> CausalState for dag::State<Header, T> {
     type Time = OperationId<Header::HeaderId>;
 
     fn happens_before(&self, a: &Self::Time, b: &Self::Time) -> bool {
@@ -409,7 +409,7 @@ where
 */
 
 // For testing, just have the header store the parent ids.
-impl<A: CRDT> ECGHeader for TestHeader<A> {
+impl<A: CRDT> DAGHeader for TestHeader<A> {
     type HeaderId = u32;
     // type Body = TestBody<A>;
 

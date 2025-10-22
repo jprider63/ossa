@@ -16,6 +16,7 @@ use tokio::sync::{
 };
 use tracing::{debug, error, warn};
 
+use crate::store::bft::SCDT;
 use crate::store::v0::BLOCK_SIZE;
 use crate::time::ConcretizeTime;
 use crate::util::merkle_tree::{MerkleTree, Potential};
@@ -29,7 +30,7 @@ use crate::{
         store_bft_dag::v0::{StoreDAGSync, StoreDAGSyncCommand},
     },
     store::{
-        dag::{ECGBody, ECGHeader, RawDAGBody},
+        dag::{DAGBody, DAGHeader, RawDAGBody},
         v0::{BLOCK_REQUEST_LIMIT, MERKLE_REQUEST_LIMIT},
     },
     util::{self, compress_consecutive_into_ranges},
@@ -70,10 +71,10 @@ impl<StoreId: PartialEq, S, C> PartialEq for StoreRef<StoreId, S, C> {
 impl<StoreId: Eq, S, C> Eq for StoreRef<StoreId, S, C> {}
 
 
-pub struct State<StoreId, Header: dag::ECGHeader, S, T: CRDT, Hash> {
+pub struct State<StoreId, SHeader: dag::DAGHeader, THeader: dag::DAGHeader, S, T: CRDT, Hash> {
     // Peers that also have this store (that we are potentially connected to?).
-    peers: BTreeMap<DeviceId, PeerInfo<Header::HeaderId, Header>>, // BTreeSet<DeviceId>,
-    state_machine: StateMachine<StoreId, Header, S, T, Hash>,
+    peers: BTreeMap<DeviceId, PeerInfo<THeader::HeaderId, THeader>>, // BTreeSet<DeviceId>,
+    state_machine: StateMachine<StoreId, SHeader, THeader, S, T, Hash>,
     metadata_subscribers: BTreeMap<DeviceId, oneshot::Sender<Option<v0::MetadataHeader<Hash>>>>,
     merkle_subscribers: BTreeMap<DeviceId, (Vec<Range<u64>>, oneshot::Sender<Option<Vec<Hash>>>)>,
     block_subscribers: BTreeMap<
@@ -84,7 +85,7 @@ pub struct State<StoreId, Header: dag::ECGHeader, S, T: CRDT, Hash> {
         ),
     >,
     ecg_subscribers:
-        BTreeMap<DeviceId, oneshot::Sender<dag::UntypedState<Header::HeaderId, Header>>>,
+        BTreeMap<DeviceId, oneshot::Sender<dag::UntypedState<THeader::HeaderId, THeader>>>,
     // listeners: Vec<UnboundedSender<StateUpdate<Header, T>>>,
 }
 
@@ -92,7 +93,7 @@ pub struct State<StoreId, Header: dag::ECGHeader, S, T: CRDT, Hash> {
 // - Initializing - Setting up the thread that owns the store (not defined here).
 // - DownloadingMetadata - Don't have the header so we're downloading it.
 // - Syncing - Have the header and syncing updates between peers.
-pub(crate) enum StateMachine<StoreId, Header: dag::ECGHeader, S, T: CRDT, Hash> {
+pub(crate) enum StateMachine<StoreId, SHeader: dag::DAGHeader, THeader: dag::DAGHeader, S, T: CRDT, Hash> {
     DownloadingMetadata {
         store_id: StoreId,
     },
@@ -111,21 +112,24 @@ pub(crate) enum StateMachine<StoreId, Header: dag::ECGHeader, S, T: CRDT, Hash> 
         metadata: MetadataHeader<Hash>,
         merkle_tree: MerkleTree<Hash>,
         initial_state: Vec<u8>, // Or just T?
-        ecg_state: dag::State<Header, T>,
-        sc_state: bft::State<Header, S>,
-        decrypted_state: DecryptedState<Header, T>, // Temporary
+        ecg_state: dag::State<THeader, T>,
+        sc_state: bft::State<SHeader, S>,
+        // TODO: S::Op
+        decrypted_state: DecryptedState<SHeader, THeader, T>, // Temporary
                                                     // decrypted_state: Option<DecryptedState<Header, T>>, // JP: Is this actually used?
                                                     // Does it make sense?
     },
 }
 
-pub struct DecryptedState<Header: dag::ECGHeader, T: CRDT> {
+pub struct DecryptedState<SHeader: dag::DAGHeader, THeader: dag::DAGHeader, T: CRDT> {
     /// Latest ECG application state we've seen.
     latest_ec_state: T,
 
     /// Headers corresponding to the latest ECG application state.
     // TODO: Remove this.
-    latest_headers: BTreeSet<Header::HeaderId>,
+    latest_headers: BTreeSet<THeader::HeaderId>,
+
+    sc_operations: BTreeMap<SHeader::HeaderId, ()>, // TODO: SHeader, S::Op
 }
 
 /// Information about a peer.
@@ -217,15 +221,16 @@ impl<T> PeerStatus<T> {
 
 impl<
         StoreId: Copy + Eq,
-        Header: dag::ECGHeader + Clone + Debug,
+        SHeader: dag::DAGHeader + Clone,
+        THeader: dag::DAGHeader + Clone + Debug,
         S,
         T: CRDT + Clone,
         Hash: util::Hash + Debug + Into<StoreId>,
-    > State<StoreId, Header, S, T, Hash>
+    > State<StoreId, SHeader, THeader, S, T, Hash>
 {
     /// Initialize a new store with the given state. This initializes the header, including
     /// generating a random nonce.
-    pub fn new_syncing(initial_sc_state: S, initial_ec_state: T) -> State<StoreId, Header, S, T, Hash>
+    pub fn new_syncing(initial_sc_state: S, initial_ec_state: T) -> State<StoreId, SHeader, THeader, S, T, Hash>
     where
         S: Serialize + Typeable,
         T: Serialize + Typeable,
@@ -236,6 +241,7 @@ impl<
         let decrypted_state = DecryptedState {
             latest_ec_state: initial_ec_state,
             latest_headers: BTreeSet::new(),
+            sc_operations: BTreeMap::new(),
         };
 
         let (merkle_tree, initial_state) = init_body.build();
@@ -310,7 +316,7 @@ impl<
     fn update_peer_to_initializing<A>(
         &mut self,
         peer: &DeviceId,
-        direction_lambda: fn(&mut PeerInfo<Header::HeaderId, Header>) -> &mut PeerStatus<A>,
+        direction_lambda: fn(&mut PeerInfo<THeader::HeaderId, THeader>) -> &mut PeerStatus<A>,
     ) where
         A: Debug,
     {
@@ -345,7 +351,7 @@ impl<
     fn update_peer_to_syncing<A>(
         &mut self,
         peer: &DeviceId,
-        direction_lambda: fn(&mut PeerInfo<Header::HeaderId, Header>) -> &mut PeerStatus<A>,
+        direction_lambda: fn(&mut PeerInfo<THeader::HeaderId, THeader>) -> &mut PeerStatus<A>,
         sender_m: A,
     ) where
         A: Debug,
@@ -386,7 +392,7 @@ impl<
     fn update_peer_ecg_to_syncing_outgoing(
         &mut self,
         peer: &DeviceId,
-        sender: OutgoingPeerStatus<StoreSyncCommand<Header::HeaderId, Header>>,
+        sender: OutgoingPeerStatus<StoreSyncCommand<THeader::HeaderId, THeader>>,
     ) {
         self.update_peer_to_syncing(peer, |info| &mut info.ecg_status.outgoing_status, sender);
     }
@@ -394,12 +400,12 @@ impl<
     fn update_peer_scg_to_syncing_outgoing(
         &mut self,
         peer: &DeviceId,
-        sender: OutgoingPeerStatus<StoreDAGSyncCommand<Header::HeaderId, Header>>,
+        sender: OutgoingPeerStatus<StoreDAGSyncCommand<THeader::HeaderId, THeader>>,
     ) {
         self.update_peer_to_syncing(peer, |info| &mut info.scg_status.outgoing_status, sender);
     }
 
-    fn update_outgoing_peer_to_ready_helper<CommandType>(&mut self, peer: &DeviceId, f: fn(&mut PeerInfo<Header::HeaderId, Header>) -> &mut PeerProtocolStatus<CommandType>)
+    fn update_outgoing_peer_to_ready_helper<CommandType>(&mut self, peer: &DeviceId, f: fn(&mut PeerInfo<THeader::HeaderId, THeader>) -> &mut PeerProtocolStatus<CommandType>)
     where
         CommandType: Debug,
     {
@@ -453,7 +459,7 @@ impl<
         }
 
         // Get and randomize peers (of this store) without outstanding requests.
-        fn get_outstanding_peers<Header: ECGHeader, CommandType>(peers: &mut BTreeMap<DeviceId, PeerInfo<Header::HeaderId, Header>>, protocol_f: fn(&PeerInfo<Header::HeaderId, Header>) -> &PeerProtocolStatus<CommandType>) -> Vec<(&DeviceId, &mut PeerInfo<Header::HeaderId, Header>)> {
+        fn get_outstanding_peers<Header: DAGHeader, CommandType>(peers: &mut BTreeMap<DeviceId, PeerInfo<Header::HeaderId, Header>>, protocol_f: fn(&PeerInfo<Header::HeaderId, Header>) -> &PeerProtocolStatus<CommandType>) -> Vec<(&DeviceId, &mut PeerInfo<Header::HeaderId, Header>)> {
             let mut peers: Vec<_> = peers
                 .iter_mut()
                 .filter(|(_, i)| i.is_ready_for_sync(protocol_f))
@@ -627,8 +633,8 @@ impl<
     fn handle_ecg_subscribe(
         &mut self,
         peer: DeviceId,
-        tips: Option<BTreeSet<Header::HeaderId>>,
-        response_chan: oneshot::Sender<dag::UntypedState<Header::HeaderId, Header>>,
+        tips: Option<BTreeSet<THeader::HeaderId>>,
+        response_chan: oneshot::Sender<dag::UntypedState<THeader::HeaderId, THeader>>,
     ) {
         // Respond immediately if peer thread is stale (or they requested it immediately with None).
         if let StateMachine::Syncing { ecg_state, .. } = &self.state_machine {
@@ -667,7 +673,7 @@ impl<
         &mut self,
         peer: DeviceId,
         metadata: MetadataHeader<Hash>,
-        listeners: &[UnboundedSender<StateUpdate<Header, T>>],
+        listeners: &[UnboundedSender<StateUpdate<THeader, T>>],
     ) where
         S: for<'d> Deserialize<'d>,
         T: for<'d> Deserialize<'d>,
@@ -739,7 +745,7 @@ impl<
         peer: DeviceId,
         node_ids: Vec<Range<u64>>,
         their_node_hashes: Vec<Hash>,
-        listeners: &[UnboundedSender<StateUpdate<Header, T>>],
+        listeners: &[UnboundedSender<StateUpdate<THeader, T>>],
     ) where
         S: for<'d> Deserialize<'d>,
         T: for<'d> Deserialize<'d>,
@@ -785,7 +791,7 @@ impl<
         peer: DeviceId,
         block_ids: Vec<Range<u64>>,
         their_blocks: Vec<Option<Vec<u8>>>,
-        listeners: &[UnboundedSender<StateUpdate<Header, T>>],
+        listeners: &[UnboundedSender<StateUpdate<THeader, T>>],
     ) where
         S: for<'d> Deserialize<'d>,
         T: for<'d> Deserialize<'d>,
@@ -840,9 +846,10 @@ impl<
     fn handle_received_scg_operations<OT>(
         &mut self,
         peer: DeviceId,
-        operations: Vec<(Header, RawDAGBody)>,
+        operations: Vec<(SHeader, RawDAGBody)>,
+        listeners: &[UnboundedSender<StateUpdate<THeader, T>>],
     ) where
-        OT: OssaType,
+        OT: OssaType<SCGHeader = SHeader, ECGHeader = THeader>,
         OT::SCGBody<S>: for<'d> Deserialize<'d>,
     {
         // Mark peer as ready.
@@ -852,6 +859,7 @@ impl<
 
         let StateMachine::Syncing {
             ref mut sc_state,
+            ref mut decrypted_state,
             ..
         } = &mut self.state_machine
         else {
@@ -868,7 +876,7 @@ impl<
             if !success {
                 warn!("TODO: Failed to insert operations from peer.");
             } else {
-                register_scg_operations(operations, sc_state.dag_state);
+                register_scg_operations::<OT, _, _>(decrypted_state, &sc_state.dag_state, operations);
             }
         });
 
@@ -878,20 +886,20 @@ impl<
     fn handle_received_ecg_operations<OT>(
         &mut self,
         peer: DeviceId,
-        operations: Vec<(Header, RawDAGBody)>,
-        listeners: &[UnboundedSender<StateUpdate<Header, T>>],
+        operations: Vec<(THeader, RawDAGBody)>,
+        listeners: &[UnboundedSender<StateUpdate<THeader, T>>],
     ) where
-        OT: OssaType<ECGHeader = Header>,
+        OT: OssaType<ECGHeader = THeader, SCGHeader = SHeader>,
         T: CRDT<Time = OT::Time> + Debug,
         OT::ECGBody<T>: for<'d> Deserialize<'d>
             + Debug
-            + ECGBody<
+            + DAGBody<
                 T::Op,
-                <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
+                <T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
                 Header = OT::ECGHeader,
             >, // ECGBody<T, Header = OT::ECGHeader> +
         // T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
-        T::Op: ConcretizeTime<<Header as ECGHeader>::HeaderId>,
+        T::Op: ConcretizeTime<<THeader as DAGHeader>::HeaderId>,
     {
         // Mark peer as ready.
         self.update_outgoing_peer_ecg_to_ready(&peer);
@@ -937,7 +945,7 @@ impl<
     fn update_state_to_downloading_initial_state(
         &mut self,
         peer: DeviceId,
-        listeners: &[UnboundedSender<StateUpdate<Header, T>>],
+        listeners: &[UnboundedSender<StateUpdate<THeader, T>>],
     ) where
         S: for<'d> Deserialize<'d>,
         T: for<'d> Deserialize<'d>,
@@ -999,7 +1007,7 @@ impl<
     fn update_state_to_syncing(
         &mut self,
         peer: DeviceId,
-        listeners: &[UnboundedSender<StateUpdate<Header, T>>],
+        listeners: &[UnboundedSender<StateUpdate<THeader, T>>],
     ) where
         S: for<'d> Deserialize<'d>,
         T: for<'d> Deserialize<'d>,
@@ -1026,6 +1034,7 @@ impl<
                 let decrypted_state = DecryptedState {
                     latest_ec_state,
                     latest_headers: BTreeSet::new(),
+                    sc_operations: BTreeMap::new(),
                 };
                 let sc_state = bft::State::new(latest_sc_state);
                 StateMachine::Syncing {
@@ -1069,11 +1078,15 @@ impl<
     }
 }
 
-fn register_scg_operations() -> _ {
+fn register_scg_operations<OT: OssaType, S, T: CRDT>(
+    decrypted_state: &mut DecryptedState<OT::SCGHeader, OT::ECGHeader, T>,
+    scg_state: &dag::State<OT::SCGHeader, S>,
+    operation_body: OT::SCGBody<S>,
+) -> () {
     todo!()
 }
 
-fn update_listeners<Header: dag::ECGHeader + Clone + Debug, T: CRDT + Clone>(
+fn update_listeners<Header: dag::DAGHeader + Clone + Debug, T: CRDT + Clone>(
     ecg_subscribers: &mut BTreeMap<
         DeviceId,
         oneshot::Sender<dag::UntypedState<Header::HeaderId, Header>>,
@@ -1109,15 +1122,15 @@ fn update_listeners<Header: dag::ECGHeader + Clone + Debug, T: CRDT + Clone>(
 // JP: Or should Ossa own this/peers?
 /// Manage peers by ranking them, randomize, potentially connecting to some of them, etc.
 async fn manage_peers<OT: OssaType, S, T: CRDT<Time = OT::Time> + Clone + Send + 'static>(
-    store: &mut State<OT::StoreId, OT::ECGHeader, S, T, OT::Hash>,
+    store: &mut State<OT::StoreId, OT::SCGHeader, OT::ECGHeader, S, T, OT::Hash>,
     shared_state: &SharedState<OT::StoreId>,
     send_commands: &UnboundedSender<
-        UntypedStoreCommand<OT::Hash, <OT::ECGHeader as ECGHeader>::HeaderId, OT::ECGHeader>,
+        UntypedStoreCommand<OT::Hash, <OT::SCGHeader as DAGHeader>::HeaderId, OT::SCGHeader, <OT::ECGHeader as DAGHeader>::HeaderId, OT::ECGHeader>,
     >,
 ) where
     // T::Op<CausalTime<T::Time>>: Serialize,
     OT::ECGHeader: Clone + Serialize + for<'d> Deserialize<'d> + Send + Sync,
-    <OT::ECGHeader as ECGHeader>::HeaderId: Serialize + for<'d> Deserialize<'d> + Send,
+    <OT::ECGHeader as DAGHeader>::HeaderId: Serialize + for<'d> Deserialize<'d> + Send,
     //OT::ECGHeader<T>::HeaderId : Send,
     //T: Send,
 {
@@ -1152,7 +1165,7 @@ async fn manage_peers<OT: OssaType, S, T: CRDT<Time = OT::Time> + Clone + Send +
             tokio::spawn(async move {
                 // Tell store we're running and send it our channel.
                 let (send_peer, recv_peer) = tokio::sync::mpsc::unbounded_channel::<
-                    StoreSyncCommand<<OT::ECGHeader as ECGHeader>::HeaderId, OT::ECGHeader>,
+                    StoreSyncCommand<<OT::ECGHeader as DAGHeader>::HeaderId, OT::ECGHeader>,
                 >();
 
                 let register_cmd = UntypedStoreCommand::RegisterOutgoingPeerSyncing {
@@ -1162,7 +1175,7 @@ async fn manage_peers<OT: OssaType, S, T: CRDT<Time = OT::Time> + Clone + Send +
                 send_commands_.send(register_cmd).expect("TODO");
 
                 // Start miniprotocol as server.
-                let mp = StoreSync::<OT::Hash, _, _>::new_server(peer_id, recv_peer, send_commands_);
+                let mp = StoreSync::<OT::Hash, _, _, _, _>::new_server(peer_id, recv_peer, send_commands_);
                 run_miniprotocol_async(mp, false, stream_id, sender, receiver).await;
 
                 debug!("Store sync with peer (with initiative) exited.")
@@ -1194,7 +1207,7 @@ async fn manage_peers<OT: OssaType, S, T: CRDT<Time = OT::Time> + Clone + Send +
                 send_commands.send(register_cmd).expect("TODO");
 
                 // Run SC miniprotocol as server
-                let mp = StoreDAGSync::<OT::Hash, _, _>::new_server(peer_id, recv_peer, send_commands);
+                let mp = StoreDAGSync::<OT::Hash, _, _, _, _>::new_server(peer_id, recv_peer, send_commands);
                 run_miniprotocol_async(mp, false, stream_id, sender, receiver).await;
 
             })
@@ -1212,17 +1225,17 @@ async fn manage_peers<OT: OssaType, S, T: CRDT<Time = OT::Time> + Clone + Send +
 }
 
 fn apply_operations<OT: OssaType, T>(
-    decrypted_state: &mut DecryptedState<OT::ECGHeader, T>,
+    decrypted_state: &mut DecryptedState<OT::SCGHeader, OT::ECGHeader, T>,
     ecg_state: &dag::State<OT::ECGHeader, T>,
     operation_header: &OT::ECGHeader,
     operation_body: OT::ECGBody<T>,
 ) where
     T: CRDT<Time = OT::Time>,
     // T::Op<CausalTime<T::Time>>: Serialize,
-    T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
-    OT::ECGBody<T>: ECGBody<
+    T::Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>,
+    OT::ECGBody<T>: DAGBody<
         T::Op,
-        <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
+        <T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
         Header = OT::ECGHeader,
     >,
 {
@@ -1237,30 +1250,30 @@ fn apply_operations<OT: OssaType, T>(
 /// Run the handler that owns this store and manages its state. This handler is typically run in
 /// its own tokio thread.
 pub(crate) async fn run_handler<OT: OssaType, S, T>(
-    mut store: State<OT::StoreId, OT::ECGHeader, S, T, OT::Hash>,
+    mut store: State<OT::StoreId, OT::SCGHeader, OT::ECGHeader, S, T, OT::Hash>,
     mut recv_commands: UnboundedReceiver<StoreCommand<OT::ECGHeader, OT::ECGBody<T>, T>>,
     send_commands_untyped: UnboundedSender<
-        UntypedStoreCommand<OT::Hash, <OT::ECGHeader as ECGHeader>::HeaderId, OT::ECGHeader>,
+        UntypedStoreCommand<OT::Hash, <OT::SCGHeader as DAGHeader>::HeaderId, OT::SCGHeader, <OT::ECGHeader as DAGHeader>::HeaderId, OT::ECGHeader>,
     >,
     mut recv_commands_untyped: UnboundedReceiver<
-        UntypedStoreCommand<OT::Hash, <OT::ECGHeader as ECGHeader>::HeaderId, OT::ECGHeader>,
+        UntypedStoreCommand<OT::Hash, <OT::SCGHeader as DAGHeader>::HeaderId, OT::SCGHeader, <OT::ECGHeader as DAGHeader>::HeaderId, OT::ECGHeader>,
     >,
     shared_state: SharedState<OT::StoreId>,
 ) where
     <OT as OssaType>::ECGHeader:
         Send + Sync + Clone + Serialize + for<'d> Deserialize<'d> + 'static,
     // <<OT as OssaType>::ECGHeader as ECGHeader>::Body: ECGBody<T> + Send,
-    T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
+    T::Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>,
     OT::ECGBody<T>: Serialize
         + for<'d> Deserialize<'d>
         + Debug
-        + ECGBody<
+        + DAGBody<
             T::Op,
-            <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
+            <T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
             Header = OT::ECGHeader,
         >,
     //     ECGBody<T, Header = OT::ECGHeader> + Send + Serialize + for<'d> Deserialize<'d> + Debug,
-    <<OT as OssaType>::ECGHeader as ECGHeader>::HeaderId:
+    <<OT as OssaType>::ECGHeader as DAGHeader>::HeaderId:
         Send + Serialize + for<'d> Deserialize<'d>,
     // T::Op<CausalTime<T::Time>>: Serialize,
     S: for<'d> Deserialize<'d>,
@@ -1429,7 +1442,7 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
                                             send_commands_untyped.send(register_cmd).expect("TODO");
 
                                             // Start miniprotocol as client.
-                                            let mp = StoreSync::<OT::Hash, _, _>::new_client(peer, send_commands_untyped);
+                                            let mp = StoreSync::<OT::Hash, _, _, _, _>::new_client(peer, send_commands_untyped);
                                             run_miniprotocol_async(mp, true, stream_id, sender, receiver).await;
                                             debug!("Store sync with peer (without initiative) exited.")
                                         })
@@ -1527,7 +1540,7 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
     debug!("Store thread exiting.");
 }
 
-pub(crate) enum StoreCommand<Header: ECGHeader, Body, T> {
+pub(crate) enum StoreCommand<Header: DAGHeader, Body, T> {
     Apply {
         operation_header: Header, // <Hash, T>,
         operation_body: Body,     // <Hash, T>,
@@ -1538,7 +1551,7 @@ pub(crate) enum StoreCommand<Header: ECGHeader, Body, T> {
     },
 }
 
-pub enum StateUpdate<Header: ECGHeader, T> {
+pub enum StateUpdate<Header: DAGHeader, T> {
     Downloading {
         // Percent of the state that we've downloaded (0 - 100).
         percent: u64,
@@ -1560,7 +1573,7 @@ type HandlePeerResponse<Response> = Result<Response, oneshot::Receiver<Option<Re
 
 /// Untyped variant of `StoreCommand` since existentials don't work.
 // #[derive(Debug)]
-pub(crate) enum UntypedStoreCommand<Hash, HeaderId, Header> {
+pub(crate) enum UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader> {
     /// Register the discovered peers.
     RegisterPeers {
         peers: Vec<DeviceId>,
@@ -1572,7 +1585,7 @@ pub(crate) enum UntypedStoreCommand<Hash, HeaderId, Header> {
     },
     RegisterOutgoingPeerSyncing {
         peer: DeviceId,
-        send_peer: UnboundedSender<StoreSyncCommand<HeaderId, Header>>,
+        send_peer: UnboundedSender<StoreSyncCommand<THeaderId, THeader>>,
     },
     HandleMetadataPeerRequest(HandlePeerRequest<(), v0::MetadataHeader<Hash>>),
     HandleMerklePeerRequest(HandlePeerRequest<Vec<Range<u64>>, Vec<Hash>>),
@@ -1597,25 +1610,25 @@ pub(crate) enum UntypedStoreCommand<Hash, HeaderId, Header> {
     },
     ReceivedECGOperations {
         peer: DeviceId,
-        operations: Vec<(Header, RawDAGBody)>,
+        operations: Vec<(THeader, RawDAGBody)>,
     },
     SubscribeECG {
         peer: DeviceId,
-        tips: Option<BTreeSet<HeaderId>>,
-        response_chan: oneshot::Sender<dag::UntypedState<HeaderId, Header>>,
+        tips: Option<BTreeSet<THeaderId>>,
+        response_chan: oneshot::Sender<dag::UntypedState<THeaderId, THeader>>,
     },
     ReceivedSCGOperations {
         peer: DeviceId,
-        operations: Vec<(Header, RawDAGBody)>,
+        operations: Vec<(SHeader, RawDAGBody)>,
     },
     SubscribeSCG {
         peer: DeviceId,
-        tips: Option<BTreeSet<HeaderId>>,
-        response_chan: oneshot::Sender<dag::UntypedState<HeaderId, Header>>,
+        tips: Option<BTreeSet<SHeaderId>>,
+        response_chan: oneshot::Sender<dag::UntypedState<SHeaderId, SHeader>>,
     },
     RegisterOutgoingSCGSyncing {
         peer: DeviceId,
-        send_peer: UnboundedSender<StoreDAGSyncCommand<HeaderId, Header>>,
+        send_peer: UnboundedSender<StoreDAGSyncCommand<THeaderId, THeader>>,
     },
 }
 
@@ -1645,8 +1658,8 @@ fn handle_merkle_peer_request_helper<H: Copy>(
     hashes
 }
 
-fn handle_block_peer_request_helper<StoreId, Header: dag::ECGHeader, S, T: CRDT, Hash>(
-    state_machine: &StateMachine<StoreId, Header, S, T, Hash>,
+fn handle_block_peer_request_helper<StoreId, SHeader: dag::DAGHeader, THeader: dag::DAGHeader, S, T: CRDT, Hash>(
+    state_machine: &StateMachine<StoreId, SHeader, THeader, S, T, Hash>,
     block_ids: &[Range<u64>],
 ) -> Option<Vec<Option<Vec<u8>>>> {
     // TODO: Can we avoid these clones?

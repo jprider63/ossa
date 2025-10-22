@@ -4,7 +4,7 @@ use crate::network::protocol::ecg_sync::v0::{
     MAX_HAVE_HEADERS,
 };
 use crate::network::ConnectionManager;
-use crate::store::dag::{self, ECGHeader};
+use crate::store::dag::{self, DAGHeader};
 use crate::util::Stream;
 use ossa_crdt::CRDT;
 use std::collections::{BTreeSet, BinaryHeap};
@@ -21,7 +21,7 @@ pub(crate) async fn ecg_sync_client<S: Stream<MsgECGSync<Header, T>>, StoreId, H
     state: &mut dag::State<Header, T>,
 ) -> Result<(), ECGSyncError>
 where
-    Header: Clone + ECGHeader + Debug,
+    Header: Clone + DAGHeader + Debug,
 {
     // TODO:
     // - Get cached peer state.

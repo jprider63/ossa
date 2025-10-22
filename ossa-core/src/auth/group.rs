@@ -51,9 +51,9 @@ pub enum GroupOp {
 }
 
 impl SCDT for Group {
-    type Operation = GroupOp;
+    type Op = GroupOp;
 
-    fn update(mut self, op: Self::Operation) -> Self {
+    fn update(mut self, op: Self::Op) -> Self {
         match op {
             GroupOp::AddMember { member, permissions, round } => {
                 let m = MemberInfo {
@@ -86,7 +86,7 @@ impl SCDT for Group {
         self
     }
 
-    fn is_valid_operation(self, op: Self::Operation) -> bool {
+    fn is_valid_operation(self, op: Self::Op) -> bool {
         match op {
             GroupOp::AddMember { member, .. } => {
                 !self.members.contains_key(&member)

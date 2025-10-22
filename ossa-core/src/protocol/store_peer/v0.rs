@@ -185,23 +185,23 @@ impl<Hash, HeaderId, Header> TryInto<MsgDAGSyncResponse<HeaderId, Header>>
     }
 }
 
-pub(crate) struct StoreSync<Hash, HeaderId, Header> {
+pub(crate) struct StoreSync<Hash, SHeaderId, SHeader, THeaderId, THeader> {
     peer: DeviceId,
     // Receive commands from store if we have initiative or send commands to store if we're the responder.
-    recv_chan: Option<UnboundedReceiver<StoreSyncCommand<HeaderId, Header>>>,
+    recv_chan: Option<UnboundedReceiver<StoreSyncCommand<THeaderId, THeader>>>,
     // Send commands to store if we're the responder and send results back to store if we're the initiator.
-    send_chan: UnboundedSender<UntypedStoreCommand<Hash, HeaderId, Header>>, // JP: Make this a stream?
+    send_chan: UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>, // JP: Make this a stream?
 }
 
-impl<Hash, HeaderId, Header> DAGStateSubscriber<Hash, HeaderId, Header> for StoreSync<Hash, HeaderId, Header>
+impl<Hash, SHeaderId, SHeader, THeaderId, THeader> DAGStateSubscriber<Hash, THeaderId, THeader> for StoreSync<Hash, SHeaderId, SHeader, THeaderId, THeader>
 where
-    HeaderId: Ord + Copy,
+    THeaderId: Ord + Copy,
 {
     async fn request_dag_state(
         &self,
-        responder: &mut ECGSyncResponder<Hash, HeaderId, Header>,
-        tips: Option<BTreeSet<HeaderId>>,
-    ) -> dag::UntypedState<HeaderId, Header> {
+        responder: &mut ECGSyncResponder<Hash, THeaderId, THeader>,
+        tips: Option<BTreeSet<THeaderId>>,
+    ) -> dag::UntypedState<THeaderId, THeader> {
         debug!("Requesting ECG state");
 
         // Send request to store.
@@ -223,11 +223,11 @@ where
     }
 }
 
-impl<Hash, HeaderId, Header> StoreSync<Hash, HeaderId, Header> {
+impl<Hash, SHeaderId, SHeader, THeaderId, THeader> StoreSync<Hash, SHeaderId, SHeader, THeaderId, THeader> {
     pub(crate) fn new_server(
         peer: DeviceId,
-        recv_chan: UnboundedReceiver<StoreSyncCommand<HeaderId, Header>>,
-        send_chan: UnboundedSender<UntypedStoreCommand<Hash, HeaderId, Header>>,
+        recv_chan: UnboundedReceiver<StoreSyncCommand<THeaderId, THeader>>,
+        send_chan: UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>,
     ) -> Self {
         let recv_chan = Some(recv_chan);
         Self {
@@ -239,7 +239,7 @@ impl<Hash, HeaderId, Header> StoreSync<Hash, HeaderId, Header> {
 
     pub(crate) fn new_client(
         peer: DeviceId,
-        send_chan: UnboundedSender<UntypedStoreCommand<Hash, HeaderId, Header>>,
+        send_chan: UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>,
     ) -> Self {
         Self {
             peer,
@@ -249,17 +249,17 @@ impl<Hash, HeaderId, Header> StoreSync<Hash, HeaderId, Header> {
     }
 
     #[inline(always)]
-    async fn run_client_helper<S: Stream<MsgStoreSync<Hash, HeaderId, Header>>, Req, Resp, SResp>(
+    async fn run_client_helper<S: Stream<MsgStoreSync<Hash, THeaderId, THeader>>, Req, Resp, SResp>(
         &self,
         stream: &mut S,
         request: Req,
         build_command: fn(
             HandlePeerRequest<Req, Resp>,
-        ) -> UntypedStoreCommand<Hash, HeaderId, Header>,
+        ) -> UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>,
         build_response: fn(StoreSyncResponse<Resp>) -> SResp,
     ) where
         Hash: Debug,
-        SResp: Into<MsgStoreSync<Hash, HeaderId, Header>> + Debug,
+        SResp: Into<MsgStoreSync<Hash, THeaderId, THeader>> + Debug,
         Req: Debug,
         Resp: Debug,
     {
@@ -312,7 +312,7 @@ impl<Hash, HeaderId, Header> StoreSync<Hash, HeaderId, Header> {
 
     pub(crate) fn send_chan(
         &self,
-    ) -> &UnboundedSender<UntypedStoreCommand<Hash, HeaderId, Header>> {
+    ) -> &UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>> {
         &self.send_chan
     }
 }
@@ -330,11 +330,13 @@ pub(crate) enum StoreSyncCommand<HeaderId, Header> {
 
 impl<
         Hash: Debug + Serialize + for<'a> Deserialize<'a> + Send + Sync + Clone,
-        HeaderId: Debug + Ord + Serialize + for<'a> Deserialize<'a> + Send + Sync + Clone + Copy,
-        Header: Clone + Debug + Send + Sync + Serialize + for<'a> Deserialize<'a>,
-    > MiniProtocol for StoreSync<Hash, HeaderId, Header>
+        SHeaderId: Send + Sync,
+        SHeader: Send + Sync,
+        THeaderId: Debug + Ord + Serialize + for<'a> Deserialize<'a> + Send + Sync + Clone + Copy,
+        THeader: Clone + Debug + Send + Sync + Serialize + for<'a> Deserialize<'a>,
+    > MiniProtocol for StoreSync<Hash, SHeaderId, SHeader, THeaderId, THeader>
 {
-    type Message = MsgStoreSync<Hash, HeaderId, Header>;
+    type Message = MsgStoreSync<Hash, THeaderId, THeader>;
 
     // Has initiative
     fn run_server<S: Stream<Self::Message>>(
@@ -342,7 +344,7 @@ impl<
         mut stream: S,
     ) -> impl Future<Output = ()> + Send {
         async move {
-            let mut ecg_sync: Option<ECGSyncInitiator<Hash, HeaderId, Header>> = None;
+            let mut ecg_sync: Option<ECGSyncInitiator<Hash, THeaderId, THeader>> = None;
 
             // Wait for command from store.
             let mut recv_chan = self
@@ -492,7 +494,7 @@ impl<
         mut stream: S,
     ) -> impl Future<Output = ()> + Send {
         async move {
-            let mut ecg_sync: Option<ECGSyncResponder<Hash, HeaderId, Header>> = None;
+            let mut ecg_sync: Option<ECGSyncResponder<Hash, THeaderId, THeader>> = None;
 
             // TODO: Check when done.
             loop {
@@ -500,9 +502,9 @@ impl<
                 let request = receive(&mut stream).await.expect("TODO");
                 match request {
                     MsgStoreSyncRequest::MetadataHeader => {
-                        const fn build_command<Hash, HeaderId, Header>(
+                        const fn build_command<Hash, SHeaderId, SHeader, THeaderId, THeader>(
                             req: HandlePeerRequest<(), store::v0::MetadataHeader<Hash>>,
-                        ) -> UntypedStoreCommand<Hash, HeaderId, Header> {
+                        ) -> UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader> {
                             UntypedStoreCommand::HandleMetadataPeerRequest(req)
                         }
                         const fn build_response<Hash, HeaderId, Header>(
@@ -511,12 +513,12 @@ impl<
                             MsgStoreSyncMetadataResponse(h)
                         }
 
-                        self.run_client_helper::<_, (), store::v0::MetadataHeader<Hash>, MsgStoreSyncMetadataResponse<Hash>>(&mut stream, (), build_command, build_response::<_, HeaderId, Header>).await;
+                        self.run_client_helper::<_, (), store::v0::MetadataHeader<Hash>, MsgStoreSyncMetadataResponse<Hash>>(&mut stream, (), build_command, build_response::<_, THeaderId, THeader>).await;
                     }
                     MsgStoreSyncRequest::MerkleHashes { ranges } => {
-                        const fn build_command<Hash, HeaderId, Header>(
+                        const fn build_command<Hash, SHeaderId, SHeader, THeaderId, THeader>(
                             req: HandlePeerRequest<Vec<Range<u64>>, Vec<Hash>>,
-                        ) -> UntypedStoreCommand<Hash, HeaderId, Header> {
+                        ) -> UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader> {
                             UntypedStoreCommand::HandleMerklePeerRequest(req)
                         }
                         const fn build_response<H>(
@@ -528,9 +530,9 @@ impl<
                         self.run_client_helper::<_, Vec<Range<u64>>, Vec<Hash>, MsgStoreSyncMerkleResponse<Hash>>(&mut stream, ranges, build_command, build_response).await;
                     }
                     MsgStoreSyncRequest::InitialStateBlocks { ranges } => {
-                        const fn build_command<Hash, HeaderId, Header>(
+                        const fn build_command<Hash, SHeaderId, SHeader, THeaderId, THeader>(
                             req: HandlePeerRequest<Vec<Range<u64>>, Vec<Option<Vec<u8>>>>,
-                        ) -> UntypedStoreCommand<Hash, HeaderId, Header> {
+                        ) -> UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader> {
                             UntypedStoreCommand::HandleBlockPeerRequest(req)
                         }
                         const fn build_response(

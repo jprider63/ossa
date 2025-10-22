@@ -4,7 +4,7 @@ use crate::network::protocol::ecg_sync::v0::{
     MsgECGSyncResponse, MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS,
 };
 use crate::network::ConnectionManager;
-use crate::store::dag::{self, ECGHeader};
+use crate::store::dag::{self, DAGHeader};
 use crate::util::Stream;
 use ossa_crdt::CRDT;
 use std::collections::{BTreeSet, BinaryHeap};
@@ -17,7 +17,7 @@ pub(crate) async fn ecg_sync_server<S: Stream<MsgECGSync<Header, T>>, StoreId, H
     state: &mut dag::State<Header, T>,
 ) -> Result<(), ECGSyncError>
 where
-    Header: Clone + ECGHeader + Debug,
+    Header: Clone + DAGHeader + Debug,
 {
     let request: MsgECGSyncRequest<Header, T> = conn.receive().await;
     // JP: Set (and check) max value for tips?

@@ -22,7 +22,7 @@ use crate::network::protocol::{run_handshake_client, run_handshake_server, Hands
 use crate::protocol::manager::v0::PeerManagerCommand;
 use crate::protocol::MiniProtocolArgs;
 use crate::storage::Storage;
-use crate::store::dag::{ECGBody, ECGHeader};
+use crate::store::dag::{DAGBody, DAGHeader};
 use crate::store::{self, StateUpdate, StoreCommand, UntypedStoreCommand};
 use crate::time::ConcretizeTime;
 use crate::util::{self, TypedStream};
@@ -35,20 +35,20 @@ pub struct Ossa<OT: OssaType> {
     /// Active stores.
     // stores: BTreeMap<OT::StoreId,ActiveStore>,
     active_stores: watch::Sender<
-        StoreStatuses<OT::StoreId, OT::Hash, <OT::ECGHeader as ECGHeader>::HeaderId, OT::ECGHeader>,
+        StoreStatuses<OT::StoreId, OT::Hash, <OT::SCGHeader as DAGHeader>::HeaderId, OT::SCGHeader, <OT::ECGHeader as DAGHeader>::HeaderId, OT::ECGHeader>,
     >, // JP: Make this encode more state that other's may want to subscribe to?
     shared_state: SharedState<OT::StoreId>, // JP: Could have another thread own and manage this state
     // instead?
     phantom: PhantomData<OT>,
     device_keys: DevicePrivateKeys,
 }
-pub type StoreStatuses<StoreId, Hash, HeaderId, Header> =
-    BTreeMap<StoreId, StoreStatus<Hash, HeaderId, Header>>; // Rename this MiniProtocolArgs?
+pub type StoreStatuses<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader> =
+    BTreeMap<StoreId, StoreStatus<Hash, SHeaderId, SHeader, THeaderId, THeader>>; // Rename this MiniProtocolArgs?
 
 // pub enum StoreStatus<O: OssaType, T: CRDT<Time = O::Time>>
 // where
 //     T::Op: Serialize,
-pub enum StoreStatus<Hash, HeaderId, Header> {
+pub enum StoreStatus<Hash, SHeaderId, SHeader, THeaderId, THeader> {
     // Store is initializing and async handler is being created.
     Initializing,
     // Store's async handler is running.
@@ -60,7 +60,7 @@ pub enum StoreStatus<Hash, HeaderId, Header> {
         // https://www.reddit.com/r/rust/comments/1exjiab/the_amazing_pattern_i_discovered_hashmap_with/
         // send_command_chan: UnboundedSender<StoreCommand<store::ecg::v0::Header<dyn Hash, dyn CRDT>, dyn CRDT>>,
         // send_command_chan: UnboundedSender<UntypedStoreCommand>,
-        send_command_chan: UnboundedSender<UntypedStoreCommand<Hash, HeaderId, Header>>,
+        send_command_chan: UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>,
     },
 }
 
@@ -71,7 +71,7 @@ pub(crate) struct SharedState<StoreId> {
         Arc<RwLock<BTreeMap<DeviceId, UnboundedSender<PeerManagerCommand<StoreId>>>>>,
 }
 
-impl<Hash, HeaderId, Header> StoreStatus<Hash, HeaderId, Header> {
+impl<Hash, SHeaderId, SHeader, THeaderId, THeader> StoreStatus<Hash, SHeaderId, SHeader, THeaderId, THeader> {
     pub(crate) fn is_initializing(&self) -> bool {
         match self {
             StoreStatus::Initializing => true,
@@ -85,7 +85,7 @@ impl<Hash, HeaderId, Header> StoreStatus<Hash, HeaderId, Header> {
 
     pub(crate) fn command_channel(
         &self,
-    ) -> Option<&UnboundedSender<UntypedStoreCommand<Hash, HeaderId, Header>>> {
+    ) -> Option<&UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>> {
         match self {
             StoreStatus::Initializing => None,
             StoreStatus::Running {
@@ -260,23 +260,23 @@ impl<OT: OssaType> Ossa<OT> {
             + for<'d> Deserialize<'d>,
         // T::Op<CausalTime<OT::Time>>: Serialize,
         // T::Op: ConcretizeTime<T::Time>, // <OT::ECGHeader as ECGHeader>::HeaderId>,
-        T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
+        T::Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>,
         OT::ECGBody<T>: Send
             + Serialize
             + for<'d> Deserialize<'d>
             + Debug
-            + ECGBody<
+            + DAGBody<
                 T::Op,
-                <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
+                <T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
                 Header = OT::ECGHeader,
             >,
         OT::ECGHeader: Send + Sync + Clone + 'static + Serialize + for<'d> Deserialize<'d>,
         // OT::ECGBody<T>:
         //     Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
-        <OT::ECGHeader as ECGHeader>::HeaderId: Send + Serialize + for<'d> Deserialize<'d>,
+        <OT::ECGHeader as DAGHeader>::HeaderId: Send + Serialize + for<'d> Deserialize<'d>,
     {
         // Create store by generating nonce, etc.
-        let store = store::State::<OT::StoreId, OT::ECGHeader, S, T, OT::Hash>::new_syncing(
+        let store = store::State::<OT::StoreId, OT::SCGHeader, OT::ECGHeader, S, T, OT::Hash>::new_syncing(
             initial_sc_state.clone(),
             initial_ec_state.clone(),
         );
@@ -312,20 +312,20 @@ impl<OT: OssaType> Ossa<OT> {
     where
         OT::ECGHeader: Send + Sync + Clone + 'static,
         S: for<'d> Deserialize<'d> + Send + 'static,
-        T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
+        T::Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>,
         OT::ECGBody<T>: Send
             + Serialize
             + for<'d> Deserialize<'d>
             + Debug
-            + ECGBody<
+            + DAGBody<
                 T::Op,
-                <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
+                <T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
                 Header = OT::ECGHeader,
             >,
         // T::Op: ConcretizeTime<T::Time>,
         // OT::ECGBody<T>:
         //     Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
-        <<OT as OssaType>::ECGHeader as ECGHeader>::HeaderId: Send,
+        <<OT as OssaType>::ECGHeader as DAGHeader>::HeaderId: Send,
         T: CRDT<Time = OT::Time> + Clone + Debug + Send + 'static + for<'d> Deserialize<'d>,
         // T::Op<CausalTime<OT::Time>>: Serialize,
     {
@@ -435,23 +435,23 @@ impl<OT: OssaType> Ossa<OT> {
     fn launch_store<S, T>(
         &self,
         store_id: OT::StoreId,
-        store: store::State<OT::StoreId, OT::ECGHeader, S, T, OT::Hash>,
+        store: store::State<OT::StoreId, OT::SCGHeader, OT::ECGHeader, S, T, OT::Hash>,
     ) -> StoreHandle<OT, S, T>
     where
         OT::ECGHeader: Send + Sync + Clone + 'static + for<'d> Deserialize<'d> + Serialize,
-        T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
+        T::Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>,
         OT::ECGBody<T>: Send
             + Serialize
             + for<'d> Deserialize<'d>
             + Debug
-            + ECGBody<
+            + DAGBody<
                 T::Op,
-                <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
+                <T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
                 Header = OT::ECGHeader,
             >,
         // OT::ECGBody<T>:
         //     Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
-        <<OT as OssaType>::ECGHeader as ECGHeader>::HeaderId:
+        <<OT as OssaType>::ECGHeader as DAGHeader>::HeaderId:
             Send + for<'d> Deserialize<'d> + Serialize,
         // T::Op<CausalTime<OT::Time>>: Serialize,
         S: for<'d> Deserialize<'d> + Send + 'static,
@@ -466,7 +466,9 @@ impl<OT: OssaType> Ossa<OT> {
         let (send_commands_untyped, recv_commands_untyped) = tokio::sync::mpsc::unbounded_channel::<
             store::UntypedStoreCommand<
                 OT::Hash,
-                <OT::ECGHeader as ECGHeader>::HeaderId,
+                <OT::SCGHeader as DAGHeader>::HeaderId,
+                OT::SCGHeader,
+                <OT::ECGHeader as DAGHeader>::HeaderId,
                 OT::ECGHeader,
             >,
         >();
@@ -564,7 +566,7 @@ pub struct OssaConfig {
 pub struct StoreHandle<
     O: OssaType,
     S,
-    T: CRDT<Time = O::Time, Op: ConcretizeTime<<O::ECGHeader as ECGHeader>::HeaderId>>,
+    T: CRDT<Time = O::Time, Op: ConcretizeTime<<O::ECGHeader as DAGHeader>::HeaderId>>,
 >
 // where
 //     // T::Op: Serialize,
@@ -600,12 +602,14 @@ pub trait OssaType: 'static {
         + for<'a> Deserialize<'a>
         + Into<Self::StoreId>; // Hashable instead of AsRef???
                                // type ECGHeader<T: CRDT<Time = Self::Time, Op: Serialize>>: store::ecg::ECGHeader + Debug + Send;
-    type ECGHeader: store::dag::ECGHeader<HeaderId: Send + Sync + Serialize + for<'a> Deserialize<'a>>
+    type ECGHeader: store::dag::DAGHeader<HeaderId: Send + Sync + Serialize + for<'a> Deserialize<'a>>
         + Debug
         + Send
         + Serialize
         + for<'a> Deserialize<'a>;
-    type ECGBody<T: CRDT<Op: ConcretizeTime<<Self::ECGHeader as ECGHeader>::HeaderId>>>; // : Serialize + for<'a> Deserialize<'a>; // : CRDT<Time = Self::Time, Op: Serialize>;
+    type ECGBody<T: CRDT<Op: ConcretizeTime<<Self::ECGHeader as DAGHeader>::HeaderId>>>; // : Serialize + for<'a> Deserialize<'a>; // : CRDT<Time = Self::Time, Op: Serialize>;
+    type SCGHeader: store::dag::DAGHeader<HeaderId: Send>
+        + Send;
     type SCGBody<S>: 
           Serialize
         + for<'a> Deserialize<'a>;
@@ -624,21 +628,21 @@ pub trait OssaType: 'static {
 impl<
         O: OssaType,
         S,
-        T: CRDT<Time = O::Time, Op: ConcretizeTime<<O::ECGHeader as ECGHeader>::HeaderId>>,
+        T: CRDT<Time = O::Time, Op: ConcretizeTime<<O::ECGHeader as DAGHeader>::HeaderId>>,
     > StoreHandle<O, S, T>
 // where
 //     T::Op<CausalTime<T::Time>>: Serialize,
 {
     pub fn apply(
         &mut self,
-        parents: BTreeSet<<O::ECGHeader as ECGHeader>::HeaderId>,
-        op: <T::Op as ConcretizeTime<<O::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
-    ) -> <O::ECGHeader as ECGHeader>::HeaderId
+        parents: BTreeSet<<O::ECGHeader as DAGHeader>::HeaderId>,
+        op: <T::Op as ConcretizeTime<<O::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
+    ) -> <O::ECGHeader as DAGHeader>::HeaderId
     where
-        T::Op: ConcretizeTime<<O::ECGHeader as ECGHeader>::HeaderId>,
-        O::ECGBody<T>: ECGBody<
+        T::Op: ConcretizeTime<<O::ECGHeader as DAGHeader>::HeaderId>,
+        O::ECGBody<T>: DAGBody<
             T::Op,
-            <T::Op as ConcretizeTime<<O::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
+            <T::Op as ConcretizeTime<<O::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
             Header = O::ECGHeader,
         >,
     {
@@ -648,15 +652,15 @@ impl<
     // TODO: Don't take parents as an argument. Pull it from the state. XXX
     pub fn apply_batch(
         &mut self,
-        parents: BTreeSet<<<O as OssaType>::ECGHeader as ECGHeader>::HeaderId>,
-        op: Vec<<T::Op as ConcretizeTime<<O::ECGHeader as ECGHeader>::HeaderId>>::Serialized>, // T::Op<CausalTime<T::Time>>>,
+        parents: BTreeSet<<<O as OssaType>::ECGHeader as DAGHeader>::HeaderId>,
+        op: Vec<<T::Op as ConcretizeTime<<O::ECGHeader as DAGHeader>::HeaderId>>::Serialized>, // T::Op<CausalTime<T::Time>>>,
                                                                                                // op: Vec<T::Op>,
-    ) -> <O::ECGHeader as ECGHeader>::HeaderId
+    ) -> <O::ECGHeader as DAGHeader>::HeaderId
     where
-        T::Op: ConcretizeTime<<O::ECGHeader as ECGHeader>::HeaderId>,
-        <O as OssaType>::ECGBody<T>: ECGBody<
+        T::Op: ConcretizeTime<<O::ECGHeader as DAGHeader>::HeaderId>,
+        <O as OssaType>::ECGBody<T>: DAGBody<
             T::Op,
-            <T::Op as ConcretizeTime<<O::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
+            <T::Op as ConcretizeTime<<O::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
             Header = O::ECGHeader,
         >,
     {
@@ -666,9 +670,9 @@ impl<
         // }
 
         // Create ECG header and body.
-        let body = <<O as OssaType>::ECGBody<T> as ECGBody<
+        let body = <<O as OssaType>::ECGBody<T> as DAGBody<
             T::Op,
-            <T::Op as ConcretizeTime<<O::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
+            <T::Op as ConcretizeTime<<O::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
         >>::new_body(op);
         let header = body.new_header(parents);
         let header_id = header.get_header_id();

@@ -9,20 +9,20 @@ use crate::network::protocol::ecg_sync::v0::server::ecg_sync_server;
 use crate::network::protocol::ecg_sync::v0::MsgECGSync;
 use crate::network::ConnectionManager;
 use crate::store::dag::v0::TestHeader;
-use crate::store::dag::{self, ECGHeader};
+use crate::store::dag::{self, DAGHeader};
 use crate::util::UnboundChannel;
 
-fn run_ecg_sync<Header: ECGHeader + Send + Clone + Debug, T: CRDT + Send>(
+fn run_ecg_sync<Header: DAGHeader + Send + Clone + Debug, T: CRDT + Send>(
     st1: &mut dag::State<Header, T>,
     st2: &mut dag::State<Header, T>,
 ) where
-    <Header as ECGHeader>::HeaderId: Send,
+    <Header as DAGHeader>::HeaderId: Send,
 {
-    async fn future<Header: ECGHeader + Send + Clone + Debug, T: CRDT + Send>(
+    async fn future<Header: DAGHeader + Send + Clone + Debug, T: CRDT + Send>(
         st1: &mut dag::State<Header, T>,
         st2: &mut dag::State<Header, T>,
     ) where
-        <Header as ECGHeader>::HeaderId: Send,
+        <Header as DAGHeader>::HeaderId: Send,
     {
         let store_id = 0_u64;
         // let channel: Channel<bytes::Bytes> = Channel::new();
