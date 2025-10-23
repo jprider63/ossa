@@ -15,7 +15,7 @@ use crate::{auth::DeviceId, network::protocol::{receive, MiniProtocol}, protocol
 pub(crate) struct StoreDAGSync<Hash, SHeaderId, SHeader, THeaderId, THeader> {
     peer: DeviceId,
     // Receive commands from store if we have initiative or send commands to store if we're the responder.
-    recv_chan: Option<UnboundedReceiver<StoreDAGSyncCommand<SHeaderId, SHeader>>>,
+    recv_chan: Option<UnboundedReceiver<StoreSCGSyncCommand<SHeaderId, SHeader>>>,
     // Send commands to store if we're the responder and send results back to store if we're the initiator.
     send_chan: UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>, // JP: Make this a stream?
 }
@@ -23,7 +23,7 @@ pub(crate) struct StoreDAGSync<Hash, SHeaderId, SHeader, THeaderId, THeader> {
 impl<Hash, SHeaderId, SHeader, THeaderId, THeader> StoreDAGSync<Hash, SHeaderId, SHeader, THeaderId, THeader> {
     pub(crate) fn new_server(
         peer: DeviceId,
-        recv_chan: UnboundedReceiver<StoreDAGSyncCommand<SHeaderId, SHeader>>,
+        recv_chan: UnboundedReceiver<StoreSCGSyncCommand<SHeaderId, SHeader>>,
         send_chan: UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>,
     ) -> Self {
         let recv_chan = Some(recv_chan);
@@ -63,8 +63,8 @@ pub(crate) enum MsgStoreDAGSync<HeaderId, Header> {
 
 #[derive(Debug)]
 // TODO: Rename StorePeerSCGSyncCommand
-pub(crate) enum StoreDAGSyncCommand<HeaderId, Header> {
-    DAGSyncRequest {
+pub(crate) enum StoreSCGSyncCommand<HeaderId, Header> {
+    SCGSyncRequest {
         // ecg_status: ECGStatus<HeaderId>,
         dag_state: crate::store::dag::UntypedState<HeaderId, Header>,
     },
@@ -130,7 +130,7 @@ where
                 .expect("Unreachable. Server must be given a receive channel.");
             while let Some(cmd) = recv_chan.recv().await {
                 match cmd {
-                    StoreDAGSyncCommand::DAGSyncRequest { dag_state } => {
+                    StoreSCGSyncCommand::SCGSyncRequest { dag_state } => {
                         let operations = match dag_sync {
                             None => {
                                 // First round of DAG sync, so create and run first round.

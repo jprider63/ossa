@@ -258,8 +258,6 @@ impl<OT: OssaType> Ossa<OT> {
             + Typeable
             + Serialize
             + for<'d> Deserialize<'d>,
-        // T::Op<CausalTime<OT::Time>>: Serialize,
-        // T::Op: ConcretizeTime<T::Time>, // <OT::ECGHeader as ECGHeader>::HeaderId>,
         T::Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>,
         OT::ECGBody<T>: Send
             + Serialize
@@ -270,10 +268,8 @@ impl<OT: OssaType> Ossa<OT> {
                 <T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
                 Header = OT::ECGHeader,
             >,
-        OT::ECGHeader: Send + Sync + Clone + 'static + Serialize + for<'d> Deserialize<'d>,
-        // OT::ECGBody<T>:
-        //     Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
-        <OT::ECGHeader as DAGHeader>::HeaderId: Send + Serialize + for<'d> Deserialize<'d>,
+        OT::ECGHeader: Clone,
+        OT::SCGHeader: Clone,
     {
         // Create store by generating nonce, etc.
         let store = store::State::<OT::StoreId, OT::SCGHeader, OT::ECGHeader, S, T, OT::Hash>::new_syncing(
@@ -311,6 +307,7 @@ impl<OT: OssaType> Ossa<OT> {
     ) -> StoreHandle<OT, S, T>
     where
         OT::ECGHeader: Send + Sync + Clone + 'static,
+        OT::SCGHeader: Debug + Clone,
         S: for<'d> Deserialize<'d> + Send + 'static,
         T::Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>,
         OT::ECGBody<T>: Send
@@ -439,6 +436,7 @@ impl<OT: OssaType> Ossa<OT> {
     ) -> StoreHandle<OT, S, T>
     where
         OT::ECGHeader: Send + Sync + Clone + 'static + for<'d> Deserialize<'d> + Serialize,
+        OT::SCGHeader: Sync + Debug + Clone + for<'d> Deserialize<'d> + Serialize,
         T::Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>,
         OT::ECGBody<T>: Send
             + Serialize
@@ -453,6 +451,8 @@ impl<OT: OssaType> Ossa<OT> {
         //     Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
         <<OT as OssaType>::ECGHeader as DAGHeader>::HeaderId:
             Send + for<'d> Deserialize<'d> + Serialize,
+        <<OT as OssaType>::SCGHeader as DAGHeader>::HeaderId:
+            Sync + for<'d> Deserialize<'d> + Serialize,
         // T::Op<CausalTime<OT::Time>>: Serialize,
         S: for<'d> Deserialize<'d> + Send + 'static,
         T: CRDT<Time = OT::Time> + Debug + Clone + Send + 'static + for<'d> Deserialize<'d>,
@@ -605,11 +605,16 @@ pub trait OssaType: 'static {
     type ECGHeader: store::dag::DAGHeader<HeaderId: Send + Sync + Serialize + for<'a> Deserialize<'a>>
         + Debug
         + Send
+        + Sync
         + Serialize
         + for<'a> Deserialize<'a>;
     type ECGBody<T: CRDT<Op: ConcretizeTime<<Self::ECGHeader as DAGHeader>::HeaderId>>>; // : Serialize + for<'a> Deserialize<'a>; // : CRDT<Time = Self::Time, Op: Serialize>;
-    type SCGHeader: store::dag::DAGHeader<HeaderId: Send>
-        + Send;
+    type SCGHeader: store::dag::DAGHeader<HeaderId: Send + Sync + Serialize + for<'a> Deserialize<'a>>
+        + Debug
+        + Send
+        + Sync
+        + Serialize
+        + for<'a> Deserialize<'a>;
     type SCGBody<S>: 
           Serialize
         + for<'a> Deserialize<'a>;
