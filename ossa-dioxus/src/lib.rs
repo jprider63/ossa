@@ -3,6 +3,7 @@ use dioxus::hooks::use_context;
 use dioxus::prelude::{current_scope_id, use_hook, Runtime, ScopeId, Task};
 use dioxus::signals::{Readable as _, Signal, Writable as _};
 pub use dioxus_desktop;
+use ossa_core::store::bft::SCDT;
 use tracing::debug;
 
 use std::cell::RefCell;
@@ -14,7 +15,7 @@ use ossa_core::Ossa;
 use ossa_core::core::OssaType;
 use ossa_core::core::StoreHandle;
 use ossa_core::store::dag::v0::{Body, Header, HeaderId, OperationId};
-use ossa_core::store::dag::{ECGBody, ECGHeader};
+use ossa_core::store::dag::{DAGBody, DAGHeader};
 use ossa_core::store::{StateUpdate, dag};
 use ossa_core::time::{CausalTime, ConcretizeTime};
 use ossa_core::util::Sha256Hash;
@@ -48,12 +49,15 @@ impl<A: OssaType> OssaProp<A> {
 /// A default setup that implements `OssaType` with typical settings like using sha256 as the hash function.
 pub enum DefaultSetup {}
 
+
 impl OssaType for DefaultSetup {
     type Hash = Sha256Hash;
     type StoreId = Sha256Hash;
     type ECGHeader = Header<Sha256Hash>;
     type ECGBody<T: CRDT<Op: ConcretizeTime<HeaderId<Sha256Hash>>>> =
         Body<Sha256Hash, <T::Op as ConcretizeTime<HeaderId<Sha256Hash>>>::Serialized>;
+    type SCGHeader = Header<Sha256Hash>;
+    type SCGBody<S: SCDT> = Body<Sha256Hash, <S as SCDT>::Op>;
 
     type Time = OperationId<HeaderId<Sha256Hash>>;
 
@@ -69,7 +73,7 @@ impl OssaType for DefaultSetup {
 pub struct UseStore<
     OT: OssaType + 'static,
     S,
-    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>> + 'static,
+    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>> + 'static,
 > {
     future: Task,
     handle: Rc<RefCell<StoreHandle<OT, S, T>>>,
@@ -91,7 +95,7 @@ pub struct UseStore<
 impl<
     OT: OssaType + 'static,
     S,
-    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>,
+    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>,
 > Clone for UseStore<OT, S, T>
 {
     fn clone(&self) -> Self {
@@ -134,7 +138,7 @@ where
 pub fn use_store<
     OT: OssaType + 'static,
     S: 'static,
-    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>,
+    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>,
     F,
 >(
     build_store_handle: F,
@@ -151,7 +155,7 @@ where
 fn new_store_helper<
     OT: OssaType + 'static,
     S,
-    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>,
+    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>,
     F,
 >(
     ossa: &Ossa<OT>,
@@ -207,7 +211,7 @@ where
 pub fn new_store_in_scope<
     OT: OssaType + 'static,
     S,
-    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>,
+    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>,
     F,
 >(
     scope: ScopeId,
@@ -224,18 +228,18 @@ where
 pub struct OperationBuilder<
     OT: OssaType,
     S,
-    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>,
+    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>,
 > {
     handle: Rc<RefCell<StoreHandle<OT, S, T>>>,
-    parents: BTreeSet<<<OT as OssaType>::ECGHeader as ECGHeader>::HeaderId>,
-    operations: Vec<<T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized>,
+    parents: BTreeSet<<<OT as OssaType>::ECGHeader as DAGHeader>::HeaderId>,
+    operations: Vec<<T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized>,
 }
 
 const MAX_OPS: usize = 256; // TODO: This is already defined somewhere else?
 impl<
     OT: OssaType,
     S,
-    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>,
+    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>,
 > OperationBuilder<OT, S, T>
 {
     /// Queue up an operation to apply.
@@ -248,7 +252,7 @@ impl<
         F: FnOnce(
             CausalTime<OT::Time>,
         )
-            -> <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
+            -> <T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
     {
         if self.operations.len() >= MAX_OPS {
             return None;
@@ -259,13 +263,13 @@ impl<
         Some(t)
     }
 
-    pub fn apply(self) -> <OT::ECGHeader as ECGHeader>::HeaderId
+    pub fn apply(self) -> <OT::ECGHeader as DAGHeader>::HeaderId
     where
         // T::Op<CausalTime<OT::Time>>: Serialize,
-        T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
-        OT::ECGBody<T>: ECGBody<
+        T::Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>,
+        OT::ECGBody<T>: DAGBody<
                 T::Op,
-                <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
+                <T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
                 Header = OT::ECGHeader,
             >,
     {
@@ -278,7 +282,7 @@ impl<
 impl<
     OT: OssaType,
     S,
-    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>,
+    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>,
 > UseStore<OT, S, T>
 {
     pub fn get_current_state(&self) -> Option<T>
@@ -298,16 +302,16 @@ impl<
     }
 
     /// Applies an operation to the Store's CRDT with the closure the builds the operation. If  you want to apply multiple operations, use `operation_builder`.
-    pub fn apply<F>(&self, op: F) -> OperationId<<OT::ECGHeader as ECGHeader>::HeaderId>
+    pub fn apply<F>(&self, op: F) -> OperationId<<OT::ECGHeader as DAGHeader>::HeaderId>
     where
         F: FnOnce(
             CausalTime<OT::Time>,
         )
-            -> <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
-        T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
-        OT::ECGBody<T>: ECGBody<
+            -> <T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
+        T::Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>,
+        OT::ECGBody<T>: DAGBody<
                 T::Op,
-                <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
+                <T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
                 Header = OT::ECGHeader,
             >,
     {
@@ -321,18 +325,18 @@ impl<
 
     pub fn apply_with_parents<F>(
         &self,
-        parents: BTreeSet<<<OT as OssaType>::ECGHeader as ECGHeader>::HeaderId>,
+        parents: BTreeSet<<<OT as OssaType>::ECGHeader as DAGHeader>::HeaderId>,
         op: F,
-    ) -> OperationId<<OT::ECGHeader as ECGHeader>::HeaderId>
+    ) -> OperationId<<OT::ECGHeader as DAGHeader>::HeaderId>
     where
         F: FnOnce(
             CausalTime<OT::Time>,
         )
-            -> <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
-        T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
-        OT::ECGBody<T>: ECGBody<
+            -> <T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
+        T::Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>,
+        OT::ECGBody<T>: DAGBody<
                 T::Op,
-                <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
+                <T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
                 Header = OT::ECGHeader,
             >,
     {
@@ -358,7 +362,7 @@ impl<
 
     pub fn operations_builder(&self) -> OperationBuilder<OT, S, T>
     where
-        T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
+        T::Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>,
     {
         let cookbook_store_state = self.state.peek();
         let cookbook_store_state = cookbook_store_state.as_ref().expect("TODO");

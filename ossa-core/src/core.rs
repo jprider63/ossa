@@ -22,6 +22,7 @@ use crate::network::protocol::{run_handshake_client, run_handshake_server, Hands
 use crate::protocol::manager::v0::PeerManagerCommand;
 use crate::protocol::MiniProtocolArgs;
 use crate::storage::Storage;
+use crate::store::bft::SCDT;
 use crate::store::dag::{DAGBody, DAGHeader};
 use crate::store::{self, StateUpdate, StoreCommand, UntypedStoreCommand};
 use crate::time::ConcretizeTime;
@@ -244,7 +245,8 @@ impl<OT: OssaType> Ossa<OT> {
 
     pub fn create_store<S, T, ST: Storage>(&self, initial_sc_state: S, initial_ec_state: T, _storage: ST) -> StoreHandle<OT, S, T>
     where
-        S: Serialize
+        S: SCDT
+            + Serialize
             + Typeable
             + Clone
             + Send
@@ -268,6 +270,7 @@ impl<OT: OssaType> Ossa<OT> {
                 <T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
                 Header = OT::ECGHeader,
             >,
+        OT::SCGBody<S>: for<'d> Deserialize<'d>,
         OT::ECGHeader: Clone,
         OT::SCGHeader: Clone,
     {
@@ -308,8 +311,6 @@ impl<OT: OssaType> Ossa<OT> {
     where
         OT::ECGHeader: Send + Sync + Clone + 'static,
         OT::SCGHeader: Debug + Clone,
-        S: for<'d> Deserialize<'d> + Send + 'static,
-        T::Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>,
         OT::ECGBody<T>: Send
             + Serialize
             + for<'d> Deserialize<'d>
@@ -319,12 +320,14 @@ impl<OT: OssaType> Ossa<OT> {
                 <T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
                 Header = OT::ECGHeader,
             >,
+        OT::SCGBody<S>: for<'d> Deserialize<'d>,
         // T::Op: ConcretizeTime<T::Time>,
         // OT::ECGBody<T>:
         //     Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
         <<OT as OssaType>::ECGHeader as DAGHeader>::HeaderId: Send,
+        S: SCDT + for<'d> Deserialize<'d> + Send + 'static,
         T: CRDT<Time = OT::Time> + Clone + Debug + Send + 'static + for<'d> Deserialize<'d>,
-        // T::Op<CausalTime<OT::Time>>: Serialize,
+        T::Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>,
     {
         // Check if store is already active.
         // If it isn't, mark it as initializing and continue.
@@ -438,6 +441,7 @@ impl<OT: OssaType> Ossa<OT> {
         OT::ECGHeader: Send + Sync + Clone + 'static + for<'d> Deserialize<'d> + Serialize,
         OT::SCGHeader: Sync + Debug + Clone + for<'d> Deserialize<'d> + Serialize,
         T::Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>,
+        OT::SCGBody<S>: for<'d> Deserialize<'d>,
         OT::ECGBody<T>: Send
             + Serialize
             + for<'d> Deserialize<'d>
@@ -454,7 +458,7 @@ impl<OT: OssaType> Ossa<OT> {
         <<OT as OssaType>::SCGHeader as DAGHeader>::HeaderId:
             Sync + for<'d> Deserialize<'d> + Serialize,
         // T::Op<CausalTime<OT::Time>>: Serialize,
-        S: for<'d> Deserialize<'d> + Send + 'static,
+        S: SCDT + for<'d> Deserialize<'d> + Send + 'static,
         T: CRDT<Time = OT::Time> + Debug + Clone + Send + 'static + for<'d> Deserialize<'d>,
     {
         // Initialize storage for this store.
@@ -615,9 +619,9 @@ pub trait OssaType: 'static {
         + Sync
         + Serialize
         + for<'a> Deserialize<'a>;
-    type SCGBody<S>: 
-          Serialize
-        + for<'a> Deserialize<'a>;
+    type SCGBody<S: SCDT>;
+        //   Serialize
+        // + for<'a> Deserialize<'a>;
     type Time;
     // type CausalState<T: CRDT<Time = Self::Time, Op<CausalTime<Self::Time>>: Serialize>>: CausalState<Time = Self::Time>;
     type CausalState<T: CRDT<Time = Self::Time>>: CausalState<Time = Self::Time>;

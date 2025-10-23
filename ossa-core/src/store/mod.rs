@@ -850,6 +850,7 @@ impl<
         listeners: &[UnboundedSender<StateUpdate<THeader, T>>],
     ) where
         OT: OssaType<SCGHeader = SHeader, ECGHeader = THeader>,
+        S: SCDT,
         OT::SCGBody<S>: for<'d> Deserialize<'d>,
     {
         // Mark peer as ready.
@@ -1078,7 +1079,7 @@ impl<
     }
 }
 
-fn register_scg_operations<OT: OssaType, S, T: CRDT>(
+fn register_scg_operations<OT: OssaType, S: SCDT, T: CRDT>(
     decrypted_state: &mut DecryptedState<OT::SCGHeader, OT::ECGHeader, T>,
     scg_state: &dag::State<OT::SCGHeader, S>,
     operation_body: OT::SCGBody<S>,
@@ -1264,6 +1265,7 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
 ) where
     // <<OT as OssaType>::ECGHeader as ECGHeader>::Body: ECGBody<T> + Send,
     T::Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>,
+    OT::SCGBody<S>: for<'d> Deserialize<'d>,
     OT::ECGBody<T>: Serialize
         + for<'d> Deserialize<'d>
         + Debug
@@ -1280,7 +1282,7 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
     // T::Op<CausalTime<T::Time>>: Serialize,
     OT::SCGHeader: Debug + Clone + Sync + Serialize + for<'d> Deserialize<'d>,
     <OT::SCGHeader as DAGHeader>::HeaderId: Sync + Serialize + for<'d> Deserialize<'d>,
-    S: for<'d> Deserialize<'d>,
+    S: SCDT + for<'d> Deserialize<'d>,
     T: CRDT<Time = OT::Time> + Debug + Clone + Send + 'static + for<'d> Deserialize<'d>,
 {
     let mut listeners: Vec<UnboundedSender<StateUpdate<OT::ECGHeader, T>>> = vec![];
