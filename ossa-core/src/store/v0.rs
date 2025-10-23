@@ -78,7 +78,9 @@ pub struct MetadataHeader<Hash> {
 // TODO: Signature of MetadataHeader by `owner`.
 
 impl<H: Hash + Debug> MetadataHeader<H> {
-    pub fn generate<S: Typeable, T: Typeable>(initial_state: &MetadataBody<H>) -> MetadataHeader<H> {
+    pub fn generate<S: Typeable, T: Typeable>(
+        initial_state: &MetadataBody<H>,
+    ) -> MetadataHeader<H> {
         let nonce = generate_nonce();
         let protocol_version = protocol::LATEST_VERSION;
         let sc_store_type = S::type_ident();
@@ -123,7 +125,10 @@ impl<H: Hash + Debug> MetadataHeader<H> {
     }
 
     pub fn block_count(&self) -> u64 {
-        self.merkle_size().div_ceil(BLOCK_SIZE as u128).try_into().expect("TODO")
+        self.merkle_size()
+            .div_ceil(BLOCK_SIZE as u128)
+            .try_into()
+            .expect("TODO")
     }
 
     /// Size of the contents of the merkle tree in bytes.
@@ -143,7 +148,10 @@ pub struct MetadataBody<Hash> {
 }
 
 impl<H: Hash + Debug> MetadataBody<H> {
-    pub(crate) fn new<S: Serialize, T: Serialize>(initial_sc_state: &S, initial_ec_state: &T) -> MetadataBody<H> {
+    pub(crate) fn new<S: Serialize, T: Serialize>(
+        initial_sc_state: &S,
+        initial_ec_state: &T,
+    ) -> MetadataBody<H> {
         let mut initial_sc_state = serde_cbor::to_vec(initial_sc_state).expect("TODO");
         let mut initial_ec_state = serde_cbor::to_vec(initial_ec_state).expect("TODO");
         // let appended = initial_sc_state.iter().chain(initial_ec_state.iter()).chunks(BLOCK_SIZE as usize);

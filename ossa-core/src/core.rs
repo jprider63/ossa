@@ -17,7 +17,7 @@ use tokio::task::JoinHandle;
 use tokio_util::codec::{self, LengthDelimitedCodec};
 use tracing::{debug, error, info, warn};
 
-use crate::auth::{DeviceId, identity::DevicePrivateKeys};
+use crate::auth::{identity::DevicePrivateKeys, DeviceId};
 use crate::network::protocol::{run_handshake_client, run_handshake_server, HandshakeError};
 use crate::protocol::manager::v0::PeerManagerCommand;
 use crate::protocol::MiniProtocolArgs;
@@ -36,7 +36,14 @@ pub struct Ossa<OT: OssaType> {
     /// Active stores.
     // stores: BTreeMap<OT::StoreId,ActiveStore>,
     active_stores: watch::Sender<
-        StoreStatuses<OT::StoreId, OT::Hash, <OT::SCGHeader as DAGHeader>::HeaderId, OT::SCGHeader, <OT::ECGHeader as DAGHeader>::HeaderId, OT::ECGHeader>,
+        StoreStatuses<
+            OT::StoreId,
+            OT::Hash,
+            <OT::SCGHeader as DAGHeader>::HeaderId,
+            OT::SCGHeader,
+            <OT::ECGHeader as DAGHeader>::HeaderId,
+            OT::ECGHeader,
+        >,
     >, // JP: Make this encode more state that other's may want to subscribe to?
     shared_state: SharedState<OT::StoreId>, // JP: Could have another thread own and manage this state
     // instead?
@@ -61,7 +68,8 @@ pub enum StoreStatus<Hash, SHeaderId, SHeader, THeaderId, THeader> {
         // https://www.reddit.com/r/rust/comments/1exjiab/the_amazing_pattern_i_discovered_hashmap_with/
         // send_command_chan: UnboundedSender<StoreCommand<store::ecg::v0::Header<dyn Hash, dyn CRDT>, dyn CRDT>>,
         // send_command_chan: UnboundedSender<UntypedStoreCommand>,
-        send_command_chan: UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>,
+        send_command_chan:
+            UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>,
     },
 }
 
@@ -72,7 +80,9 @@ pub(crate) struct SharedState<StoreId> {
         Arc<RwLock<BTreeMap<DeviceId, UnboundedSender<PeerManagerCommand<StoreId>>>>>,
 }
 
-impl<Hash, SHeaderId, SHeader, THeaderId, THeader> StoreStatus<Hash, SHeaderId, SHeader, THeaderId, THeader> {
+impl<Hash, SHeaderId, SHeader, THeaderId, THeader>
+    StoreStatus<Hash, SHeaderId, SHeader, THeaderId, THeader>
+{
     pub(crate) fn is_initializing(&self) -> bool {
         match self {
             StoreStatus::Initializing => true,
@@ -86,7 +96,8 @@ impl<Hash, SHeaderId, SHeader, THeaderId, THeader> StoreStatus<Hash, SHeaderId, 
 
     pub(crate) fn command_channel(
         &self,
-    ) -> Option<&UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>> {
+    ) -> Option<&UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>>
+    {
         match self {
             StoreStatus::Initializing => None,
             StoreStatus::Running {
@@ -243,15 +254,14 @@ impl<OT: OssaType> Ossa<OT> {
         }
     }
 
-    pub fn create_store<S, T, ST: Storage>(&self, initial_sc_state: S, initial_ec_state: T, _storage: ST) -> StoreHandle<OT, S, T>
+    pub fn create_store<S, T, ST: Storage>(
+        &self,
+        initial_sc_state: S,
+        initial_ec_state: T,
+        _storage: ST,
+    ) -> StoreHandle<OT, S, T>
     where
-        S: SCDT
-            + Serialize
-            + Typeable
-            + Clone
-            + Send
-            + for<'d> Deserialize<'d>
-            + 'static,
+        S: SCDT + Serialize + Typeable + Clone + Send + for<'d> Deserialize<'d> + 'static,
         T: CRDT<Time = OT::Time>
             + Clone
             + Debug
@@ -275,10 +285,11 @@ impl<OT: OssaType> Ossa<OT> {
         OT::SCGHeader: Clone,
     {
         // Create store by generating nonce, etc.
-        let store = store::State::<OT::StoreId, OT::SCGHeader, OT::ECGHeader, S, T, OT::Hash>::new_syncing(
-            initial_sc_state.clone(),
-            initial_ec_state.clone(),
-        );
+        let store =
+            store::State::<OT::StoreId, OT::SCGHeader, OT::ECGHeader, S, T, OT::Hash>::new_syncing(
+                initial_sc_state.clone(),
+                initial_ec_state.clone(),
+            );
         let store_id = store.store_id();
 
         // Check if this store id already exists and try again if there's a conflict.
@@ -620,8 +631,8 @@ pub trait OssaType: 'static {
         + Serialize
         + for<'a> Deserialize<'a>;
     type SCGBody<S: SCDT>;
-        //   Serialize
-        // + for<'a> Deserialize<'a>;
+    //   Serialize
+    // + for<'a> Deserialize<'a>;
     type Time;
     // type CausalState<T: CRDT<Time = Self::Time, Op<CausalTime<Self::Time>>: Serialize>>: CausalState<Time = Self::Time>;
     type CausalState<T: CRDT<Time = Self::Time>>: CausalState<Time = Self::Time>;

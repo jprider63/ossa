@@ -1,6 +1,13 @@
 use std::collections::BTreeMap;
 
-use crate::{auth::identity::IdentityId, store::{bft::{Round, SCDT}, StoreRef}, util::Sha256Hash};
+use crate::{
+    auth::identity::IdentityId,
+    store::{
+        bft::{Round, SCDT},
+        StoreRef,
+    },
+    util::Sha256Hash,
+};
 
 pub type GroupId = StoreRef<Sha256Hash, Group, ()>;
 
@@ -55,11 +62,12 @@ impl SCDT for Group {
 
     fn update(mut self, op: Self::Op) -> Self {
         match op {
-            GroupOp::AddMember { member, permissions, round } => {
-                let m = MemberInfo {
-                    permissions,
-                    round,
-                };
+            GroupOp::AddMember {
+                member,
+                permissions,
+                round,
+            } => {
+                let m = MemberInfo { permissions, round };
                 let _r = self.members.insert(member, m);
                 debug_assert!(_r.is_none(), "Member already existed.");
             }
@@ -74,7 +82,10 @@ impl SCDT for Group {
                     debug_assert!(false, "Member doesn't exist");
                 }
             }
-            GroupOp::UpdateMember { member, permissions } => {
+            GroupOp::UpdateMember {
+                member,
+                permissions,
+            } => {
                 if let Some(m) = self.members.get_mut(&member) {
                     m.permissions = permissions;
                 } else {
@@ -88,12 +99,8 @@ impl SCDT for Group {
 
     fn is_valid_operation(self, op: Self::Op) -> bool {
         match op {
-            GroupOp::AddMember { member, .. } => {
-                !self.members.contains_key(&member)
-            }
-            GroupOp::RemoveMember { member } => {
-                self.members.contains_key(&member)
-            }
+            GroupOp::AddMember { member, .. } => !self.members.contains_key(&member),
+            GroupOp::RemoveMember { member } => self.members.contains_key(&member),
             GroupOp::MemberUpdated { member, round } => {
                 if let Some(m) = self.members.get(&member) {
                     m.round <= round
@@ -101,10 +108,7 @@ impl SCDT for Group {
                     false
                 }
             }
-            GroupOp::UpdateMember { member, .. } => {
-                self.members.contains_key(&member)
-            }
+            GroupOp::UpdateMember { member, .. } => self.members.contains_key(&member),
         }
     }
 }
-

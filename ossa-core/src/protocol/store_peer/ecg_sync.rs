@@ -56,9 +56,7 @@ use tracing::{debug, warn};
 
 use crate::{
     network::protocol::{receive, send},
-    store::{
-        dag::{self, RawDAGBody},
-    },
+    store::dag::{self, RawDAGBody},
     util::{is_power_of_two, Stream},
 };
 

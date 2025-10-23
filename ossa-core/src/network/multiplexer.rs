@@ -81,7 +81,14 @@ impl Multiplexer {
         mut self,
         mut stream: TcpStream,
         miniprotocols: Vec<
-            MiniProtocols<O::StoreId, O::Hash, <O::SCGHeader as DAGHeader>::HeaderId, O::SCGHeader, <O::ECGHeader as DAGHeader>::HeaderId, O::ECGHeader>,
+            MiniProtocols<
+                O::StoreId,
+                O::Hash,
+                <O::SCGHeader as DAGHeader>::HeaderId,
+                O::SCGHeader,
+                <O::ECGHeader as DAGHeader>::HeaderId,
+                O::ECGHeader,
+            >,
         >,
     ) {
         debug!("run_with_miniprotocols: {:?}", self.party);

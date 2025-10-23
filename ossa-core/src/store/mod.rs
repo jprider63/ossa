@@ -26,8 +26,8 @@ use crate::{
     network::multiplexer::{run_miniprotocol_async, SpawnMultiplexerTask},
     protocol::{
         manager::v0::PeerManagerCommand,
-        store_peer::v0::{StoreSync, StoreSyncCommand},
         store_bft_dag::v0::{StoreDAGSync, StoreSCGSyncCommand},
+        store_peer::v0::{StoreSync, StoreSyncCommand},
     },
     store::{
         dag::{DAGBody, DAGHeader, RawDAGBody},
@@ -45,9 +45,9 @@ pub use v0::{MetadataBody, MetadataHeader, Nonce};
 // TODO: Concretize StoreId to Sha256Hash.
 // #[derive(PartialEq, Eq, PartialOrd, Ord)]
 /// A typed reference to another store.
-pub struct StoreRef<StoreId, S,C> {
+pub struct StoreRef<StoreId, S, C> {
     store_id: StoreId,
-    phantom: PhantomData<fn(S,C)>,
+    phantom: PhantomData<fn(S, C)>,
 }
 
 impl<StoreId: Ord, S, C> PartialOrd for StoreRef<StoreId, S, C> {
@@ -69,7 +69,6 @@ impl<StoreId: PartialEq, S, C> PartialEq for StoreRef<StoreId, S, C> {
 }
 
 impl<StoreId: Eq, S, C> Eq for StoreRef<StoreId, S, C> {}
-
 
 pub struct State<StoreId, SHeader: dag::DAGHeader, THeader: dag::DAGHeader, S, T: CRDT, Hash> {
     // Peers that also have this store (that we are potentially connected to?).
@@ -93,7 +92,14 @@ pub struct State<StoreId, SHeader: dag::DAGHeader, THeader: dag::DAGHeader, S, T
 // - Initializing - Setting up the thread that owns the store (not defined here).
 // - DownloadingMetadata - Don't have the header so we're downloading it.
 // - Syncing - Have the header and syncing updates between peers.
-pub(crate) enum StateMachine<StoreId, SHeader: dag::DAGHeader, THeader: dag::DAGHeader, S, T: CRDT, Hash> {
+pub(crate) enum StateMachine<
+    StoreId,
+    SHeader: dag::DAGHeader,
+    THeader: dag::DAGHeader,
+    S,
+    T: CRDT,
+    Hash,
+> {
     DownloadingMetadata {
         store_id: StoreId,
     },
@@ -116,8 +122,8 @@ pub(crate) enum StateMachine<StoreId, SHeader: dag::DAGHeader, THeader: dag::DAG
         sc_state: bft::State<SHeader, S>,
         // TODO: S::Op
         decrypted_state: DecryptedState<SHeader, THeader, T>, // Temporary
-                                                    // decrypted_state: Option<DecryptedState<Header, T>>, // JP: Is this actually used?
-                                                    // Does it make sense?
+                                                              // decrypted_state: Option<DecryptedState<Header, T>>, // JP: Is this actually used?
+                                                              // Does it make sense?
     },
 }
 
@@ -137,7 +143,7 @@ pub struct DecryptedState<SHeader: dag::DAGHeader, THeader: dag::DAGHeader, T: C
 struct PeerInfo<SHeaderId, SHeader, THeaderId, THeader> {
     ecg_status: PeerProtocolStatus<StoreSyncCommand<THeaderId, THeader>>, // ECGHeader?
     scg_status: PeerProtocolStatus<StoreSCGSyncCommand<SHeaderId, SHeader>>, // SCGHeader?
-    // TODO: sc_status: PeerProtocolStatus<HeaderId, Header>,
+                                                                          // TODO: sc_status: PeerProtocolStatus<HeaderId, Header>,
 }
 
 #[derive(Debug)]
@@ -162,7 +168,12 @@ struct PeerProtocolStatus<CommandType> {
 impl<SHeaderId, SHeader, THeaderId, THeader> PeerInfo<SHeaderId, SHeader, THeaderId, THeader> {
     /// Checks if the peer is ready for an ECG sync request.
     /// This means the peer is syncing and does not have an outstanding request.
-    fn is_ready_for_sync<CommandType>(&self, f: fn(&PeerInfo<SHeaderId, SHeader, THeaderId, THeader>) -> &PeerProtocolStatus<CommandType>) -> bool {
+    fn is_ready_for_sync<CommandType>(
+        &self,
+        f: fn(
+            &PeerInfo<SHeaderId, SHeader, THeaderId, THeader>,
+        ) -> &PeerProtocolStatus<CommandType>,
+    ) -> bool {
         if let PeerStatus::Syncing(s) = &f(self).outgoing_status {
             !s.is_outstanding
         } else {
@@ -230,7 +241,10 @@ impl<
 {
     /// Initialize a new store with the given state. This initializes the header, including
     /// generating a random nonce.
-    pub fn new_syncing(initial_sc_state: S, initial_ec_state: T) -> State<StoreId, SHeader, THeader, S, T, Hash>
+    pub fn new_syncing(
+        initial_sc_state: S,
+        initial_ec_state: T,
+    ) -> State<StoreId, SHeader, THeader, S, T, Hash>
     where
         S: Serialize + Typeable,
         T: Serialize + Typeable,
@@ -316,7 +330,9 @@ impl<
     fn update_peer_to_initializing<A>(
         &mut self,
         peer: &DeviceId,
-        direction_lambda: fn(&mut PeerInfo<SHeader::HeaderId, SHeader, THeader::HeaderId, THeader>) -> &mut PeerStatus<A>,
+        direction_lambda: fn(
+            &mut PeerInfo<SHeader::HeaderId, SHeader, THeader::HeaderId, THeader>,
+        ) -> &mut PeerStatus<A>,
     ) where
         A: Debug,
     {
@@ -351,7 +367,9 @@ impl<
     fn update_peer_to_syncing<A>(
         &mut self,
         peer: &DeviceId,
-        direction_lambda: fn(&mut PeerInfo<SHeader::HeaderId, SHeader, THeader::HeaderId, THeader>) -> &mut PeerStatus<A>,
+        direction_lambda: fn(
+            &mut PeerInfo<SHeader::HeaderId, SHeader, THeader::HeaderId, THeader>,
+        ) -> &mut PeerStatus<A>,
         sender_m: A,
     ) where
         A: Debug,
@@ -405,8 +423,13 @@ impl<
         self.update_peer_to_syncing(peer, |info| &mut info.scg_status.outgoing_status, sender);
     }
 
-    fn update_outgoing_peer_to_ready_helper<CommandType>(&mut self, peer: &DeviceId, f: fn(&mut PeerInfo<SHeader::HeaderId, SHeader, THeader::HeaderId, THeader>) -> &mut PeerProtocolStatus<CommandType>)
-    where
+    fn update_outgoing_peer_to_ready_helper<CommandType>(
+        &mut self,
+        peer: &DeviceId,
+        f: fn(
+            &mut PeerInfo<SHeader::HeaderId, SHeader, THeader::HeaderId, THeader>,
+        ) -> &mut PeerProtocolStatus<CommandType>,
+    ) where
         CommandType: Debug,
     {
         let Some(info) = self.peers.get_mut(peer) else {
@@ -445,10 +468,7 @@ impl<
 
     /// Send sync requests to peers.
     fn send_sync_requests(&mut self) {
-        fn send_command<T>(
-            i: &mut PeerProtocolStatus<T>,
-            message: T,
-        ) {
+        fn send_command<T>(i: &mut PeerProtocolStatus<T>, message: T) {
             let PeerStatus::Syncing(ref mut s) = i.outgoing_status else {
                 unreachable!("Already checked that the peer is ready.");
             };
@@ -459,7 +479,18 @@ impl<
         }
 
         // Get and randomize peers (of this store) without outstanding requests.
-        fn get_outstanding_peers<SHeader: DAGHeader, THeader: DAGHeader, CommandType>(peers: &mut BTreeMap<DeviceId, PeerInfo<SHeader::HeaderId, SHeader, THeader::HeaderId, THeader>>, protocol_f: fn(&PeerInfo<SHeader::HeaderId, SHeader, THeader::HeaderId, THeader>) -> &PeerProtocolStatus<CommandType>) -> Vec<(&DeviceId, &mut PeerInfo<SHeader::HeaderId, SHeader, THeader::HeaderId, THeader>)> {
+        fn get_outstanding_peers<SHeader: DAGHeader, THeader: DAGHeader, CommandType>(
+            peers: &mut BTreeMap<
+                DeviceId,
+                PeerInfo<SHeader::HeaderId, SHeader, THeader::HeaderId, THeader>,
+            >,
+            protocol_f: fn(
+                &PeerInfo<SHeader::HeaderId, SHeader, THeader::HeaderId, THeader>,
+            ) -> &PeerProtocolStatus<CommandType>,
+        ) -> Vec<(
+            &DeviceId,
+            &mut PeerInfo<SHeader::HeaderId, SHeader, THeader::HeaderId, THeader>,
+        )> {
             let mut peers: Vec<_> = peers
                 .iter_mut()
                 .filter(|(_, i)| i.is_ready_for_sync(protocol_f))
@@ -502,12 +533,15 @@ impl<
                 let mut rng = rand::rng();
                 needed_hashes.shuffle(&mut rng);
 
-                ecg_peers.iter_mut().zip(needed_hashes).for_each(|(p, hashes)| {
-                    let message = StoreSyncCommand::MerkleRequest(
-                        compress_consecutive_into_ranges(hashes).collect(),
-                    );
-                    send_command(&mut p.1.ecg_status, message);
-                });
+                ecg_peers
+                    .iter_mut()
+                    .zip(needed_hashes)
+                    .for_each(|(p, hashes)| {
+                        let message = StoreSyncCommand::MerkleRequest(
+                            compress_consecutive_into_ranges(hashes).collect(),
+                        );
+                        send_command(&mut p.1.ecg_status, message);
+                    });
             }
             StateMachine::DownloadingInitialState { initial_state, .. } => {
                 let needed_blocks = initial_state
@@ -530,12 +564,15 @@ impl<
                 let mut rng = rand::rng();
                 needed_blocks.shuffle(&mut rng);
 
-                ecg_peers.iter_mut().zip(needed_blocks).for_each(|(p, blocks)| {
-                    let message = StoreSyncCommand::InitialStateBlockRequest(
-                        compress_consecutive_into_ranges(blocks).collect(),
-                    );
-                    send_command(&mut p.1.ecg_status, message);
-                });
+                ecg_peers
+                    .iter_mut()
+                    .zip(needed_blocks)
+                    .for_each(|(p, blocks)| {
+                        let message = StoreSyncCommand::InitialStateBlockRequest(
+                            compress_consecutive_into_ranges(blocks).collect(),
+                        );
+                        send_command(&mut p.1.ecg_status, message);
+                    });
             }
             StateMachine::Syncing { ecg_state, .. } => {
                 debug!("Sending ECG sync requests to peers.");
@@ -562,7 +599,7 @@ impl<
                     send_command(&mut p.1.scg_status, message)
                 });
             }
-            _ => { }
+            _ => {}
         }
     }
 
@@ -873,11 +910,17 @@ impl<
                 .expect("TODO: Peer gave us improperly serialized operations");
 
             // TODO: Get rid of this clone.
-            let success = sc_state.dag_state.insert_header(header.clone(), raw_operations);
+            let success = sc_state
+                .dag_state
+                .insert_header(header.clone(), raw_operations);
             if !success {
                 warn!("TODO: Failed to insert operations from peer.");
             } else {
-                register_scg_operations::<OT, _, _>(decrypted_state, &sc_state.dag_state, operations);
+                register_scg_operations::<OT, _, _>(
+                    decrypted_state,
+                    &sc_state.dag_state,
+                    operations,
+                );
             }
         });
 
@@ -1026,10 +1069,14 @@ impl<
                     .flatten()
                     .collect::<Vec<u8>>();
                 debug_assert_eq!(initial_state.len(), metadata.merkle_size() as usize);
-                let Ok(latest_sc_state) = serde_cbor::de::from_slice::<S>(&initial_state[..metadata.initial_sc_state_size as usize]) else {
+                let Ok(latest_sc_state) = serde_cbor::de::from_slice::<S>(
+                    &initial_state[..metadata.initial_sc_state_size as usize],
+                ) else {
                     todo!("TODO: The store is invalid. Initial SC state does not parse.");
                 };
-                let Ok(latest_ec_state) = serde_cbor::de::from_slice::<T>(&initial_state[metadata.initial_sc_state_size as usize..]) else {
+                let Ok(latest_ec_state) = serde_cbor::de::from_slice::<T>(
+                    &initial_state[metadata.initial_sc_state_size as usize..],
+                ) else {
                     todo!("TODO: The store is invalid. Initial EC state does not parse.");
                 };
                 let decrypted_state = DecryptedState {
@@ -1126,7 +1173,13 @@ async fn manage_peers<OT: OssaType, S, T: CRDT<Time = OT::Time> + Clone + Send +
     store: &mut State<OT::StoreId, OT::SCGHeader, OT::ECGHeader, S, T, OT::Hash>,
     shared_state: &SharedState<OT::StoreId>,
     send_commands: &UnboundedSender<
-        UntypedStoreCommand<OT::Hash, <OT::SCGHeader as DAGHeader>::HeaderId, OT::SCGHeader, <OT::ECGHeader as DAGHeader>::HeaderId, OT::ECGHeader>,
+        UntypedStoreCommand<
+            OT::Hash,
+            <OT::SCGHeader as DAGHeader>::HeaderId,
+            OT::SCGHeader,
+            <OT::ECGHeader as DAGHeader>::HeaderId,
+            OT::ECGHeader,
+        >,
     >,
 ) where
     // T::Op<CausalTime<T::Time>>: Serialize,
@@ -1178,7 +1231,11 @@ async fn manage_peers<OT: OssaType, S, T: CRDT<Time = OT::Time> + Clone + Send +
                 send_commands_.send(register_cmd).expect("TODO");
 
                 // Start miniprotocol as server.
-                let mp = StoreSync::<OT::Hash, _, _, _, _>::new_server(peer_id, recv_peer, send_commands_);
+                let mp = StoreSync::<OT::Hash, _, _, _, _>::new_server(
+                    peer_id,
+                    recv_peer,
+                    send_commands_,
+                );
                 run_miniprotocol_async(mp, false, stream_id, sender, receiver).await;
 
                 debug!("Store sync with peer (with initiative) exited.")
@@ -1210,9 +1267,12 @@ async fn manage_peers<OT: OssaType, S, T: CRDT<Time = OT::Time> + Clone + Send +
                 send_commands.send(register_cmd).expect("TODO");
 
                 // Run SC miniprotocol as server
-                let mp = StoreDAGSync::<OT::Hash, _, _, _, _>::new_server(peer_id, recv_peer, send_commands);
+                let mp = StoreDAGSync::<OT::Hash, _, _, _, _>::new_server(
+                    peer_id,
+                    recv_peer,
+                    send_commands,
+                );
                 run_miniprotocol_async(mp, false, stream_id, sender, receiver).await;
-
             })
         });
 
@@ -1256,10 +1316,22 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
     mut store: State<OT::StoreId, OT::SCGHeader, OT::ECGHeader, S, T, OT::Hash>,
     mut recv_commands: UnboundedReceiver<StoreCommand<OT::ECGHeader, OT::ECGBody<T>, T>>,
     send_commands_untyped: UnboundedSender<
-        UntypedStoreCommand<OT::Hash, <OT::SCGHeader as DAGHeader>::HeaderId, OT::SCGHeader, <OT::ECGHeader as DAGHeader>::HeaderId, OT::ECGHeader>,
+        UntypedStoreCommand<
+            OT::Hash,
+            <OT::SCGHeader as DAGHeader>::HeaderId,
+            OT::SCGHeader,
+            <OT::ECGHeader as DAGHeader>::HeaderId,
+            OT::ECGHeader,
+        >,
     >,
     mut recv_commands_untyped: UnboundedReceiver<
-        UntypedStoreCommand<OT::Hash, <OT::SCGHeader as DAGHeader>::HeaderId, OT::SCGHeader, <OT::ECGHeader as DAGHeader>::HeaderId, OT::ECGHeader>,
+        UntypedStoreCommand<
+            OT::Hash,
+            <OT::SCGHeader as DAGHeader>::HeaderId,
+            OT::SCGHeader,
+            <OT::ECGHeader as DAGHeader>::HeaderId,
+            OT::ECGHeader,
+        >,
     >,
     shared_state: SharedState<OT::StoreId>,
 ) where
@@ -1275,10 +1347,8 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
             Header = OT::ECGHeader,
         >,
     //     ECGBody<T, Header = OT::ECGHeader> + Send + Serialize + for<'d> Deserialize<'d> + Debug,
-    OT::ECGHeader:
-        Send + Sync + Clone + Serialize + for<'d> Deserialize<'d> + 'static,
-    <OT::ECGHeader as DAGHeader>::HeaderId:
-        Send + Serialize + for<'d> Deserialize<'d>,
+    OT::ECGHeader: Send + Sync + Clone + Serialize + for<'d> Deserialize<'d> + 'static,
+    <OT::ECGHeader as DAGHeader>::HeaderId: Send + Serialize + for<'d> Deserialize<'d>,
     // T::Op<CausalTime<T::Time>>: Serialize,
     OT::SCGHeader: Debug + Clone + Sync + Serialize + for<'d> Deserialize<'d>,
     <OT::SCGHeader as DAGHeader>::HeaderId: Sync + Serialize + for<'d> Deserialize<'d>,
@@ -1587,7 +1657,8 @@ pub(crate) enum UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader
     /// Request store to sync with peer. Store can refuse.
     SyncWithPeer {
         peer: DeviceId,
-        response_chan: oneshot::Sender<Option<(Box<SpawnMultiplexerTask>, Box<SpawnMultiplexerTask>)>>,
+        response_chan:
+            oneshot::Sender<Option<(Box<SpawnMultiplexerTask>, Box<SpawnMultiplexerTask>)>>,
     },
     RegisterOutgoingPeerSyncing {
         peer: DeviceId,
@@ -1664,7 +1735,14 @@ fn handle_merkle_peer_request_helper<H: Copy>(
     hashes
 }
 
-fn handle_block_peer_request_helper<StoreId, SHeader: dag::DAGHeader, THeader: dag::DAGHeader, S, T: CRDT, Hash>(
+fn handle_block_peer_request_helper<
+    StoreId,
+    SHeader: dag::DAGHeader,
+    THeader: dag::DAGHeader,
+    S,
+    T: CRDT,
+    Hash,
+>(
     state_machine: &StateMachine<StoreId, SHeader, THeader, S, T, Hash>,
     block_ids: &[Range<u64>],
 ) -> Option<Vec<Option<Vec<u8>>>> {

@@ -19,14 +19,19 @@ pub mod v0;
 
 pub(crate) struct MiniProtocolArgs<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader> {
     peer_id: DeviceId,
-    active_stores: watch::Receiver<StoreStatuses<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>>,
+    active_stores:
+        watch::Receiver<StoreStatuses<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>>,
     manager_channel: UnboundedReceiver<PeerManagerCommand<StoreId>>,
 }
 
-impl<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader> MiniProtocolArgs<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader> {
+impl<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>
+    MiniProtocolArgs<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>
+{
     pub(crate) fn new(
         peer_id: DeviceId,
-        active_stores: watch::Receiver<StoreStatuses<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>>,
+        active_stores: watch::Receiver<
+            StoreStatuses<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>,
+        >,
         manager_channel: UnboundedReceiver<PeerManagerCommand<StoreId>>,
     ) -> Self {
         Self {

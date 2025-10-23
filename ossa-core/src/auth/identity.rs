@@ -1,9 +1,11 @@
-
 use std::collections::BTreeMap;
 
 use rand_core::OsRng;
 
-use crate::{store::{bft::SCDT, StoreRef}, util::Sha256Hash};
+use crate::{
+    store::{bft::SCDT, StoreRef},
+    util::Sha256Hash,
+};
 
 #[derive(Debug, Clone)]
 /// A device's private keys.
@@ -22,7 +24,7 @@ impl DevicePrivateKeys {
     pub fn generate_device_keys() -> DevicePrivateKeys {
         let mut rng = OsRng;
         let auth_key = ed25519_dalek::SigningKey::generate(&mut rng);
-    
+
         DevicePrivateKeys { auth_key }
     }
 }
@@ -93,16 +95,9 @@ impl SCDT for Identity {
 
     fn is_valid_operation(self, op: Self::Op) -> bool {
         match op {
-            IdentityOp::AddDevice { keys, role: _ } => {
-                !self.devices.contains_key(&keys)
-            }
-            IdentityOp::RemoveDevice { device } => {
-                self.devices.contains_key(&device)
-            }
-            IdentityOp::UpdateDevice { device, role: _ } => {
-                self.devices.contains_key(&device)
-            }
+            IdentityOp::AddDevice { keys, role: _ } => !self.devices.contains_key(&keys),
+            IdentityOp::RemoveDevice { device } => self.devices.contains_key(&device),
+            IdentityOp::UpdateDevice { device, role: _ } => self.devices.contains_key(&device),
         }
     }
 }
-

@@ -49,7 +49,6 @@ impl<A: OssaType> OssaProp<A> {
 /// A default setup that implements `OssaType` with typical settings like using sha256 as the hash function.
 pub enum DefaultSetup {}
 
-
 impl OssaType for DefaultSetup {
     type Hash = Sha256Hash;
     type StoreId = Sha256Hash;

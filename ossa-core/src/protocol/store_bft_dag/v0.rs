@@ -1,5 +1,5 @@
-use std::{collections::BTreeSet, fmt::Debug};
 use std::future::Future;
+use std::{collections::BTreeSet, fmt::Debug};
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
@@ -8,8 +8,15 @@ use tracing::debug;
 
 use crate::protocol::store_peer::ecg_sync::{DAGStateSubscriber, MsgDAGSyncResponse};
 use crate::store::dag;
-use crate::{auth::DeviceId, network::protocol::{receive, MiniProtocol}, protocol::store_peer::{ecg_sync::{ECGSyncInitiator, ECGSyncResponder, MsgDAGSyncRequest}, v0::{MsgStoreSync, MsgStoreSyncRequest}}, store::{dag::v0::HeaderId, UntypedStoreCommand}};
-
+use crate::{
+    auth::DeviceId,
+    network::protocol::{receive, MiniProtocol},
+    protocol::store_peer::{
+        ecg_sync::{ECGSyncInitiator, ECGSyncResponder, MsgDAGSyncRequest},
+        v0::{MsgStoreSync, MsgStoreSyncRequest},
+    },
+    store::{dag::v0::HeaderId, UntypedStoreCommand},
+};
 
 /// Miniprotocol to sync the DAG in the strongly consistent BFT consensus protocol.
 pub(crate) struct StoreDAGSync<Hash, SHeaderId, SHeader, THeaderId, THeader> {
@@ -20,11 +27,15 @@ pub(crate) struct StoreDAGSync<Hash, SHeaderId, SHeader, THeaderId, THeader> {
     send_chan: UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>, // JP: Make this a stream?
 }
 
-impl<Hash, SHeaderId, SHeader, THeaderId, THeader> StoreDAGSync<Hash, SHeaderId, SHeader, THeaderId, THeader> {
+impl<Hash, SHeaderId, SHeader, THeaderId, THeader>
+    StoreDAGSync<Hash, SHeaderId, SHeader, THeaderId, THeader>
+{
     pub(crate) fn new_server(
         peer: DeviceId,
         recv_chan: UnboundedReceiver<StoreSCGSyncCommand<SHeaderId, SHeader>>,
-        send_chan: UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>,
+        send_chan: UnboundedSender<
+            UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>,
+        >,
     ) -> Self {
         let recv_chan = Some(recv_chan);
         StoreDAGSync {
@@ -36,7 +47,9 @@ impl<Hash, SHeaderId, SHeader, THeaderId, THeader> StoreDAGSync<Hash, SHeaderId,
 
     pub(crate) fn new_client(
         peer: DeviceId,
-        send_chan: UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>,
+        send_chan: UnboundedSender<
+            UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>,
+        >,
     ) -> Self {
         StoreDAGSync {
             peer,
@@ -49,7 +62,9 @@ impl<Hash, SHeaderId, SHeader, THeaderId, THeader> StoreDAGSync<Hash, SHeaderId,
         self.peer
     }
 
-    pub(crate) fn send_chan(&self) -> &UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>> {
+    pub(crate) fn send_chan(
+        &self,
+    ) -> &UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>> {
         &self.send_chan
     }
 }
@@ -70,9 +85,7 @@ pub(crate) enum StoreSCGSyncCommand<HeaderId, Header> {
     },
 }
 
-impl<HeaderId, Header> Into<MsgStoreDAGSync<HeaderId, Header>>
-    for MsgDAGSyncRequest<HeaderId>
-{
+impl<HeaderId, Header> Into<MsgStoreDAGSync<HeaderId, Header>> for MsgDAGSyncRequest<HeaderId> {
     fn into(self) -> MsgStoreDAGSync<HeaderId, Header> {
         MsgStoreDAGSync::Request(self)
     }
@@ -86,9 +99,7 @@ impl<HeaderId, Header> Into<MsgStoreDAGSync<HeaderId, Header>>
     }
 }
 
-impl<HeaderId, Header> TryInto<MsgDAGSyncRequest<HeaderId>>
-    for MsgStoreDAGSync<HeaderId, Header>
-{
+impl<HeaderId, Header> TryInto<MsgDAGSyncRequest<HeaderId>> for MsgStoreDAGSync<HeaderId, Header> {
     type Error = ();
     fn try_into(self) -> Result<MsgDAGSyncRequest<HeaderId>, ()> {
         match self {
@@ -110,7 +121,8 @@ impl<HeaderId, Header> TryInto<MsgDAGSyncResponse<HeaderId, Header>>
     }
 }
 
-impl<Hash, SHeaderId, SHeader, THeaderId, THeader> MiniProtocol for StoreDAGSync<Hash, SHeaderId, SHeader, THeaderId, THeader>
+impl<Hash, SHeaderId, SHeader, THeaderId, THeader> MiniProtocol
+    for StoreDAGSync<Hash, SHeaderId, SHeader, THeaderId, THeader>
 where
     Hash: Send + Sync + for<'a> Deserialize<'a> + Serialize,
     SHeaderId: Copy + Ord + Debug + Send + Sync + for<'a> Deserialize<'a> + Serialize,
@@ -121,7 +133,10 @@ where
     type Message = MsgStoreDAGSync<SHeaderId, SHeader>;
 
     // Has initiative
-    fn run_server<S: crate::util::Stream<Self::Message>>(self, mut stream: S) -> impl Future<Output = ()> + Send {
+    fn run_server<S: crate::util::Stream<Self::Message>>(
+        self,
+        mut stream: S,
+    ) -> impl Future<Output = ()> + Send {
         async move {
             let mut dag_sync: Option<ECGSyncInitiator<Hash, SHeaderId, SHeader>> = None;
 
@@ -137,7 +152,11 @@ where
 
                                 // JP: Eventually switch ecg_state to an Arc<RWLock>?
                                 let (new_dag_sync, operations) =
-                                    ECGSyncInitiator::<Hash, SHeaderId, SHeader>::run_new(&mut stream, &dag_state).await; // TODO: Make the stream abstract over the type.
+                                    ECGSyncInitiator::<Hash, SHeaderId, SHeader>::run_new(
+                                        &mut stream,
+                                        &dag_state,
+                                    )
+                                    .await; // TODO: Make the stream abstract over the type.
                                 dag_sync = Some(new_dag_sync);
                                 operations
                             }
@@ -163,7 +182,10 @@ where
         }
     }
 
-    fn run_client<S: crate::util::Stream<Self::Message>>(self, mut stream: S) -> impl Future<Output = ()> + Send {
+    fn run_client<S: crate::util::Stream<Self::Message>>(
+        self,
+        mut stream: S,
+    ) -> impl Future<Output = ()> + Send {
         async move {
             let mut dag_sync: Option<ECGSyncResponder<Hash, SHeaderId, SHeader>> = None;
 
@@ -205,7 +227,8 @@ where
     }
 }
 
-impl<Hash, SHeaderId, SHeader, THeaderId, THeader> DAGStateSubscriber<Hash, SHeaderId, SHeader> for StoreDAGSync<Hash, SHeaderId, SHeader, THeaderId, THeader>
+impl<Hash, SHeaderId, SHeader, THeaderId, THeader> DAGStateSubscriber<Hash, SHeaderId, SHeader>
+    for StoreDAGSync<Hash, SHeaderId, SHeader, THeaderId, THeader>
 where
     SHeaderId: Ord + Copy,
 {

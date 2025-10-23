@@ -1,6 +1,6 @@
 use crate::network::protocol::ecg_sync::v0::{
-    handle_received_ecg_sync, handle_received_have, prepare_haves, prepare_headers,
-    ECGSyncError, ECGSyncMessage, HeaderBitmap, MsgECGSync, MsgECGSyncData, MsgECGSyncRequest,
+    handle_received_ecg_sync, handle_received_have, prepare_haves, prepare_headers, ECGSyncError,
+    ECGSyncMessage, HeaderBitmap, MsgECGSync, MsgECGSyncData, MsgECGSyncRequest,
     MsgECGSyncResponse, MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS,
 };
 use crate::network::ConnectionManager;

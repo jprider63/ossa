@@ -4,8 +4,8 @@ use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
 
-pub mod identity;
 pub mod group;
+pub mod identity;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) struct DeviceId {
@@ -38,5 +38,3 @@ impl DeviceId {
         Self { auth_key }
     }
 }
-
-

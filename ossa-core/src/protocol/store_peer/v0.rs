@@ -10,12 +10,11 @@ use tracing::debug;
 use crate::{
     auth::DeviceId,
     network::protocol::{receive, send, MiniProtocol},
-    protocol::store_peer::ecg_sync::{ECGSyncInitiator, ECGSyncResponder, DAGStateSubscriber, MsgDAGSyncRequest, MsgDAGSyncResponse},
-    store::{
-        self,
-        dag,
-        HandlePeerRequest, UntypedStoreCommand,
+    protocol::store_peer::ecg_sync::{
+        DAGStateSubscriber, ECGSyncInitiator, ECGSyncResponder, MsgDAGSyncRequest,
+        MsgDAGSyncResponse,
     },
+    store::{self, dag, HandlePeerRequest, UntypedStoreCommand},
     util::Stream,
 };
 
@@ -89,7 +88,7 @@ impl<Hash, HeaderId, Header> Into<MsgStoreSync<Hash, HeaderId, Header>>
     for MsgDAGSyncRequest<HeaderId>
 {
     fn into(self) -> MsgStoreSync<Hash, HeaderId, Header> {
-        MsgStoreSync::Request( MsgStoreSyncRequest::ECGSync { request: self })
+        MsgStoreSync::Request(MsgStoreSyncRequest::ECGSync { request: self })
     }
 }
 
@@ -193,7 +192,8 @@ pub(crate) struct StoreSync<Hash, SHeaderId, SHeader, THeaderId, THeader> {
     send_chan: UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>, // JP: Make this a stream?
 }
 
-impl<Hash, SHeaderId, SHeader, THeaderId, THeader> DAGStateSubscriber<Hash, THeaderId, THeader> for StoreSync<Hash, SHeaderId, SHeader, THeaderId, THeader>
+impl<Hash, SHeaderId, SHeader, THeaderId, THeader> DAGStateSubscriber<Hash, THeaderId, THeader>
+    for StoreSync<Hash, SHeaderId, SHeader, THeaderId, THeader>
 where
     THeaderId: Ord + Copy,
 {
@@ -223,11 +223,15 @@ where
     }
 }
 
-impl<Hash, SHeaderId, SHeader, THeaderId, THeader> StoreSync<Hash, SHeaderId, SHeader, THeaderId, THeader> {
+impl<Hash, SHeaderId, SHeader, THeaderId, THeader>
+    StoreSync<Hash, SHeaderId, SHeader, THeaderId, THeader>
+{
     pub(crate) fn new_server(
         peer: DeviceId,
         recv_chan: UnboundedReceiver<StoreSyncCommand<THeaderId, THeader>>,
-        send_chan: UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>,
+        send_chan: UnboundedSender<
+            UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>,
+        >,
     ) -> Self {
         let recv_chan = Some(recv_chan);
         Self {
@@ -239,7 +243,9 @@ impl<Hash, SHeaderId, SHeader, THeaderId, THeader> StoreSync<Hash, SHeaderId, SH
 
     pub(crate) fn new_client(
         peer: DeviceId,
-        send_chan: UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>,
+        send_chan: UnboundedSender<
+            UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>,
+        >,
     ) -> Self {
         Self {
             peer,
@@ -249,13 +255,19 @@ impl<Hash, SHeaderId, SHeader, THeaderId, THeader> StoreSync<Hash, SHeaderId, SH
     }
 
     #[inline(always)]
-    async fn run_client_helper<S: Stream<MsgStoreSync<Hash, THeaderId, THeader>>, Req, Resp, SResp>(
+    async fn run_client_helper<
+        S: Stream<MsgStoreSync<Hash, THeaderId, THeader>>,
+        Req,
+        Resp,
+        SResp,
+    >(
         &self,
         stream: &mut S,
         request: Req,
         build_command: fn(
             HandlePeerRequest<Req, Resp>,
-        ) -> UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>,
+        )
+            -> UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>,
         build_response: fn(StoreSyncResponse<Resp>) -> SResp,
     ) where
         Hash: Debug,
@@ -504,7 +516,8 @@ impl<
                     MsgStoreSyncRequest::MetadataHeader => {
                         const fn build_command<Hash, SHeaderId, SHeader, THeaderId, THeader>(
                             req: HandlePeerRequest<(), store::v0::MetadataHeader<Hash>>,
-                        ) -> UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader> {
+                        ) -> UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>
+                        {
                             UntypedStoreCommand::HandleMetadataPeerRequest(req)
                         }
                         const fn build_response<Hash, HeaderId, Header>(
@@ -518,7 +531,8 @@ impl<
                     MsgStoreSyncRequest::MerkleHashes { ranges } => {
                         const fn build_command<Hash, SHeaderId, SHeader, THeaderId, THeader>(
                             req: HandlePeerRequest<Vec<Range<u64>>, Vec<Hash>>,
-                        ) -> UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader> {
+                        ) -> UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>
+                        {
                             UntypedStoreCommand::HandleMerklePeerRequest(req)
                         }
                         const fn build_response<H>(
@@ -532,7 +546,8 @@ impl<
                     MsgStoreSyncRequest::InitialStateBlocks { ranges } => {
                         const fn build_command<Hash, SHeaderId, SHeader, THeaderId, THeader>(
                             req: HandlePeerRequest<Vec<Range<u64>>, Vec<Option<Vec<u8>>>>,
-                        ) -> UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader> {
+                        ) -> UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>
+                        {
                             UntypedStoreCommand::HandleBlockPeerRequest(req)
                         }
                         const fn build_response(
@@ -543,37 +558,35 @@ impl<
 
                         self.run_client_helper::<_, Vec<Range<u64>>, Vec<Option<Vec<u8>>>, MsgStoreSyncBlockResponse>(&mut stream, ranges, build_command, build_response).await;
                     }
-                    MsgStoreSyncRequest::ECGSync { request } => {
-                        match request {
-                            MsgDAGSyncRequest::DAGInitialSync { tips } => {
-                                debug!("Received initial ECG sync request with tips: {tips:?}");
+                    MsgStoreSyncRequest::ECGSync { request } => match request {
+                        MsgDAGSyncRequest::DAGInitialSync { tips } => {
+                            debug!("Received initial ECG sync request with tips: {tips:?}");
 
-                                if ecg_sync.is_some() {
-                                    todo!("TODO: Error, ECG sync has already been initialized.");
-                                }
-
-                                let mut ecg_sync_ = ECGSyncResponder::new();
-
-                                let ecg_state = self.request_dag_state(&mut ecg_sync_, None).await;
-
-                                ecg_sync_
-                                    .run_initial(&self, &mut stream, ecg_state, tips)
-                                    .await;
-                                ecg_sync = Some(ecg_sync_);
+                            if ecg_sync.is_some() {
+                                todo!("TODO: Error, ECG sync has already been initialized.");
                             }
-                            MsgDAGSyncRequest::DAGSync { tips, known } => {
-                                let Some(ref mut ecg_sync) = ecg_sync else {
-                                    todo!("TODO: Error, ECG sync hasn't been initialized.");
-                                };
 
-                                let ecg_state = self.request_dag_state(ecg_sync, None).await;
+                            let mut ecg_sync_ = ECGSyncResponder::new();
 
-                                ecg_sync
-                                    .run_round(&self, &mut stream, ecg_state, tips, known)
-                                    .await;
-                            }
+                            let ecg_state = self.request_dag_state(&mut ecg_sync_, None).await;
+
+                            ecg_sync_
+                                .run_initial(&self, &mut stream, ecg_state, tips)
+                                .await;
+                            ecg_sync = Some(ecg_sync_);
                         }
-                    }
+                        MsgDAGSyncRequest::DAGSync { tips, known } => {
+                            let Some(ref mut ecg_sync) = ecg_sync else {
+                                todo!("TODO: Error, ECG sync hasn't been initialized.");
+                            };
+
+                            let ecg_state = self.request_dag_state(ecg_sync, None).await;
+
+                            ecg_sync
+                                .run_round(&self, &mut stream, ecg_state, tips, known)
+                                .await;
+                        }
+                    },
                 }
             }
             debug!("StoreSyncCommand receiver channel closed");

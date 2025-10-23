@@ -24,18 +24,23 @@ use crate::{
 pub(crate) struct Manager<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader> {
     party_with_initiative: Party,
     peer_id: DeviceId, // DeviceId of peer we're connected to.
-    active_stores: watch::Receiver<StoreStatuses<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>>,
+    active_stores:
+        watch::Receiver<StoreStatuses<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>>,
     // `Some` implies we have initiative.
     manager_channel: Option<UnboundedReceiver<PeerManagerCommand<StoreId>>>,
     latest_stream_id: StreamId,
     multiplexer_channel: UnboundedSender<MultiplexerCommand>,
 }
 
-impl<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader> Manager<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader> {
+impl<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>
+    Manager<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>
+{
     pub(crate) fn new(
         initiative: Party,
         peer_id: DeviceId,
-        active_stores: watch::Receiver<StoreStatuses<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>>,
+        active_stores: watch::Receiver<
+            StoreStatuses<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>,
+        >,
         manager_channel: Option<UnboundedReceiver<PeerManagerCommand<StoreId>>>,
         latest_stream_id: StreamId,
         multiplexer_channel: UnboundedSender<MultiplexerCommand>,
@@ -61,7 +66,8 @@ impl<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader> Manager<StoreId, Has
         &self,
         stream_id: u32,
         spawn_task: Box<SpawnMultiplexerTask>,
-    ) -> bool { // TODO: Result<bool, Error>
+    ) -> bool {
+        // TODO: Result<bool, Error>
         // Tell multiplexer to create miniprotocol.
         let (response_chan, rx) = oneshot::channel();
         let cmd = MultiplexerCommand::CreateStream {
@@ -108,19 +114,26 @@ impl<
     }
 }
 
-impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug, Hash, SHeaderId, SHeader, THeaderId, THeader>
-    Manager<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>
+impl<
+        StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug,
+        Hash,
+        SHeaderId,
+        SHeader,
+        THeaderId,
+        THeader,
+    > Manager<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>
 {
     /// Manager run in mode that sends requests to peer.
     async fn run_with_initiative<S: Stream<MsgManager<StoreId>>>(mut self, mut stream: S) {
         debug!("Mux manager started with initiative!");
 
         // Advertise stores.
-        let shared_stores = run_advertise_stores_server::<_, _, Hash, SHeaderId, SHeader, THeaderId, THeader>(
-            &mut stream,
-            &mut self.active_stores,
-        )
-        .await;
+        let shared_stores =
+            run_advertise_stores_server::<_, _, Hash, SHeaderId, SHeader, THeaderId, THeader>(
+                &mut stream,
+                &mut self.active_stores,
+            )
+            .await;
         handle_shared_stores(self.peer_id, shared_stores);
 
         // Note: This replaces the manager_channel with `None`. This will fail if this manager ends up being called multiple times.
@@ -168,14 +181,18 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug, Hash, SHeaderId, S
             match response {
                 MsgManagerRequest::AdvertiseStores { nonce, store_ids } => {
                     debug!("Received MsgManagerRequest::AdvertiseStores: {nonce:?}, {store_ids:?}");
-                    let shared_stores =
-                        run_advertise_stores_client::<_, _, Hash, SHeaderId, SHeader, THeaderId, THeader>(
-                            &mut stream,
-                            nonce,
-                            store_ids,
-                            &mut self.active_stores,
-                        )
-                        .await;
+                    let shared_stores = run_advertise_stores_client::<
+                        _,
+                        _,
+                        Hash,
+                        SHeaderId,
+                        SHeader,
+                        THeaderId,
+                        THeader,
+                    >(
+                        &mut stream, nonce, store_ids, &mut self.active_stores
+                    )
+                    .await;
                     // TODO: Store and handle peers too?
                     debug!("Server sent store ids: {:?}", shared_stores);
                     handle_shared_stores(self.peer_id, shared_stores);
@@ -188,8 +205,13 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug, Hash, SHeaderId, S
                     debug!(
                         "Received MsgManagerRequest::CreateStoreStream: {ec_stream_id}, {store_id:?}"
                     );
-                    self.run_request_new_stream_client(&mut stream, store_id, ec_stream_id, sc_stream_id)
-                        .await;
+                    self.run_request_new_stream_client(
+                        &mut stream,
+                        store_id,
+                        ec_stream_id,
+                        sc_stream_id,
+                    )
+                    .await;
                 }
             }
         }
@@ -253,14 +275,20 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug, Hash, SHeaderId, S
                     let spawn_task = rx.await.expect("TODO");
                     if let Some((ec_spawn_task, sc_spawn_task)) = spawn_task {
                         // Tell multiplexer to create EC miniprotocol.
-                        let is_running_ec = self.create_multiplexer_stream(ec_stream_id, ec_spawn_task).await;
+                        let is_running_ec = self
+                            .create_multiplexer_stream(ec_stream_id, ec_spawn_task)
+                            .await;
 
                         if is_running_ec {
                             // Tell multiplexer to create SC miniprotocol.
-                            let is_running_sc = self.create_multiplexer_stream(sc_stream_id, sc_spawn_task).await;
+                            let is_running_sc = self
+                                .create_multiplexer_stream(sc_stream_id, sc_spawn_task)
+                                .await;
 
                             if !is_running_sc {
-                                error!("Failed to create miniprotocol stream to strongly sync store.");
+                                error!(
+                                    "Failed to create miniprotocol stream to strongly sync store."
+                                );
                                 panic!("TODO: Shutdown EC miniprotocol...");
                             }
 
@@ -316,7 +344,9 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug, Hash, SHeaderId, S
             }
             Ok(true) => {
                 // Tell multiplexer to create EC miniprotocol.
-                let is_running = self.create_multiplexer_stream(ec_stream_id, ec_spawn_task).await;
+                let is_running = self
+                    .create_multiplexer_stream(ec_stream_id, ec_spawn_task)
+                    .await;
 
                 if !is_running {
                     error!("Failed to create miniprotocol stream to sync store.");
@@ -326,7 +356,9 @@ impl<StoreId: Send + Sync + Copy + AsRef<[u8]> + Ord + Debug, Hash, SHeaderId, S
                 }
 
                 // Tell multiplexer to create SC miniprotocol.
-                let is_running = self.create_multiplexer_stream(sc_stream_id, sc_spawn_task).await;
+                let is_running = self
+                    .create_multiplexer_stream(sc_stream_id, sc_spawn_task)
+                    .await;
 
                 if !is_running {
                     error!("Failed to create miniprotocol stream to sync store.");
@@ -389,7 +421,9 @@ async fn run_advertise_stores_server<
     THeader,
 >(
     stream: &mut S,
-    store_ids: &mut watch::Receiver<StoreStatuses<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>>,
+    store_ids: &mut watch::Receiver<
+        StoreStatuses<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>,
+    >,
 ) -> Vec<(
     StoreId,
     UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>,
@@ -448,7 +482,9 @@ async fn run_advertise_stores_client<
     stream: &mut S,
     nonce: [u8; 4],
     their_store_ids: Vec<Sha256Hash>,
-    our_store_ids: &mut watch::Receiver<StoreStatuses<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>>,
+    our_store_ids: &mut watch::Receiver<
+        StoreStatuses<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>,
+    >,
 ) -> Vec<(
     StoreId,
     UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>,
