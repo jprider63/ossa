@@ -43,11 +43,17 @@ pub mod v0; // TODO: Move this to network::protocol
 pub use v0::{MetadataBody, MetadataHeader, Nonce};
 
 // TODO: Concretize StoreId to Sha256Hash.
-// #[derive(PartialEq, Eq, PartialOrd, Ord)]
 /// A typed reference to another store.
+#[derive(Serialize, Deserialize, Typeable)] // , PartialEq, Eq, PartialOrd, Ord)]
 pub struct StoreRef<StoreId, S, C> {
     store_id: StoreId,
     phantom: PhantomData<fn(S, C)>,
+}
+
+impl<StoreId: Clone, S, C> Clone for StoreRef<StoreId, S, C> {
+    fn clone(&self) -> Self {
+        Self { store_id: self.store_id.clone(), phantom: PhantomData }
+    }
 }
 
 impl<StoreId: Ord, S, C> PartialOrd for StoreRef<StoreId, S, C> {

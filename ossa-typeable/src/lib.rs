@@ -8,7 +8,7 @@ use internal::helper_string_non_ascii;
 use lazy_static::lazy_static;
 pub use ossa_typeable_derive::Typeable;
 use sha2::{Digest, Sha256};
-use std::fmt;
+use std::{collections::BTreeMap, fmt};
 
 use crate::internal::{
     helper_type_args_count, helper_type_constructor, helper_type_ident, helper_usize,
@@ -167,3 +167,15 @@ impl<T: Typeable> Typeable for Option<T> {
         TypeId(h.finalize().into())
     }
 }
+
+impl<K: Typeable, V: Typeable> Typeable for BTreeMap<K, V> {
+    fn type_ident() -> TypeId {
+        let mut h = Sha256::new();
+        helper_type_constructor(&mut h, "BTreeMap");
+        helper_type_args_count(&mut h, 2);
+        helper_type_ident::<K>(&mut h);
+        helper_type_ident::<V>(&mut h);
+        TypeId(h.finalize().into())
+    }
+}
+

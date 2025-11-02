@@ -1,7 +1,7 @@
 use crate::store::dag;
 
 /// A round in the BFT strong consistency protocol.
-pub type Round = u32;
+pub type Round = u64;
 
 /// Trait that abstracts over strongly consistent data types that require linearizability.
 pub trait SCDT {

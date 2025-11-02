@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 pub mod group;
 pub mod identity;
 
+pub type Permissions = group::Group;
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) struct DeviceId {
     auth_key: ed25519_dalek::VerifyingKey,

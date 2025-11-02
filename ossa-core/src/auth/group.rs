@@ -1,5 +1,8 @@
 use std::collections::BTreeMap;
 
+use ossa_typeable::Typeable;
+use serde::{Deserialize, Serialize};
+
 use crate::{
     auth::identity::IdentityId,
     store::{
@@ -11,7 +14,7 @@ use crate::{
 
 pub type GroupId = StoreRef<Sha256Hash, Group, ()>;
 
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Serialize, Deserialize, Typeable, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MemberId {
     User(IdentityId),
     Group(GroupId),
@@ -19,6 +22,7 @@ pub enum MemberId {
 }
 
 /// Access control role for group members.
+#[derive(Serialize, Deserialize, Typeable, Clone)]
 pub enum Role {
     Relay,
     Read,
@@ -28,16 +32,26 @@ pub enum Role {
 }
 
 /// Member information like their permissions and the BFT round of their group or identity store.
+#[derive(Serialize, Deserialize, Typeable, Clone)]
 pub struct MemberInfo {
     permissions: Role,
     round: Round,
 }
 
 /// A Group is a set of members and subgroups.
+#[derive(Clone, Serialize, Deserialize, Typeable)]
 pub struct Group {
     members: BTreeMap<MemberId, MemberInfo>,
 }
 
+impl Group {
+    // TODO: Take as input list of members
+    pub fn new() -> Self {
+        Group { members: BTreeMap::new() }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
 pub enum GroupOp {
     AddMember {
         member: MemberId,
