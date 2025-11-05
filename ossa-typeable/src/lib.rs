@@ -1,3 +1,5 @@
+#[cfg(feature = "ed25519-dalek")]
+mod ed25519_dalek;
 #[cfg(feature = "im")]
 mod im;
 pub mod internal;
@@ -136,6 +138,14 @@ derive_typeable_primitive!(i128);
 derive_typeable_primitive!(f32);
 derive_typeable_primitive!(f64);
 derive_typeable_primitive!(String, string);
+
+impl Typeable for () {
+    fn type_ident() -> TypeId {
+        let mut h = Sha256::new();
+        helper_string_non_ascii(&mut h, "()");
+        TypeId(h.finalize().into())
+    }
+}
 
 impl<T: Typeable, const N: usize> Typeable for [T; N] {
     fn type_ident() -> TypeId {

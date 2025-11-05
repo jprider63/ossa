@@ -31,7 +31,8 @@ tokio = {version="1.43.0", features=["io-util","rt","rt-multi-thread","net"]}
 tokio-util = {version="0.7.15", features=["codec"]}
 tokio-stream = "0.1.17"
 tracing = "0.1.41"
-ossa-typeable = {version="0.0.1", path="../ossa-typeable", features=["serde"]}
+void = "1.0.2"
+ossa-typeable = {version="0.0.1", path="../ossa-typeable", features=["serde", "ed25519-dalek"]}
 # portmapper = "0.8.0"
 portmapper = { git = "https://github.com/jprider63/net-tools.git", rev = "e84c5ae9dd97d88d06fa1b808405bddb8960a94b" }
 

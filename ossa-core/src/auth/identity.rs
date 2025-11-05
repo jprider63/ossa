@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 
+use ossa_typeable::Typeable;
 use rand_core::OsRng;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     store::{bft::SCDT, StoreRef},
@@ -27,10 +29,16 @@ impl DevicePrivateKeys {
 
         DevicePrivateKeys { auth_key }
     }
+
+    pub fn to_public_keys(&self) -> Device {
+        Device {
+            auth_key: self.auth_key().verifying_key()
+        }
+    }
 }
 
 /// A device's public keys.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Typeable, Serialize, Deserialize)]
 pub struct Device {
     // Authentication key.
     auth_key: ed25519_dalek::VerifyingKey,
@@ -52,18 +60,35 @@ impl Ord for Device {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Typeable, Serialize, Deserialize)]
 pub enum DeviceRole {
-    Validator,
+    /// Can propose access control changes.
     Proposer,
+    /// Can validate (or vote in consensus) as well as propose on access control changes.
+    Validator,
 }
 
 pub type IdentityId = StoreRef<Sha256Hash, Identity, ()>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Typeable, Serialize, Deserialize)]
 pub struct Identity {
     // JP: DeviceId instead for key??
     devices: BTreeMap<Device, DeviceRole>,
+}
+
+impl Identity {
+    /// Generate a new identity.
+    pub fn generate_identity() -> (DevicePrivateKeys, Self) {
+        let keys = DevicePrivateKeys::generate_device_keys();
+        let device = keys.to_public_keys();
+        let role = DeviceRole::Validator;
+
+        let identity = Identity {
+            devices: BTreeMap::from([(device, role)]),
+        };
+
+        (keys, identity)
+    }
 }
 
 pub enum IdentityOp {

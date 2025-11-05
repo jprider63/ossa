@@ -1,5 +1,6 @@
 use ossa_crdt::{map::twopmap::TwoPMapOp, register::LWW};
 use serde::{Deserialize, Serialize};
+use void::{unreachable, Void};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum CausalTime<Time> {
@@ -17,10 +18,19 @@ impl<Time> CausalTime<Time> {
     }
 }
 
+// TODO(JP): Move to ossa-crdt?
 pub trait ConcretizeTime<HeaderId> {
     type Serialized;
 
     fn concretize_time(src: Self::Serialized, current_header: HeaderId) -> Self;
+}
+
+impl<HeaderId> ConcretizeTime<HeaderId> for Void {
+    type Serialized = Void;
+
+    fn concretize_time(src: Self::Serialized, _current_header: HeaderId) -> Self {
+        unreachable(src)
+    }
 }
 
 impl<HeaderId, T: ConcretizeTime<HeaderId>, V> ConcretizeTime<HeaderId> for LWW<T, V> {
