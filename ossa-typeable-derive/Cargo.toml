@@ -11,6 +11,6 @@ repository = "https://github.com/jprider63/ossa"
 proc-macro = true
 
 [dependencies]
-syn = { version = "2", features = ["extra-traits"] }
-proc-macro2 = "1.0.95"
-quote = "1.0.40"
+syn = { workspace = true }
+proc-macro2 = { workspace = true }
+quote = { workspace = true }
