@@ -127,10 +127,7 @@ impl<OT: OssaType> Ossa<OT> {
     }
 
     // Start ossa.
-    pub fn start(config: OssaConfig) -> Self {
-        // TODO: Load identity or take it as an argument.
-        let identity_keys = DevicePrivateKeys::generate_device_keys();
-
+    pub fn start(config: OssaConfig, identity_keys: DevicePrivateKeys) -> Self {
         // // Create channels to communicate with Ossa thread.
         // let (send_ossa_commands, mut recv_ossa_commands) = futures_channel::mpsc::unbounded();
         let (active_stores, active_stores_receiver) = watch::channel(BTreeMap::new());
@@ -254,6 +251,7 @@ impl<OT: OssaType> Ossa<OT> {
         }
     }
 
+    /// Create store with the initial state and launch it.
     pub fn create_store<S, T, ST: Storage>(
         &self,
         initial_sc_state: S,

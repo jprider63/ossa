@@ -91,6 +91,7 @@ impl Identity {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub enum IdentityOp {
     AddDevice {
         keys: Device,
