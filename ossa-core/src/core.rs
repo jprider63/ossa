@@ -1,3 +1,4 @@
+use ossa_crdt::register::Const;
 use ossa_crdt::time::CausalState;
 use ossa_crdt::CRDT;
 use ossa_typeable::Typeable;
@@ -17,6 +18,7 @@ use tokio::task::JoinHandle;
 use tokio_util::codec::{self, LengthDelimitedCodec};
 use tracing::{debug, error, info, warn};
 
+use crate::auth::identity::Identity;
 use crate::auth::{identity::DevicePrivateKeys, DeviceId};
 use crate::network::protocol::{run_handshake_client, run_handshake_server, HandshakeError};
 use crate::protocol::manager::v0::PeerManagerCommand;
@@ -49,6 +51,7 @@ pub struct Ossa<OT: OssaType> {
     // instead?
     phantom: PhantomData<OT>,
     device_keys: DevicePrivateKeys,
+    identity_store: Option<StoreHandle<OT, Identity, Const<OT::Time, ()>>>,
 }
 pub type StoreStatuses<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader> =
     BTreeMap<StoreId, StoreStatus<Hash, SHeaderId, SHeader, THeaderId, THeader>>; // Rename this MiniProtocolArgs?
@@ -248,6 +251,7 @@ impl<OT: OssaType> Ossa<OT> {
             phantom: PhantomData,
             shared_state: shared_state_,
             device_keys: identity_keys,
+            identity_store: None,
         }
     }
 
@@ -308,7 +312,7 @@ impl<OT: OssaType> Ossa<OT> {
 
         // Launch the store.
         let store_handle = self.launch_store(store_id, store);
-        info!("Created store: {}", store_id);
+        info!("Created store: {} ({}, {})", store_id, std::any::type_name::<S>(), std::any::type_name::<T>());
         store_handle
     }
 
@@ -517,10 +521,20 @@ impl<OT: OssaType> Ossa<OT> {
 
         StoreHandle {
             // future_handle,
+            store_id,
             send_command_chan: send_commands,
             phantom: PhantomData,
         }
     }
+
+    pub fn set_identity_store(&mut self, handle: StoreHandle<OT, Identity, Const<OT::Time, ()>>) {
+        self.identity_store = Some(handle);
+    }
+
+    pub fn identity_store(&self) -> &Option<StoreHandle<OT, Identity, Const<OT::Time, ()>>> {
+        &self.identity_store
+    }
+
 }
 
 /// Thread to handle NAT traversals using UPnP IGD.
@@ -587,7 +601,23 @@ pub struct StoreHandle<
 {
     // future_handle: JoinHandle<()>, // JP: Maybe this should be owned by `Ossa`?
     send_command_chan: UnboundedSender<StoreCommand<O::ECGHeader, O::ECGBody<T>, T>>,
+    store_id: O::StoreId,
     phantom: PhantomData<fn(O, S)>,
+}
+
+// TODO(JP): Remove this clone impl?
+impl<O, S, T> Clone for StoreHandle<O, S, T>
+where
+    O: OssaType,
+    T: CRDT<Time = O::Time, Op: ConcretizeTime<<O::ECGHeader as DAGHeader>::HeaderId>>,
+{
+    fn clone(&self) -> Self {
+        Self {
+            send_command_chan: self.send_command_chan.clone(),
+            store_id: self.store_id,
+            phantom: PhantomData,
+        }
+    }
 }
 
 /// Trait to define newtype wrapers that instantiate type families required by Ossa.
@@ -714,6 +744,10 @@ impl<
             .expect("TODO");
 
         recv_state
+    }
+
+    pub fn store_id(&self) -> O::StoreId {
+        self.store_id
     }
 }
 

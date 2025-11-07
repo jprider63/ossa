@@ -14,12 +14,11 @@ use crate::{
 
 pub type GroupId = StoreRef<Sha256Hash, Group, ()>;
 
-#[derive(Serialize, Deserialize, Typeable, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum MemberId {
-    User(IdentityId),
-    Group(GroupId),
-    Public,
-}
+// #[derive(Serialize, Deserialize, Typeable, Clone, PartialEq, Eq, PartialOrd, Ord)]
+// pub enum MemberId {
+//     User(IdentityId),
+//     Group(GroupId),
+// }
 
 /// Access control role for group members.
 #[derive(Serialize, Deserialize, Typeable, Clone)]
@@ -41,34 +40,45 @@ pub struct MemberInfo {
 /// A Group is a set of members and subgroups.
 #[derive(Clone, Serialize, Deserialize, Typeable)]
 pub struct Group {
-    members: BTreeMap<MemberId, MemberInfo>,
+    members: BTreeMap<IdentityId, MemberInfo>,
+    groups: BTreeMap<GroupId, MemberInfo>,
+    public: Option<Role>,
 }
 
 impl Group {
     // TODO: Take as input list of members
-    pub fn new() -> Self {
-        Group { members: BTreeMap::new() }
+    pub fn new(owner: IdentityId, public_permissions: Option<Role>) -> Self {
+        let permissions = MemberInfo {
+            permissions: Role::Admin,
+            round: 0
+        };
+        Group {
+            members: BTreeMap::from([(owner, permissions)]),
+            groups: BTreeMap::new(),
+            public: public_permissions,
+        }
     }
 }
 
 #[derive(Serialize, Deserialize)]
 pub enum GroupOp {
     AddMember {
-        member: MemberId,
+        member: IdentityId,
         permissions: Role,
         round: Round,
     },
     RemoveMember {
-        member: MemberId,
+        member: IdentityId,
     },
     MemberUpdated {
-        member: MemberId,
+        member: IdentityId,
         round: Round,
     },
     UpdateMember {
-        member: MemberId,
+        member: IdentityId,
         permissions: Role,
     },
+    // TODO: Update subgroup + public
 }
 
 impl SCDT for Group {

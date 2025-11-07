@@ -50,6 +50,12 @@ pub struct StoreRef<StoreId, S, C> {
     phantom: PhantomData<fn(S, C)>,
 }
 
+impl<StoreId, S, C> StoreRef<StoreId, S, C> {
+    pub fn new(store_id: StoreId) -> Self {
+        Self { store_id, phantom: PhantomData }
+    }
+}
+
 impl<StoreId: Clone, S, C> Clone for StoreRef<StoreId, S, C> {
     fn clone(&self) -> Self {
         Self { store_id: self.store_id.clone(), phantom: PhantomData }
@@ -412,6 +418,10 @@ impl<
     fn update_peer_ecg_to_syncing_incoming(&mut self, peer: &DeviceId) {
         self.update_peer_to_syncing(peer, |info| &mut info.ecg_status.incoming_status, ());
     }
+
+    // fn update_peer_scg_to_syncing_incoming(&mut self, peer: &DeviceId) {
+    //     self.update_peer_to_syncing(peer, |info| &mut info.scg_status.incoming_status, ());
+    // }
 
     fn update_peer_ecg_to_syncing_outgoing(
         &mut self,
@@ -1510,6 +1520,7 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
 
                                     // Create closure that spawns task to sync store with peer.
                                     let send_commands_untyped = send_commands_untyped.clone();
+                                    let send_commands_untyped2 = send_commands_untyped.clone();
                                     let spawn_task_ec: Box<SpawnMultiplexerTask> = Box::new(move |party, stream_id, sender, receiver| {
                                         // Create miniprotocol
                                         // Spawn task that syncs store with peer.
@@ -1518,7 +1529,7 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
                                             debug!("Sync with peer (without initiative).");
 
                                             // Tell store we're running.
-                                            let register_cmd = UntypedStoreCommand::RegisterIncomingPeerSyncing {
+                                            let register_cmd = UntypedStoreCommand::RegisterIncomingPeerECGSyncing {
                                                 peer,
                                             };
                                             send_commands_untyped.send(register_cmd).expect("TODO");
@@ -1531,8 +1542,17 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
                                     });
                                     let spawn_task_sc: Box<SpawnMultiplexerTask> = Box::new(move |party, stream_id, sender, receiver| {
                                         tokio::spawn(async move {
-                                            // TODO: Spawn strongly sync miniprotocol client
-                                            warn!("TODO: Spawn strongly sync miniprotocol client")
+                                            // JP: Maybe this isn't needed???
+                                            // // Tell store we're running.
+                                            // let register_cmd = UntypedStoreCommand::RegisterIncomingPeerSCGSyncing {
+                                            //     peer,
+                                            // };
+                                            // send_commands_untyped2.send(register_cmd).expect("TODO");
+
+                                            // Start miniprotocol as client.
+                                            let mp = StoreDAGSync::new_client(peer, send_commands_untyped2);
+                                            run_miniprotocol_async(mp, true, stream_id, sender, receiver).await;
+                                            debug!("Store DAG sync with peer (without initiative) exited.")
                                         })
                                     });
                                     Some((spawn_task_ec, spawn_task_sc))
@@ -1547,7 +1567,7 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
                             }
                         };
 
-                        todo!("TODO: Create SC miniprotocol too?");
+                        warn!("TODO: Create SC miniprotocol too?");
 
                         response_chan.send(response).or(Err(())).expect("TODO");
                     }
@@ -1563,12 +1583,18 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
                         // Sync with peer(s). Do this for all commands??
                         store.send_sync_requests();
                     }
-                    UntypedStoreCommand::RegisterIncomingPeerSyncing{ peer } => {
+                    UntypedStoreCommand::RegisterIncomingPeerECGSyncing{ peer } => {
                         // JP: Maybe this actually isn't needed??? We could construct oneshots for every request..
 
                         // Update peer's state to syncing and register channel.
                         store.update_peer_ecg_to_syncing_incoming(&peer);
                     }
+                    // UntypedStoreCommand::RegisterIncomingPeerSCGSyncing{ peer } => {
+                    //     // JP: Maybe this actually isn't needed??? We could construct oneshots for every request..
+
+                    //     // Update peer's state to syncing and register channel.
+                    //     store.update_peer_scg_to_syncing_incoming(&peer);
+                    // }
                     UntypedStoreCommand::HandleMetadataPeerRequest(HandlePeerRequest { peer, request, response_chan }) => {
                         store.handle_metadata_peer_request(peer, response_chan);
                     }
@@ -1674,9 +1700,6 @@ pub(crate) enum UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader
     HandleMerklePeerRequest(HandlePeerRequest<Vec<Range<u64>>, Vec<Hash>>),
     HandleBlockPeerRequest(HandlePeerRequest<Vec<Range<u64>>, Vec<Option<Vec<u8>>>>),
     // HandleECGSyncRequest(HandlePeerRequest<(Vec<HeaderId>, Vec<HeaderId>), Vec<(Header, RawECGBody)>>), // (Meet, Tips)
-    RegisterIncomingPeerSyncing {
-        peer: DeviceId,
-    },
     ReceivedMetadata {
         peer: DeviceId,
         metadata: MetadataHeader<Hash>,
@@ -1690,6 +1713,9 @@ pub(crate) enum UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader
         peer: DeviceId,
         ranges: Vec<Range<u64>>,
         blocks: Vec<Option<Vec<u8>>>,
+    },
+    RegisterIncomingPeerECGSyncing {
+        peer: DeviceId,
     },
     ReceivedECGOperations {
         peer: DeviceId,
@@ -1713,6 +1739,9 @@ pub(crate) enum UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader
         peer: DeviceId,
         send_peer: UnboundedSender<StoreSCGSyncCommand<SHeaderId, SHeader>>,
     },
+    // RegisterIncomingPeerSCGSyncing {
+    //     peer: DeviceId,
+    // },
 }
 
 pub(crate) struct HandlePeerRequest<Request, Response> {
