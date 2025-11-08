@@ -294,7 +294,7 @@ impl<
 
                             Ok(is_running_sc)
                         } else {
-                            Ok(is_running_ec)
+                            Ok(false)
                         }
                     } else {
                         debug!("Store rejected syncing.");
@@ -349,7 +349,7 @@ impl<
                     .await;
 
                 if !is_running {
-                    error!("Failed to create miniprotocol stream to sync store.");
+                    error!("Failed to create miniprotocol stream to sync ECG store.");
                     panic!(
                         "TODO: Send shutdown for this miniprotocol and restore status to Known."
                     );
@@ -361,7 +361,7 @@ impl<
                     .await;
 
                 if !is_running {
-                    error!("Failed to create miniprotocol stream to sync store.");
+                    error!("Failed to create miniprotocol stream to sync SCG store.");
                     panic!(
                         "TODO: Send shutdown for this miniprotocol and restore status to Known."
                     );
@@ -432,6 +432,7 @@ where
     StoreId: Copy + AsRef<[u8]>,
 {
     // TODO: Prioritize and choose stores.
+    // TODO: Remove stores we are already syncing with them.
     // Truncate stores length to MAX_ADVERTISE_STORES.
     let store_ids: Vec<_> = store_ids
         .borrow_and_update()

@@ -370,9 +370,14 @@ impl<
         self.update_peer_to_initializing(peer, |info| &mut info.scg_status.outgoing_status);
     }
 
-    /// Update a known peer's incoming status to initializing.
+    /// Update a known peer's incoming ECG status to initializing.
     fn update_peer_ecg_to_initializing_incoming(&mut self, peer: &DeviceId) {
         self.update_peer_to_initializing(peer, |info| &mut info.ecg_status.incoming_status);
+    }
+
+    /// Update a known peer's incoming SCG status to initializing.
+    fn update_peer_scg_to_initializing_incoming(&mut self, peer: &DeviceId) {
+        self.update_peer_to_initializing(peer, |info| &mut info.scg_status.incoming_status);
     }
 
     /// Helper to update a known peer to syncing.
@@ -400,7 +405,7 @@ impl<
             }
             PeerStatus::Known => {
                 error!(
-                    "Invariant violated. Attempted to initialize an unknown peer: {} - {:?}",
+                    "Invariant violated. Attempted to initialize a known peer: {} - {:?}",
                     peer, status
                 );
                 panic!();
@@ -419,9 +424,9 @@ impl<
         self.update_peer_to_syncing(peer, |info| &mut info.ecg_status.incoming_status, ());
     }
 
-    // fn update_peer_scg_to_syncing_incoming(&mut self, peer: &DeviceId) {
-    //     self.update_peer_to_syncing(peer, |info| &mut info.scg_status.incoming_status, ());
-    // }
+    fn update_peer_scg_to_syncing_incoming(&mut self, peer: &DeviceId) {
+        self.update_peer_to_syncing(peer, |info| &mut info.scg_status.incoming_status, ());
+    }
 
     fn update_peer_ecg_to_syncing_outgoing(
         &mut self,
@@ -1240,7 +1245,7 @@ async fn manage_peers<OT: OssaType, S, T: CRDT<Time = OT::Time> + Clone + Send +
                     StoreSyncCommand<<OT::ECGHeader as DAGHeader>::HeaderId, OT::ECGHeader>,
                 >();
 
-                let register_cmd = UntypedStoreCommand::RegisterOutgoingPeerSyncing {
+                let register_cmd = UntypedStoreCommand::RegisterOutgoingPeerECGSyncing {
                     peer: peer_id,
                     send_peer,
                 };
@@ -1254,7 +1259,7 @@ async fn manage_peers<OT: OssaType, S, T: CRDT<Time = OT::Time> + Clone + Send +
                 );
                 run_miniprotocol_async(mp, false, stream_id, sender, receiver).await;
 
-                debug!("Store sync with peer (with initiative) exited.")
+                debug!("Store ECG sync with peer (with initiative) exited.")
 
                 // JP: This requires StorePeer protocols in both directions (if both sides want updates from the other party).
                 // This has the downside that we may run ECG sync in both directions.. Does it make sense to store StorePeer state in a shared Arc<RWLock>?
@@ -1276,7 +1281,7 @@ async fn manage_peers<OT: OssaType, S, T: CRDT<Time = OT::Time> + Clone + Send +
             tokio::spawn(async move {
                 // Tell store we're running and send it our channel.
                 let (send_peer, recv_peer) = tokio::sync::mpsc::unbounded_channel();
-                let register_cmd = UntypedStoreCommand::RegisterOutgoingSCGSyncing {
+                let register_cmd = UntypedStoreCommand::RegisterOutgoingPeerSCGSyncing {
                     peer: peer_id,
                     send_peer,
                 };
@@ -1289,6 +1294,8 @@ async fn manage_peers<OT: OssaType, S, T: CRDT<Time = OT::Time> + Clone + Send +
                     send_commands,
                 );
                 run_miniprotocol_async(mp, false, stream_id, sender, receiver).await;
+
+                debug!("Store SCG sync with peer (with initiative) exited.")
             })
         });
 
@@ -1517,10 +1524,10 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
                                 if status.ecg_status.incoming_status.is_known() {
                                     // Mark task as initializing.
                                     store.update_peer_ecg_to_initializing_incoming(&peer);
+                                    store.update_peer_scg_to_initializing_incoming(&peer);
 
                                     // Create closure that spawns task to sync store with peer.
-                                    let send_commands_untyped = send_commands_untyped.clone();
-                                    let send_commands_untyped2 = send_commands_untyped.clone();
+                                    let send_commands_untyped_ = send_commands_untyped.clone();
                                     let spawn_task_ec: Box<SpawnMultiplexerTask> = Box::new(move |party, stream_id, sender, receiver| {
                                         // Create miniprotocol
                                         // Spawn task that syncs store with peer.
@@ -1532,27 +1539,28 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
                                             let register_cmd = UntypedStoreCommand::RegisterIncomingPeerECGSyncing {
                                                 peer,
                                             };
-                                            send_commands_untyped.send(register_cmd).expect("TODO");
+                                            send_commands_untyped_.send(register_cmd).expect("TODO");
 
                                             // Start miniprotocol as client.
-                                            let mp = StoreSync::<OT::Hash, _, _, _, _>::new_client(peer, send_commands_untyped);
+                                            let mp = StoreSync::<OT::Hash, _, _, _, _>::new_client(peer, send_commands_untyped_);
                                             run_miniprotocol_async(mp, true, stream_id, sender, receiver).await;
-                                            debug!("Store sync with peer (without initiative) exited.")
+                                            debug!("Store ECG sync with peer (without initiative) exited.")
                                         })
                                     });
+                                    let send_commands_untyped = send_commands_untyped.clone();
                                     let spawn_task_sc: Box<SpawnMultiplexerTask> = Box::new(move |party, stream_id, sender, receiver| {
                                         tokio::spawn(async move {
                                             // JP: Maybe this isn't needed???
-                                            // // Tell store we're running.
-                                            // let register_cmd = UntypedStoreCommand::RegisterIncomingPeerSCGSyncing {
-                                            //     peer,
-                                            // };
-                                            // send_commands_untyped2.send(register_cmd).expect("TODO");
+                                            // Tell store we're running.
+                                            let register_cmd = UntypedStoreCommand::RegisterIncomingPeerSCGSyncing {
+                                                peer,
+                                            };
+                                            send_commands_untyped.send(register_cmd).expect("TODO");
 
                                             // Start miniprotocol as client.
-                                            let mp = StoreDAGSync::new_client(peer, send_commands_untyped2);
+                                            let mp = StoreDAGSync::new_client(peer, send_commands_untyped);
                                             run_miniprotocol_async(mp, true, stream_id, sender, receiver).await;
-                                            debug!("Store DAG sync with peer (without initiative) exited.")
+                                            debug!("Store SCG sync with peer (without initiative) exited.")
                                         })
                                     });
                                     Some((spawn_task_ec, spawn_task_sc))
@@ -1571,7 +1579,7 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
 
                         response_chan.send(response).or(Err(())).expect("TODO");
                     }
-                    UntypedStoreCommand::RegisterOutgoingPeerSyncing{ peer, send_peer } => {
+                    UntypedStoreCommand::RegisterOutgoingPeerECGSyncing{ peer, send_peer } => {
                         // JP: Maybe send_peer actually isn't needed??? We could construct oneshots???
                         // Update peer's state to syncing and register channel.
                         let outgoing_status = OutgoingPeerStatus {
@@ -1589,12 +1597,12 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
                         // Update peer's state to syncing and register channel.
                         store.update_peer_ecg_to_syncing_incoming(&peer);
                     }
-                    // UntypedStoreCommand::RegisterIncomingPeerSCGSyncing{ peer } => {
-                    //     // JP: Maybe this actually isn't needed??? We could construct oneshots for every request..
+                    UntypedStoreCommand::RegisterIncomingPeerSCGSyncing{ peer } => {
+                        // JP: Maybe this actually isn't needed??? We could construct oneshots for every request..
 
-                    //     // Update peer's state to syncing and register channel.
-                    //     store.update_peer_scg_to_syncing_incoming(&peer);
-                    // }
+                        // Update peer's state to syncing and register channel.
+                        store.update_peer_scg_to_syncing_incoming(&peer);
+                    }
                     UntypedStoreCommand::HandleMetadataPeerRequest(HandlePeerRequest { peer, request, response_chan }) => {
                         store.handle_metadata_peer_request(peer, response_chan);
                     }
@@ -1630,7 +1638,7 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
                     UntypedStoreCommand::SubscribeSCG { peer, tips, response_chan } => {
                         todo!("...");
                     }
-                    UntypedStoreCommand::RegisterOutgoingSCGSyncing { peer, send_peer } => {
+                    UntypedStoreCommand::RegisterOutgoingPeerSCGSyncing { peer, send_peer } => {
                         // Update peer's state to syncing and register channel.
                         let outgoing_status = OutgoingPeerStatus {
                             sender_peer: send_peer,
@@ -1692,7 +1700,7 @@ pub(crate) enum UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader
         response_chan:
             oneshot::Sender<Option<(Box<SpawnMultiplexerTask>, Box<SpawnMultiplexerTask>)>>,
     },
-    RegisterOutgoingPeerSyncing {
+    RegisterOutgoingPeerECGSyncing {
         peer: DeviceId,
         send_peer: UnboundedSender<StoreSyncCommand<THeaderId, THeader>>,
     },
@@ -1735,13 +1743,13 @@ pub(crate) enum UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader
         tips: Option<BTreeSet<SHeaderId>>,
         response_chan: oneshot::Sender<dag::UntypedState<SHeaderId, SHeader>>,
     },
-    RegisterOutgoingSCGSyncing {
+    RegisterOutgoingPeerSCGSyncing {
         peer: DeviceId,
         send_peer: UnboundedSender<StoreSCGSyncCommand<SHeaderId, SHeader>>,
     },
-    // RegisterIncomingPeerSCGSyncing {
-    //     peer: DeviceId,
-    // },
+    RegisterIncomingPeerSCGSyncing {
+        peer: DeviceId,
+    },
 }
 
 pub(crate) struct HandlePeerRequest<Request, Response> {
