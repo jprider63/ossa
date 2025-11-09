@@ -97,6 +97,8 @@ pub struct State<StoreId, SHeader: dag::DAGHeader, THeader: dag::DAGHeader, S, T
     >,
     ecg_subscribers:
         BTreeMap<DeviceId, oneshot::Sender<dag::UntypedState<THeader::HeaderId, THeader>>>,
+    scg_subscribers:
+        BTreeMap<DeviceId, oneshot::Sender<dag::UntypedState<SHeader::HeaderId, SHeader>>>,
     // listeners: Vec<UnboundedSender<StateUpdate<Header, T>>>,
 }
 
@@ -287,6 +289,7 @@ impl<
             merkle_subscribers: BTreeMap::new(),
             block_subscribers: BTreeMap::new(),
             ecg_subscribers: BTreeMap::new(),
+            scg_subscribers: BTreeMap::new(),
         }
     }
 
@@ -301,6 +304,7 @@ impl<
             merkle_subscribers: BTreeMap::new(),
             block_subscribers: BTreeMap::new(),
             ecg_subscribers: BTreeMap::new(),
+            scg_subscribers: BTreeMap::new(),
         }
     }
 
@@ -717,6 +721,35 @@ impl<
         self.ecg_subscribers.insert(peer, response_chan);
     }
 
+    fn handle_scg_subscribe(
+        &mut self,
+        peer: DeviceId,
+        tips: Option<BTreeSet<SHeader::HeaderId>>,
+        response_chan: oneshot::Sender<dag::UntypedState<SHeader::HeaderId, SHeader>>,
+    ) {
+        // Respond immediately if peer thread is stale (or they requested it immediately with None).
+        if let StateMachine::Syncing { sc_state, .. } = &self.state_machine {
+            let respond_immediately = if let Some(tips) = tips {
+                debug!("our_tips: {:?}", sc_state.dag_state.tips());
+                debug!("their_tips: {:?}", tips);
+                !sc_state.dag_state.tips().eq(&tips) // JP: Only respond now if our tips exceed theirs??
+            } else {
+                true
+            };
+
+            if respond_immediately {
+                debug!("Responding immediately with SCG state.");
+                response_chan.send(sc_state.dag_state.state.clone()).expect("TODO");
+
+                return;
+            }
+        };
+
+        // Register subscriber.
+        debug!("Registering subscriber for SCG state for peer: {peer}");
+        self.scg_subscribers.insert(peer, response_chan);
+    }
+
     // fn handle_ecg_sync_request(&mut self, peer: DeviceId, request: (Vec<Header::HeaderId>, Vec<Header::HeaderId>), response_chan: Sender<HandlePeerResponse<Vec<(Header, RawECGBody)>>>) {
     //     // JP: Instead of receiving the meet, receive the frontier of what they need? Or have an
     //     // enum where that's one option (but what if a new branch from the root is added)??
@@ -859,7 +892,7 @@ impl<
 
         let block_ids: Vec<_> = block_ids.into_iter().flatten().collect();
         if block_ids.len() != their_blocks.len() {
-            warn!("TODO: Peer provided an invalid response");
+            warn!("TODO: Peer provided an invalid response. Expected length {}. Received length {}", block_ids.len(), their_blocks.len());
             return;
         }
 
@@ -886,7 +919,8 @@ impl<
                         if merkle_tree.validate_chunk(i, &their_block) {
                             *block = Some(their_block);
                         } else {
-                            warn!("TODO: Peer sent us an invalid block");
+                            warn!("TODO: Peer sent us an invalid block ({})", i);
+                            debug!("{:?}", their_block);
                         }
                     }
                 }
@@ -1636,7 +1670,7 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
                         store.send_sync_requests();
                     }
                     UntypedStoreCommand::SubscribeSCG { peer, tips, response_chan } => {
-                        todo!("...");
+                        store.handle_scg_subscribe(peer, tips, response_chan);
                     }
                     UntypedStoreCommand::RegisterOutgoingPeerSCGSyncing { peer, send_peer } => {
                         // Update peer's state to syncing and register channel.

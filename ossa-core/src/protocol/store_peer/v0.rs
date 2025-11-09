@@ -512,6 +512,7 @@ impl<
             loop {
                 // Receive request.
                 let request = receive(&mut stream).await.expect("TODO");
+                debug!("StorePeer received request: {:?}", request);
                 match request {
                     MsgStoreSyncRequest::MetadataHeader => {
                         const fn build_command<Hash, SHeaderId, SHeader, THeaderId, THeader>(
