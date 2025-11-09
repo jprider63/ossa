@@ -152,11 +152,10 @@ impl<H: Hash + Debug> MetadataBody<H> {
         initial_sc_state: &S,
         initial_ec_state: &T,
     ) -> MetadataBody<H> {
-        let mut initial_sc_state = serde_cbor::to_vec(initial_sc_state).expect("TODO");
-        let mut initial_ec_state = serde_cbor::to_vec(initial_ec_state).expect("TODO");
-        // let appended = initial_sc_state.iter().chain(initial_ec_state.iter()).chunks(BLOCK_SIZE as usize);
-        initial_sc_state.append(&mut initial_ec_state);
-        let merkle_tree = MerkleTree::from_chunks(initial_sc_state.chunks(BLOCK_SIZE as usize));
+        let initial_sc_state = serde_cbor::to_vec(initial_sc_state).expect("TODO");
+        let initial_ec_state = serde_cbor::to_vec(initial_ec_state).expect("TODO");
+        let appended = initial_sc_state.iter().chain(initial_ec_state.iter()).chunks(BLOCK_SIZE as usize);
+        let merkle_tree = MerkleTree::from_chunks(appended.into_iter().map(|c| c.copied().collect::<Vec<_>>()));
         MetadataBody {
             initial_sc_state,
             initial_ec_state,
