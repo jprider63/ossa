@@ -167,8 +167,10 @@ impl<H: Hash + Debug> MetadataBody<H> {
         self.merkle_tree.merkle_root()
     }
 
-    pub fn build(self) -> (MerkleTree<H>, Vec<u8>) {
-        (self.merkle_tree, self.initial_ec_state)
+    pub fn build(mut self) -> (MerkleTree<H>, Vec<u8>) {
+        let mut initial_state = self.initial_sc_state;
+        initial_state.append(&mut self.initial_ec_state);
+        (self.merkle_tree, initial_state)
     }
 }
 
