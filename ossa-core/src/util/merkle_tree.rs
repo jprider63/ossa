@@ -1,3 +1,4 @@
+use itertools::Itertools as _;
 use std::{cmp, fmt::Debug};
 
 use crate::util::Hash;
@@ -88,21 +89,29 @@ impl<H> MerkleTree<H> {
         MerkleTree { nodes }
     }
 
-    pub fn from_chunks<I: Iterator<Item = A>, A: AsRef<[u8]>>(chunks: I) -> MerkleTree<H>
+    /// Create a merkle tree from an iterator over bytes, and split into chunks.
+    pub fn from_bytes<'a, I: Iterator<Item = &'a u8>>(bytes: I, chunk_size: u64) -> MerkleTree<H>
     where
         H: Hash + Debug,
     {
-        let leaves: Vec<H> = chunks
+        let leaves: Vec<H> = bytes
+            .chunks(chunk_size as usize)
+            .into_iter()
             .map(|c| {
+                let c: Vec<_> = c.copied().collect();
                 let mut h = H::new();
-                H::update(&mut h, c);
+                H::update(&mut h, &c);
                 H::finalize(h)
             })
             .collect();
 
         if leaves.is_empty() {
-            let empty: [&[u8]; 1] = [&[]];
-            return MerkleTree::from_chunks(empty.iter());
+            let mut h = H::new();
+            H::update(&mut h, b"");
+            let h = H::finalize(h);
+            let empty: Vec<H> = vec![h];
+            // let empty: [&[u8]; 1] = [&[]];
+            return MerkleTree::from_leaves(empty);
         }
 
         MerkleTree::from_leaves(leaves)
@@ -349,7 +358,7 @@ mod test {
     fn merkle_test_helper<A: AsRef<[u8]> + Debug>(chunks: Vec<A>, expected_root: &str) {
         let expected_root = Sha256Hash::from_str(expected_root).unwrap();
 
-        let mt = MerkleTree::<Sha256Hash>::from_chunks(chunks.iter());
+        let mt = MerkleTree::<Sha256Hash>::from_bytes(chunks.iter());
         println!("{mt:?}");
         let root = mt.merkle_root();
 
