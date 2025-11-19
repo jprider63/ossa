@@ -17,8 +17,10 @@ bs58 = "0.5.1"
 bytes = "1.10.1"
 ed25519-dalek = {version="2.2.0", features = ["rand_core", "serde"]}
 daggy = {version="0.9.0", features=["stable_dag"]}
-dioxus = {version = "0.6.0", git = "https://github.com/jprider63/dioxus.git", rev="cd3ff6d3644347163c249da8293a76db02044d03"}
-dioxus-desktop = {version = "0.6.0", git = "https://github.com/jprider63/dioxus.git", rev="cd3ff6d3644347163c249da8293a76db02044d03"}
+# dioxus = {version = "0.6.0", git = "https://github.com/jprider63/dioxus.git", rev="cd3ff6d3644347163c249da8293a76db02044d03"}
+dioxus = { version = "0.7.1", features = ["web"] }
+# dioxus-desktop = {version = "0.6.0", git = "https://github.com/jprider63/dioxus.git", rev="cd3ff6d3644347163c249da8293a76db02044d03"}
+dioxus-desktop = { version = "0.7.1" }
 futures = "0.3.31"
 hex = "0.4.3"
 im = {version = "15.1.0", features = ["serde"]}

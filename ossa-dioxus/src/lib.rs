@@ -1,7 +1,8 @@
 pub use dioxus;
+use dioxus::core::{current_scope_id, use_hook, Runtime, Task};
 use dioxus::hooks::use_context;
-use dioxus::prelude::{current_scope_id, use_hook, Runtime, ScopeId, Task};
-use dioxus::signals::{Readable as _, Signal, Writable as _};
+use dioxus::prelude::{ScopeId}; // , Task, current_scope_id, spawn_in_scope, use_hook};
+use dioxus::signals::{ReadableExt as _, Signal, WritableExt as _};
 pub use dioxus_desktop;
 use ossa_core::store::bft::SCDT;
 use tracing::debug;
@@ -145,7 +146,7 @@ pub fn use_store<
 where
     F: FnOnce(&Ossa<OT>) -> StoreHandle<OT, S, T>,
 {
-    let scope = current_scope_id().expect("Failed to get scope id");
+    let scope = current_scope_id();
     let ossa = use_context::<OssaProp<OT>>().ossa;
     let caller = std::panic::Location::caller();
     use_hook(|| new_store_helper(&ossa, scope, caller, build_store_handle).unwrap())
@@ -194,10 +195,10 @@ where
         debug!("Future for store is exiting");
     });
 
-    let Some(future) = future else {
-        state.manually_drop(); // JP: Is this needed?
-        return None;
-    };
+    // let Some(future) = future else {
+    //     state.manually_drop(); // JP: Is this needed?
+    //     return None;
+    // };
 
     let handle = Rc::new(RefCell::new(handle));
     Some(UseStore {
@@ -377,7 +378,7 @@ impl<
 
 /// Dioxus helper that spawns a future in the provided scope. This task will automatically be canceled when the component's scope is dropped.
 ///
-fn spawn_in_scope(scope: ScopeId, fut: impl Future<Output = ()> + 'static) -> Option<Task> {
-    let rt = Runtime::current().ok()?;
-    Some(rt.spawn(scope, fut))
+fn spawn_in_scope(scope: ScopeId, fut: impl Future<Output = ()> + 'static) -> Task {
+    let rt = Runtime::current();
+    rt.spawn(scope, fut)
 }
