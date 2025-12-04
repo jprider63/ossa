@@ -764,7 +764,7 @@ impl<
         &mut self,
         peer: DeviceId,
         metadata: MetadataHeader<Hash>,
-        listeners: &[UnboundedSender<StateUpdate<THeader, T>>],
+        listeners: &[UnboundedSender<StateUpdate<SHeader, S, THeader, T>>],
     ) where
         S: for<'d> Deserialize<'d>,
         T: for<'d> Deserialize<'d>,
@@ -836,7 +836,7 @@ impl<
         peer: DeviceId,
         node_ids: Vec<Range<u64>>,
         their_node_hashes: Vec<Hash>,
-        listeners: &[UnboundedSender<StateUpdate<THeader, T>>],
+        listeners: &[UnboundedSender<StateUpdate<SHeader, S, THeader, T>>],
     ) where
         S: for<'d> Deserialize<'d>,
         T: for<'d> Deserialize<'d>,
@@ -882,7 +882,7 @@ impl<
         peer: DeviceId,
         block_ids: Vec<Range<u64>>,
         their_blocks: Vec<Option<Vec<u8>>>,
-        listeners: &[UnboundedSender<StateUpdate<THeader, T>>],
+        listeners: &[UnboundedSender<StateUpdate<SHeader, S, THeader, T>>],
     ) where
         S: for<'d> Deserialize<'d>,
         T: for<'d> Deserialize<'d>,
@@ -939,7 +939,7 @@ impl<
         &mut self,
         peer: DeviceId,
         operations: Vec<(SHeader, RawDAGBody)>,
-        listeners: &[UnboundedSender<StateUpdate<THeader, T>>],
+        listeners: &[UnboundedSender<StateUpdate<SHeader, S, THeader, T>>],
     ) where
         OT: OssaType<SCGHeader = SHeader, ECGHeader = THeader>,
         S: SCDT,
@@ -986,7 +986,7 @@ impl<
         &mut self,
         peer: DeviceId,
         operations: Vec<(THeader, RawDAGBody)>,
-        listeners: &[UnboundedSender<StateUpdate<THeader, T>>],
+        listeners: &[UnboundedSender<StateUpdate<SHeader, S, THeader, T>>],
     ) where
         OT: OssaType<ECGHeader = THeader, SCGHeader = SHeader>,
         T: CRDT<Time = OT::Time> + Debug,
@@ -1044,7 +1044,7 @@ impl<
     fn update_state_to_downloading_initial_state(
         &mut self,
         peer: DeviceId,
-        listeners: &[UnboundedSender<StateUpdate<THeader, T>>],
+        listeners: &[UnboundedSender<StateUpdate<SHeader, S, THeader, T>>],
     ) where
         S: for<'d> Deserialize<'d>,
         T: for<'d> Deserialize<'d>,
@@ -1106,7 +1106,7 @@ impl<
     fn update_state_to_syncing(
         &mut self,
         peer: DeviceId,
-        listeners: &[UnboundedSender<StateUpdate<THeader, T>>],
+        listeners: &[UnboundedSender<StateUpdate<SHeader, S, THeader, T>>],
     ) where
         S: for<'d> Deserialize<'d>,
         T: for<'d> Deserialize<'d>,
@@ -1189,18 +1189,18 @@ fn register_scg_operations<OT: OssaType, S: SCDT, T: CRDT>(
     todo!()
 }
 
-fn update_listeners<Header: dag::DAGHeader + Clone + Debug, T: CRDT + Clone>(
+fn update_listeners<SHeader: dag::DAGHeader, S, THeader: dag::DAGHeader + Clone + Debug, T: CRDT + Clone>(
     ecg_subscribers: &mut BTreeMap<
         DeviceId,
-        oneshot::Sender<dag::UntypedState<Header::HeaderId, Header>>,
+        oneshot::Sender<dag::UntypedState<THeader::HeaderId, THeader>>,
     >,
-    listeners: &[UnboundedSender<StateUpdate<Header, T>>],
+    listeners: &[UnboundedSender<StateUpdate<SHeader, S, THeader, T>>],
     latest_state: &T,
-    ecg_state: &dag::State<Header, T>,
+    ecg_state: &dag::State<THeader, T>,
     from_peer: Option<DeviceId>,
 ) {
     for l in listeners {
-        let snapshot: StateUpdate<Header, T> = StateUpdate::Snapshot {
+        let snapshot: StateUpdate<SHeader, S, THeader, T> = StateUpdate::SnapshotEC {
             snapshot: latest_state.clone(),
             ecg_state: ecg_state.clone(),
         };
@@ -1371,7 +1371,7 @@ fn apply_operations<OT: OssaType, T>(
 /// its own tokio thread.
 pub(crate) async fn run_handler<OT: OssaType, S, T>(
     mut store: State<OT::StoreId, OT::SCGHeader, OT::ECGHeader, S, T, OT::Hash>,
-    mut recv_commands: UnboundedReceiver<StoreCommand<OT::ECGHeader, OT::ECGBody<T>, T>>,
+    mut recv_commands: UnboundedReceiver<StoreCommand<OT::SCGHeader, S, OT::ECGHeader, OT::ECGBody<T>, T>>,
     send_commands_untyped: UnboundedSender<
         UntypedStoreCommand<
             OT::Hash,
@@ -1412,7 +1412,7 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
     S: SCDT + for<'d> Deserialize<'d>,
     T: CRDT<Time = OT::Time> + Debug + Clone + Send + 'static + for<'d> Deserialize<'d>,
 {
-    let mut listeners: Vec<UnboundedSender<StateUpdate<OT::ECGHeader, T>>> = vec![];
+    let mut listeners: Vec<UnboundedSender<StateUpdate<OT::SCGHeader, S, OT::ECGHeader, T>>> = vec![];
 
     // TODO: Check when done
     loop {
@@ -1507,7 +1507,7 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
                                 StateUpdate::Downloading { percent }
                             }
                             StateMachine::Syncing { ref ecg_state, ref decrypted_state, .. } => {
-                                StateUpdate::Snapshot {
+                                StateUpdate::SnapshotEC {
                                     snapshot: decrypted_state.latest_ec_state.clone(),
                                     ecg_state: ecg_state.clone(),
                                 }
@@ -1690,26 +1690,30 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
     debug!("Store thread exiting.");
 }
 
-pub(crate) enum StoreCommand<Header: DAGHeader, Body, T> {
+pub(crate) enum StoreCommand<SHeader: DAGHeader, S, THeader: DAGHeader, Body, T> {
     Apply {
-        operation_header: Header, // <Hash, T>,
+        operation_header: THeader, // <Hash, T>,
         operation_body: Body,     // <Hash, T>,
     },
     // TODO: Support unsubscribe.
     SubscribeState {
-        send_state: UnboundedSender<StateUpdate<Header, T>>,
+        send_state: UnboundedSender<StateUpdate<SHeader, S, THeader, T>>,
     },
 }
 
-pub enum StateUpdate<Header: DAGHeader, T> {
+pub enum StateUpdate<SHeader: DAGHeader, S, THeader: DAGHeader, T> {
     Downloading {
         // Percent of the state that we've downloaded (0 - 100).
         percent: u64,
     },
-    Snapshot {
+    SnapshotEC {
         snapshot: T,
-        ecg_state: dag::State<Header, T>,
+        ecg_state: dag::State<THeader, T>,
         // TODO: ECG DAG
+    },
+    SnapshotSC {
+        snapshot: S,
+        ecg_state: dag::State<SHeader, S>,
     },
 }
 

@@ -232,7 +232,7 @@ pub struct State<Header: DAGHeader, T> {
     phantom: PhantomData<fn(T)>, // TODO: Delete T?
 }
 
-impl<Header: DAGHeader + Clone, T: CRDT> Clone for State<Header, T> {
+impl<Header: DAGHeader + Clone, T> Clone for State<Header, T> {
     fn clone(&self) -> Self {
         let state = self.state.clone();
         State {

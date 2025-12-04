@@ -2,13 +2,14 @@ pub use dioxus;
 use dioxus::core::{current_scope_id, use_hook, Runtime, Task};
 use dioxus::hooks::use_context;
 use dioxus::prelude::{ScopeId}; // , Task, current_scope_id, spawn_in_scope, use_hook};
-use dioxus::signals::{ReadableExt as _, Signal, WritableExt as _};
+use dioxus::signals::{ReadableExt as _, ReadableRef, Signal, WritableExt as _};
 pub use dioxus_desktop;
 use ossa_core::store::bft::SCDT;
 use tracing::debug;
 
 use std::cell::RefCell;
 use std::collections::BTreeSet;
+use std::marker::PhantomData;
 use std::panic::Location;
 use std::rc::Rc;
 
@@ -72,13 +73,13 @@ impl OssaType for DefaultSetup {
 
 pub struct UseStore<
     OT: OssaType + 'static,
-    S,
+    S: 'static,
     T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>> + 'static,
 > {
     future: Task,
     handle: Rc<RefCell<StoreHandle<OT, S, T>>>,
     // handle: StoreHandle<OT, T>,
-    state: Signal<Option<StoreState<OT, T>>>,
+    ec_state: Signal<Option<StoreState<OT::ECGHeader, T>>>,
     // peers, connections, etc
 }
 
@@ -102,35 +103,34 @@ impl<
         UseStore {
             future: self.future,
             handle: self.handle.clone(),
-            state: self.state,
+            ec_state: self.ec_state,
         }
     }
 }
 
 // #[derive(Clone)]
-pub struct StoreState<OT: OssaType, T: CRDT<Time = OT::Time>> {
-    state: T,
-    ecg: dag::State<OT::ECGHeader, T>,
+// State for a store, corresponding to either the eventually consistent or strongly consistent state.
+pub struct StoreState<Header: dag::DAGHeader, A> {
+
+    state: A,
+    dag: dag::State<Header, A>,
 }
 
-impl<OT: OssaType, T: CRDT<Time = OT::Time>> StoreState<OT, T> {
-    pub fn state(&self) -> &T {
+impl<Header: dag::DAGHeader, A> StoreState<Header, A> {
+    pub fn state(&self) -> &A {
         &self.state
     }
 
-    pub fn ecg(&self) -> &dag::State<OT::ECGHeader, T> {
-        &self.ecg
+    pub fn dag(&self) -> &dag::State<Header, A> {
+        &self.dag
     }
 }
 
-impl<OT: OssaType, T: CRDT<Time = OT::Time> + Clone> Clone for StoreState<OT, T>
-where
-    <OT as OssaType>::ECGHeader: Clone,
-{
+impl<Header: Clone + dag::DAGHeader, A: Clone> Clone for StoreState<Header, A> {
     fn clone(&self) -> Self {
         StoreState {
             state: self.state.clone(),
-            ecg: self.ecg.clone(),
+            dag: self.dag.clone(),
         }
     }
 }
@@ -169,27 +169,30 @@ where
     let mut handle = build_store_handle(ossa);
     let mut recv_st = handle.subscribe_to_state();
 
-    let mut state = Signal::new_maybe_sync_in_scope_with_caller(None, scope, caller);
+    let mut ec_state = Signal::new_maybe_sync_in_scope_with_caller(None, scope, caller);
 
     let future = spawn_in_scope(scope, async move {
         debug!("Creating future for store");
         while let Some(msg) = recv_st.recv().await {
             match msg {
-                StateUpdate::Snapshot {
+                StateUpdate::SnapshotEC {
                     snapshot,
                     ecg_state,
                 } => {
                     debug!("Received state!");
                     let s = StoreState {
                         state: snapshot,
-                        ecg: ecg_state,
+                        dag: ecg_state,
+                        // sc_state: todo!(),
+                        // scg: todo!(),
                     };
-                    state.set(Some(s));
+                    ec_state.set(Some(s));
                 }
                 StateUpdate::Downloading { percent } => {
                     debug!("Store is downloading ({percent}%)");
-                    state.set(None);
+                    ec_state.set(None);
                 }
+                StateUpdate::SnapshotSC { snapshot, ecg_state } => todo!(),
             }
         }
         debug!("Future for store is exiting");
@@ -204,7 +207,7 @@ where
     Some(UseStore {
         future,
         handle,
-        state,
+        ec_state,
     })
 }
 
@@ -285,20 +288,24 @@ impl<
     T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>,
 > UseStore<OT, S, T>
 {
-    pub fn get_current_state(&self) -> Option<T>
+    pub fn get_current_state(&self) -> Option<T> // ReadableRef<Signal<Option<T>>>
     where
+        S: Clone,
         T: Clone,
+        <OT as OssaType>::SCGHeader: Clone,
         <OT as OssaType>::ECGHeader: Clone,
     {
-        self.state.cloned().map(|s| s.state)
+        // TODO: Get rid of this clone
+        // self.state.read().map(|s| s.map(|s| s.ec_state))
+        self.ec_state.cloned().map(|s| s.state)
     }
 
-    pub fn get_current_store_state(&self) -> Option<StoreState<OT, T>>
-    where
-        T: Clone,
-        <OT as OssaType>::ECGHeader: Clone,
+    pub fn get_current_store_state(&self) -> ReadableRef<Signal<Option<StoreState<OT::ECGHeader, T>>>> // Option<StoreState<OT, S, T>>> //  Option<StoreState<OT, S, T>>
+    // where
+    //     T: Clone,
+    //     <OT as OssaType>::ECGHeader: Clone,
     {
-        self.state.cloned()
+        self.ec_state.read()
     }
 
     /// Applies an operation to the Store's CRDT with the closure the builds the operation. If  you want to apply multiple operations, use `operation_builder`.
@@ -306,8 +313,7 @@ impl<
     where
         F: FnOnce(
             CausalTime<OT::Time>,
-        )
-            -> <T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
+        ) -> <T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
         T::Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>,
         OT::ECGBody<T>: DAGBody<
                 T::Op,
@@ -316,9 +322,9 @@ impl<
             >,
     {
         let parent_header_ids = {
-            let cookbook_store_state = self.state.peek();
+            let cookbook_store_state = self.ec_state.peek();
             let cookbook_store_state = cookbook_store_state.as_ref().expect("TODO");
-            cookbook_store_state.ecg.tips().clone()
+            cookbook_store_state.dag.tips().clone()
         };
         self.apply_with_parents(parent_header_ids, op)
     }
@@ -364,9 +370,9 @@ impl<
     where
         T::Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>,
     {
-        let cookbook_store_state = self.state.peek();
+        let cookbook_store_state = self.ec_state.peek();
         let cookbook_store_state = cookbook_store_state.as_ref().expect("TODO");
-        let parent_header_ids = cookbook_store_state.ecg.tips().clone();
+        let parent_header_ids = cookbook_store_state.dag.tips().clone();
 
         OperationBuilder {
             handle: self.handle.clone(),

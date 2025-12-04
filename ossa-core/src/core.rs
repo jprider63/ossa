@@ -478,7 +478,7 @@ impl<OT: OssaType> Ossa<OT> {
 
         // Create channels to handle requests and send updates.
         let (send_commands, recv_commands) = tokio::sync::mpsc::unbounded_channel::<
-            store::StoreCommand<OT::ECGHeader, OT::ECGBody<T>, T>,
+            store::StoreCommand<OT::SCGHeader, S, OT::ECGHeader, OT::ECGBody<T>, T>,
         >();
         let (send_commands_untyped, recv_commands_untyped) = tokio::sync::mpsc::unbounded_channel::<
             store::UntypedStoreCommand<
@@ -600,7 +600,7 @@ pub struct StoreHandle<
 //     T::Op<CausalTime<OT::Time>>: Serialize,
 {
     // future_handle: JoinHandle<()>, // JP: Maybe this should be owned by `Ossa`?
-    send_command_chan: UnboundedSender<StoreCommand<O::ECGHeader, O::ECGBody<T>, T>>,
+    send_command_chan: UnboundedSender<StoreCommand<O::SCGHeader, S, O::ECGHeader, O::ECGBody<T>, T>>,
     store_id: O::StoreId,
     phantom: PhantomData<fn(O, S)>,
 }
@@ -737,7 +737,7 @@ impl<
         header_id
     }
 
-    pub fn subscribe_to_state(&mut self) -> UnboundedReceiver<StateUpdate<O::ECGHeader, T>> {
+    pub fn subscribe_to_state(&mut self) -> UnboundedReceiver<StateUpdate<O::SCGHeader, S, O::ECGHeader, T>> {
         let (send_state, recv_state) = tokio::sync::mpsc::unbounded_channel();
         self.send_command_chan
             .send(StoreCommand::SubscribeState { send_state })
