@@ -9,7 +9,6 @@ use tracing::debug;
 
 use std::cell::RefCell;
 use std::collections::BTreeSet;
-use std::marker::PhantomData;
 use std::panic::Location;
 use std::rc::Rc;
 
@@ -79,6 +78,7 @@ pub struct UseStore<
     future: Task,
     handle: Rc<RefCell<StoreHandle<OT, S, T>>>,
     // handle: StoreHandle<OT, T>,
+    sc_state: Signal<Option<StoreState<OT::SCGHeader, S>>>,
     ec_state: Signal<Option<StoreState<OT::ECGHeader, T>>>,
     // peers, connections, etc
 }
@@ -104,6 +104,7 @@ impl<
             future: self.future,
             handle: self.handle.clone(),
             ec_state: self.ec_state,
+            sc_state: self.sc_state,
         }
     }
 }
@@ -170,6 +171,8 @@ where
     let mut recv_st = handle.subscribe_to_state();
 
     let mut ec_state = Signal::new_maybe_sync_in_scope_with_caller(None, scope, caller);
+    let mut sc_state = Signal::new_maybe_sync_in_scope_with_caller(None, scope, caller);
+    // TODO: Update sc_state.
 
     let future = spawn_in_scope(scope, async move {
         debug!("Creating future for store");
@@ -177,14 +180,12 @@ where
             match msg {
                 StateUpdate::SnapshotEC {
                     snapshot,
-                    ecg_state,
+                    dag_state,
                 } => {
-                    debug!("Received state!");
+                    debug!("Received EC state!");
                     let s = StoreState {
                         state: snapshot,
-                        dag: ecg_state,
-                        // sc_state: todo!(),
-                        // scg: todo!(),
+                        dag: dag_state,
                     };
                     ec_state.set(Some(s));
                 }
@@ -192,7 +193,14 @@ where
                     debug!("Store is downloading ({percent}%)");
                     ec_state.set(None);
                 }
-                StateUpdate::SnapshotSC { snapshot, ecg_state } => todo!(),
+                StateUpdate::SnapshotSC { snapshot, dag_state } => {
+                    debug!("Received EC state!");
+                    let s = StoreState {
+                        state: snapshot,
+                        dag: dag_state,
+                    };
+                    sc_state.set(Some(s));
+                }
             }
         }
         debug!("Future for store is exiting");
@@ -208,6 +216,7 @@ where
         future,
         handle,
         ec_state,
+        sc_state,
     })
 }
 
@@ -306,6 +315,14 @@ impl<
     //     <OT as OssaType>::ECGHeader: Clone,
     {
         self.ec_state.read()
+    }
+
+    pub fn get_current_store_sc_state(&self) -> ReadableRef<Signal<Option<StoreState<OT::SCGHeader, S>>>> // Option<StoreState<OT, S, T>>> //  Option<StoreState<OT, S, T>>
+    // where
+    //     T: Clone,
+    //     <OT as OssaType>::ECGHeader: Clone,
+    {
+        self.sc_state.read()
     }
 
     /// Applies an operation to the Store's CRDT with the closure the builds the operation. If  you want to apply multiple operations, use `operation_builder`.

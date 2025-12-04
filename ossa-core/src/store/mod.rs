@@ -248,7 +248,7 @@ impl<
         StoreId: Copy + Eq,
         SHeader: dag::DAGHeader + Clone + Debug,
         THeader: dag::DAGHeader + Clone + Debug,
-        S,
+        S: Clone,
         T: CRDT + Clone,
         Hash: util::Hash + Debug + Into<StoreId>,
     > State<StoreId, SHeader, THeader, S, T, Hash>
@@ -1031,7 +1031,7 @@ impl<
         debug!("New decrypted state {:?}", decrypted_state.latest_ec_state);
 
         // Update listeners (except peer).
-        update_listeners(
+        update_ec_listeners(
             &mut self.ecg_subscribers,
             listeners,
             &decrypted_state.latest_ec_state,
@@ -1156,13 +1156,18 @@ impl<
         let StateMachine::Syncing {
             ecg_state,
             decrypted_state,
+            sc_state,
             ..
         } = &self.state_machine
         else {
             unreachable!("We just set our state to syncing")
         };
-        warn!("TODO: Send BFT state to listeners?");
-        update_listeners(
+        update_sc_listeners(
+            listeners,
+            &sc_state.initial_state,
+            &sc_state.dag_state,
+        );
+        update_ec_listeners(
             &mut self.ecg_subscribers,
             listeners,
             &decrypted_state.latest_ec_state,
@@ -1189,7 +1194,21 @@ fn register_scg_operations<OT: OssaType, S: SCDT, T: CRDT>(
     todo!()
 }
 
-fn update_listeners<SHeader: dag::DAGHeader, S, THeader: dag::DAGHeader + Clone + Debug, T: CRDT + Clone>(
+fn update_sc_listeners<SHeader: dag::DAGHeader + Clone, S: Clone, THeader: dag::DAGHeader, T>(
+    listeners: &[UnboundedSender<StateUpdate<SHeader, S, THeader, T>>],
+    latest_state: &S,
+    dag_state: &dag::State<SHeader, S>,
+) {
+    for l in listeners {
+        let snapshot: StateUpdate<SHeader, S, THeader, T> = StateUpdate::SnapshotSC {
+            snapshot: latest_state.clone(),
+            dag_state: dag_state.clone(),
+        };
+        l.send(snapshot).expect("TODO");
+    }
+}
+
+fn update_ec_listeners<SHeader: dag::DAGHeader, S, THeader: dag::DAGHeader + Clone + Debug, T: CRDT + Clone>(
     ecg_subscribers: &mut BTreeMap<
         DeviceId,
         oneshot::Sender<dag::UntypedState<THeader::HeaderId, THeader>>,
@@ -1202,7 +1221,7 @@ fn update_listeners<SHeader: dag::DAGHeader, S, THeader: dag::DAGHeader + Clone 
     for l in listeners {
         let snapshot: StateUpdate<SHeader, S, THeader, T> = StateUpdate::SnapshotEC {
             snapshot: latest_state.clone(),
-            ecg_state: ecg_state.clone(),
+            dag_state: ecg_state.clone(),
         };
         l.send(snapshot).expect("TODO");
     }
@@ -1224,7 +1243,7 @@ fn update_listeners<SHeader: dag::DAGHeader, S, THeader: dag::DAGHeader + Clone 
 
 // JP: Or should Ossa own this/peers?
 /// Manage peers by ranking them, randomize, potentially connecting to some of them, etc.
-async fn manage_peers<OT: OssaType, S, T: CRDT<Time = OT::Time> + Clone + Send + 'static>(
+async fn manage_peers<OT: OssaType, S: Clone, T: CRDT<Time = OT::Time> + Clone + Send + 'static>(
     store: &mut State<OT::StoreId, OT::SCGHeader, OT::ECGHeader, S, T, OT::Hash>,
     shared_state: &SharedState<OT::StoreId>,
     send_commands: &UnboundedSender<
@@ -1409,7 +1428,7 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
     // T::Op<CausalTime<T::Time>>: Serialize,
     OT::SCGHeader: Debug + Clone + Sync + Serialize + for<'d> Deserialize<'d>,
     <OT::SCGHeader as DAGHeader>::HeaderId: Sync + Serialize + for<'d> Deserialize<'d>,
-    S: SCDT + for<'d> Deserialize<'d>,
+    S: SCDT + Clone + for<'d> Deserialize<'d>,
     T: CRDT<Time = OT::Time> + Debug + Clone + Send + 'static + for<'d> Deserialize<'d>,
 {
     let mut listeners: Vec<UnboundedSender<StateUpdate<OT::SCGHeader, S, OT::ECGHeader, T>>> = vec![];
@@ -1478,7 +1497,7 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
                                 apply_operations::<OT, _>(&mut decrypted_state, &ecg_state, &operation_header, operation_body);
 
                                 // Send state to subscribers.
-                                update_listeners(&mut store.ecg_subscribers, &listeners, &decrypted_state.latest_ec_state, &ecg_state, None);
+                                update_ec_listeners(&mut store.ecg_subscribers, &listeners, &decrypted_state.latest_ec_state, &ecg_state, None);
 
                                 StateMachine::Syncing { metadata, merkle_tree, initial_state, ecg_state, decrypted_state, sc_state }
                             }
@@ -1490,12 +1509,12 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
                     }
                     StoreCommand::SubscribeState { send_state } => {
                         // Send current state.
-                        let snapshot = match &store.state_machine {
+                        let snapshots = match &store.state_machine {
                             StateMachine::DownloadingMetadata { .. } => {
-                                StateUpdate::Downloading { percent: 0 }
+                                vec![StateUpdate::Downloading { percent: 0 }]
                             }
                             StateMachine::DownloadingMerkle { .. } => {
-                                StateUpdate::Downloading { percent: 0 }
+                                vec![StateUpdate::Downloading { percent: 0 }]
                             }
                             StateMachine::DownloadingInitialState { metadata, initial_state, .. } => {
                                 let percent = if metadata.merkle_size() == 0 {
@@ -1504,16 +1523,21 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
                                     let downloaded = initial_state.iter().filter(|p| p.is_some()).count() as u64;
                                     100 * downloaded * BLOCK_SIZE / (metadata.merkle_size() as u64)
                                 };
-                                StateUpdate::Downloading { percent }
+                                vec![StateUpdate::Downloading { percent }]
                             }
-                            StateMachine::Syncing { ref ecg_state, ref decrypted_state, .. } => {
-                                StateUpdate::SnapshotEC {
+                            StateMachine::Syncing { ref ecg_state, ref decrypted_state, ref sc_state, .. } => {
+                                let ec = StateUpdate::SnapshotEC {
                                     snapshot: decrypted_state.latest_ec_state.clone(),
-                                    ecg_state: ecg_state.clone(),
-                                }
+                                    dag_state: ecg_state.clone(),
+                                };
+                                let sc = StateUpdate::SnapshotSC {
+                                    snapshot: sc_state.initial_state.clone(),
+                                    dag_state: sc_state.dag_state.clone(),
+                                };
+                                vec![sc, ec]
                             }
                         };
-                        send_state.send(snapshot).expect("TODO");
+                        snapshots.into_iter().for_each(|snapshot| send_state.send(snapshot).expect("TODO"));
 
                         // Register this subscriber.
                         listeners.push(send_state);
@@ -1708,12 +1732,12 @@ pub enum StateUpdate<SHeader: DAGHeader, S, THeader: DAGHeader, T> {
     },
     SnapshotEC {
         snapshot: T,
-        ecg_state: dag::State<THeader, T>,
+        dag_state: dag::State<THeader, T>,
         // TODO: ECG DAG
     },
     SnapshotSC {
         snapshot: S,
-        ecg_state: dag::State<SHeader, S>,
+        dag_state: dag::State<SHeader, S>,
     },
 }
 

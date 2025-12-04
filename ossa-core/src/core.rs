@@ -338,7 +338,7 @@ impl<OT: OssaType> Ossa<OT> {
         // OT::ECGBody<T>:
         //     Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
         <<OT as OssaType>::ECGHeader as DAGHeader>::HeaderId: Send,
-        S: SCDT + for<'d> Deserialize<'d> + Send + 'static,
+        S: SCDT + Clone + for<'d> Deserialize<'d> + Send + 'static,
         T: CRDT<Time = OT::Time> + Clone + Debug + Send + 'static + for<'d> Deserialize<'d>,
         T::Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>,
     {
@@ -471,7 +471,7 @@ impl<OT: OssaType> Ossa<OT> {
         <<OT as OssaType>::SCGHeader as DAGHeader>::HeaderId:
             Sync + for<'d> Deserialize<'d> + Serialize,
         // T::Op<CausalTime<OT::Time>>: Serialize,
-        S: SCDT + for<'d> Deserialize<'d> + Send + 'static,
+        S: SCDT + Clone + for<'d> Deserialize<'d> + Send + 'static,
         T: CRDT<Time = OT::Time> + Debug + Clone + Send + 'static + for<'d> Deserialize<'d>,
     {
         // Initialize storage for this store.
