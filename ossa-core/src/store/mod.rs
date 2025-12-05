@@ -4,7 +4,7 @@ use ossa_typeable::Typeable;
 use rand::{seq::SliceRandom as _, thread_rng};
 use replace_with::replace_with_or_abort;
 use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::marker::PhantomData;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -44,10 +44,16 @@ pub use v0::{MetadataBody, MetadataHeader, Nonce};
 
 // TODO: Concretize StoreId to Sha256Hash.
 /// A typed reference to another store.
-#[derive(Serialize, Deserialize, Typeable)] // , PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Serialize, Deserialize, Typeable, Debug)] // , PartialEq, Eq, PartialOrd, Ord)]
 pub struct StoreRef<StoreId, S, C> {
     store_id: StoreId,
     phantom: PhantomData<fn(S, C)>,
+}
+
+impl<StoreId: Display, S, C> Display for StoreRef<StoreId, S, C> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.store_id.fmt(f)
+    }
 }
 
 impl<StoreId, S, C> StoreRef<StoreId, S, C> {

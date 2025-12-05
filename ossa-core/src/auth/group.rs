@@ -21,7 +21,7 @@ pub type GroupId = StoreRef<Sha256Hash, Group, ()>;
 // }
 
 /// Access control role for group members.
-#[derive(Serialize, Deserialize, Typeable, Clone)]
+#[derive(Serialize, Deserialize, Typeable, Clone, Copy, Debug, PartialEq)]
 pub enum Role {
     Relay,
     Read,
@@ -31,18 +31,18 @@ pub enum Role {
 }
 
 /// Member information like their permissions and the BFT round of their group or identity store.
-#[derive(Serialize, Deserialize, Typeable, Clone)]
+#[derive(Serialize, Deserialize, Typeable, Debug, Clone)]
 pub struct MemberInfo {
-    permissions: Role,
-    round: Round,
+    pub permissions: Role,
+    pub round: Round,
 }
 
 /// A Group is a set of members and subgroups.
-#[derive(Clone, Serialize, Deserialize, Typeable)]
+#[derive(Clone, Serialize, Deserialize, Typeable, Debug)]
 pub struct Group {
-    members: BTreeMap<IdentityId, MemberInfo>,
-    groups: BTreeMap<GroupId, MemberInfo>,
-    public: Option<Role>,
+    pub members: BTreeMap<IdentityId, MemberInfo>,
+    pub groups: BTreeMap<GroupId, MemberInfo>,
+    pub public: Option<Role>,
 }
 
 impl Group {
