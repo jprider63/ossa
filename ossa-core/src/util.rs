@@ -97,6 +97,7 @@ impl Hash for Sha256Hash {
 pub enum Sha256HashParseError {
     Base58(bs58::decode::Error),
     Hex(hex::FromHexError),
+    InvalidLength,
 }
 impl std::str::FromStr for Sha256Hash {
     type Err = Sha256HashParseError;
@@ -110,9 +111,12 @@ impl std::str::FromStr for Sha256Hash {
             // Parse as Hex.
             hex::decode_to_slice(s, &mut store_id).map_err(Sha256HashParseError::Hex)?;
         } else {
-            bs58::decode(s)
+            let len = bs58::decode(s)
                 .onto(&mut store_id)
                 .map_err(Sha256HashParseError::Base58)?;
+            if len != store_id.len() {
+                return Err(Sha256HashParseError::InvalidLength);
+            }
         }
         Ok(Sha256Hash(store_id))
     }
