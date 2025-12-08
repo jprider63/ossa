@@ -293,7 +293,7 @@ impl<
 
 impl<
     OT: OssaType,
-    S,
+    S: SCDT,
     T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>,
 > UseStore<OT, S, T>
 {
@@ -396,6 +396,17 @@ impl<
             parents: parent_header_ids,
             operations: vec![],
         }
+    }
+
+    /// Propose a strongly consistent state update.
+    pub fn propose_sc_update(&self, op: S::Op)
+    // pub fn propose_sc_update<F>(&self, op: F) -> OperationId<<OT::SCGHeader as DAGHeader>::HeaderId>
+    // where
+    //     F: FnOnce(
+    //         CausalTime<OT::Time>,
+    //     ) -> <T::Op as ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>>::Serialized,
+    {
+        todo!("Propose this operation");
     }
 }
 

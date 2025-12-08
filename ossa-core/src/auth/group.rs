@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{cmp::max, collections::BTreeMap};
 
 use ossa_typeable::Typeable;
 use serde::{Deserialize, Serialize};
@@ -62,21 +62,17 @@ impl Group {
 
 #[derive(Serialize, Deserialize)]
 pub enum GroupOp {
-    AddMember {
+    SetMemberAccess {
+        /// Member whose permissions we're updating.
         member: IdentityId,
-        permissions: Role,
+        /// If Role is None, remove the member.
+        permissions: Option<Role>,
+        /// Latest round of the member's SC identity store.
         round: Round,
-    },
-    RemoveMember {
-        member: IdentityId,
     },
     MemberUpdated {
         member: IdentityId,
         round: Round,
-    },
-    UpdateMember {
-        member: IdentityId,
-        permissions: Role,
     },
     // TODO: Update subgroup + public
 }
@@ -86,45 +82,41 @@ impl SCDT for Group {
 
     fn update(mut self, op: Self::Op) -> Self {
         match op {
-            GroupOp::AddMember {
+            GroupOp::SetMemberAccess {
                 member,
                 permissions,
                 round,
             } => {
-                let m = MemberInfo { permissions, round };
-                let _r = self.members.insert(member, m);
-                debug_assert!(_r.is_none(), "Member already existed.");
-            }
-            GroupOp::RemoveMember { member } => {
-                let _r = self.members.remove(&member);
-                debug_assert!(_r.is_some());
+                if let Some(permissions) = permissions {
+                    self.members.entry(member)
+                        .and_modify(|m| {
+                            m.round = max(round, m.round);
+                            m.permissions = permissions;
+                        })
+                        .or_insert(MemberInfo { permissions, round });
+                } else {
+                    let _old_member_info = self.members.remove(&member);
+                };
             }
             GroupOp::MemberUpdated { member, round } => {
                 if let Some(m) = self.members.get_mut(&member) {
-                    m.round = round;
-                } else {
-                    debug_assert!(false, "Member doesn't exist");
+                    m.round = max(round, m.round);
                 }
-            }
-            GroupOp::UpdateMember {
-                member,
-                permissions,
-            } => {
-                if let Some(m) = self.members.get_mut(&member) {
-                    m.permissions = permissions;
-                } else {
-                    debug_assert!(false, "Member doesn't exist");
-                }
+                // else {
+                //     debug_assert!(false, "Member doesn't exist");
+                // }
             }
         }
 
         self
     }
 
+    // JP: Is this actually needed? Remove it?
     fn is_valid_operation(self, op: Self::Op) -> bool {
         match op {
-            GroupOp::AddMember { member, .. } => !self.members.contains_key(&member),
-            GroupOp::RemoveMember { member } => self.members.contains_key(&member),
+            // GroupOp::AddMember { member, .. } => !self.members.contains_key(&member),
+            // GroupOp::RemoveMember { member } => self.members.contains_key(&member),
+            GroupOp::SetMemberAccess { .. } => { true }
             GroupOp::MemberUpdated { member, round } => {
                 if let Some(m) = self.members.get(&member) {
                     m.round <= round
@@ -132,7 +124,7 @@ impl SCDT for Group {
                     false
                 }
             }
-            GroupOp::UpdateMember { member, .. } => self.members.contains_key(&member),
+            // GroupOp::UpdateMember { member, .. } => self.members.contains_key(&member),
         }
     }
 }
