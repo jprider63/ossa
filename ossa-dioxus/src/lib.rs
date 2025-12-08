@@ -309,7 +309,7 @@ impl<
         self.ec_state.cloned().map(|s| s.state)
     }
 
-    pub fn get_current_store_state(&self) -> ReadableRef<Signal<Option<StoreState<OT::ECGHeader, T>>>> // Option<StoreState<OT, S, T>>> //  Option<StoreState<OT, S, T>>
+    pub fn get_current_store_ec_state(&self) -> ReadableRef<Signal<Option<StoreState<OT::ECGHeader, T>>>> // Option<StoreState<OT, S, T>>> //  Option<StoreState<OT, S, T>>
     // where
     //     T: Clone,
     //     <OT as OssaType>::ECGHeader: Clone,
@@ -320,7 +320,7 @@ impl<
     pub fn get_current_store_sc_state(&self) -> ReadableRef<Signal<Option<StoreState<OT::SCGHeader, S>>>> // Option<StoreState<OT, S, T>>> //  Option<StoreState<OT, S, T>>
     // where
     //     T: Clone,
-    //     <OT as OssaType>::ECGHeader: Clone,
+    //     <OT as OssaType>::ECGHeader: Clone,get_current_store_sc_state
     {
         self.sc_state.read()
     }
