@@ -5,8 +5,7 @@ use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    store::{bft::SCDT, StoreRef},
-    util::Sha256Hash,
+    store::{bft::SCDT, StoreRef}, time::ConcretizeTime, util::Sha256Hash
 };
 
 #[derive(Debug, Clone)]
@@ -104,6 +103,14 @@ pub enum IdentityOp {
         device: Device, // DeviceId?
         role: DeviceRole,
     },
+}
+
+impl<HeaderId> ConcretizeTime<HeaderId> for IdentityOp {
+    type Serialized = IdentityOp;
+
+    fn concretize_time(src: Self::Serialized, _current_header: HeaderId) -> Self {
+        src
+    }
 }
 
 impl SCDT for Identity {

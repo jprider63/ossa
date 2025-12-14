@@ -264,6 +264,7 @@ impl<OT: OssaType> Ossa<OT> {
     ) -> StoreHandle<OT, S, T>
     where
         S: SCDT + Serialize + Typeable + Clone + Send + for<'d> Deserialize<'d> + 'static,
+        S::Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>,
         T: CRDT<Time = OT::Time>
             + Clone
             + Debug
@@ -339,6 +340,7 @@ impl<OT: OssaType> Ossa<OT> {
         //     Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
         <<OT as OssaType>::ECGHeader as DAGHeader>::HeaderId: Send,
         S: SCDT + Clone + for<'d> Deserialize<'d> + Send + 'static,
+        S::Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>,
         T: CRDT<Time = OT::Time> + Clone + Debug + Send + 'static + for<'d> Deserialize<'d>,
         T::Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>,
     {
@@ -453,6 +455,7 @@ impl<OT: OssaType> Ossa<OT> {
     where
         OT::ECGHeader: Send + Sync + Clone + 'static + for<'d> Deserialize<'d> + Serialize,
         OT::SCGHeader: Sync + Debug + Clone + for<'d> Deserialize<'d> + Serialize,
+        S::Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>,
         T::Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>,
         OT::SCGBody<S>: for<'d> Deserialize<'d>,
         OT::ECGBody<T>: Send
@@ -658,7 +661,7 @@ pub trait OssaType: 'static {
         + Sync
         + Serialize
         + for<'a> Deserialize<'a>;
-    type SCGBody<S: SCDT>;
+    type SCGBody<S: SCDT<Op: ConcretizeTime<<Self::SCGHeader as DAGHeader>::HeaderId>>>; // : DAGBody<S::Op, <S::Op as ConcretizeTime<<Self::SCGHeader as DAGHeader>::HeaderId>>::Serialized, Header = Self::SCGHeader>;
     //   Serialize
     // + for<'a> Deserialize<'a>;
     type Time;
@@ -675,7 +678,7 @@ pub trait OssaType: 'static {
 
 impl<
         O: OssaType,
-        S,
+        S: SCDT<Op: ConcretizeTime<<O::SCGHeader as DAGHeader>::HeaderId>>,
         T: CRDT<Time = O::Time, Op: ConcretizeTime<<O::ECGHeader as DAGHeader>::HeaderId>>,
     > StoreHandle<O, S, T>
 // where
@@ -748,6 +751,48 @@ impl<
 
     pub fn store_id(&self) -> O::StoreId {
         self.store_id
+    }
+
+    /// Propose a strongly consistent update operation with the given parents.
+    pub fn propose(
+        &mut self,
+        parents: BTreeSet<<O::SCGHeader as DAGHeader>::HeaderId>,
+        op: S::Op,
+    ) -> <O::SCGHeader as DAGHeader>::HeaderId
+    where
+        <O as OssaType>::SCGBody<S>: DAGBody<S::Op, S::Op, Header = O::SCGHeader>
+    {
+        self.propose_batch(parents, vec![op])
+    }
+
+    /// Propose a batch of strongly consistent update operations with the given parents.
+    pub fn propose_batch(
+        &mut self,
+        parents: BTreeSet<<O::SCGHeader as DAGHeader>::HeaderId>,
+        op: Vec<S::Op>,
+    ) -> <O::SCGHeader as DAGHeader>::HeaderId 
+    where
+        <O as OssaType>::SCGBody<S>: DAGBody<S::Op, S::Op, Header = O::SCGHeader>
+    {
+        // TODO: Divide into 256 operation chunks.
+        // if op.is_empty() {
+        //     return vec![];
+        // }
+
+        // Create SCG header and body.
+        let body = <O::SCGBody<S> as DAGBody<_, _>>::new_body(op);
+        let header = body.new_header(parents);
+        let header_id = header.get_header_id();
+
+        todo!();
+        // self.send_command_chan
+        //     .send(StoreCommand::Apply {
+        //         operation_header: header,
+        //         operation_body: body,
+        //     })
+        //     .expect("TODO");
+
+        header_id
     }
 }
 

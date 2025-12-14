@@ -950,6 +950,7 @@ impl<
         OT: OssaType<SCGHeader = SHeader, ECGHeader = THeader>,
         S: SCDT,
         OT::SCGBody<S>: for<'d> Deserialize<'d>,
+        S::Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>,
     {
         // Mark peer as ready.
         self.update_outgoing_peer_scg_to_ready(&peer);
@@ -1196,7 +1197,10 @@ fn register_scg_operations<OT: OssaType, S: SCDT, T: CRDT>(
     decrypted_state: &mut DecryptedState<OT::SCGHeader, OT::ECGHeader, T>,
     scg_state: &dag::State<OT::SCGHeader, S>,
     operation_body: OT::SCGBody<S>,
-) -> () {
+) -> ()
+where
+    S::Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>,
+{
     todo!()
 }
 
@@ -1418,6 +1422,7 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
     shared_state: SharedState<OT::StoreId>,
 ) where
     // <<OT as OssaType>::ECGHeader as ECGHeader>::Body: ECGBody<T> + Send,
+    S::Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>,
     T::Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>,
     OT::SCGBody<S>: for<'d> Deserialize<'d>,
     OT::ECGBody<T>: Serialize

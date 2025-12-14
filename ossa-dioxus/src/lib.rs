@@ -57,7 +57,8 @@ impl OssaType for DefaultSetup {
     type ECGBody<T: CRDT<Op: ConcretizeTime<HeaderId<Sha256Hash>>>> =
         Body<Sha256Hash, <T::Op as ConcretizeTime<HeaderId<Sha256Hash>>>::Serialized>;
     type SCGHeader = Header<Sha256Hash>;
-    type SCGBody<S: SCDT> = Body<Sha256Hash, <S as SCDT>::Op>;
+    type SCGBody<S: SCDT<Op: ConcretizeTime<HeaderId<Sha256Hash>>>> =
+        Body<Sha256Hash, <S::Op as ConcretizeTime<HeaderId<Sha256Hash>>>::Serialized> ;
 
     type Time = OperationId<HeaderId<Sha256Hash>>;
 
@@ -138,7 +139,7 @@ impl<Header: Clone + dag::DAGHeader, A: Clone> Clone for StoreState<Header, A> {
 
 pub fn use_store<
     OT: OssaType + 'static,
-    S: 'static,
+    S: SCDT<Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>> + 'static,
     T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>,
     F,
 >(
@@ -155,7 +156,7 @@ where
 
 fn new_store_helper<
     OT: OssaType + 'static,
-    S,
+    S: SCDT<Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>>,
     T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>,
     F,
 >(
@@ -222,7 +223,7 @@ where
 
 pub fn new_store_in_scope<
     OT: OssaType + 'static,
-    S,
+    S: SCDT<Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>>,
     T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>,
     F,
 >(
@@ -250,7 +251,7 @@ pub struct OperationBuilder<
 const MAX_OPS: usize = 256; // TODO: This is already defined somewhere else?
 impl<
     OT: OssaType,
-    S,
+    S: SCDT<Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>>,
     T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>,
 > OperationBuilder<OT, S, T>
 {
@@ -331,6 +332,7 @@ impl<
         F: FnOnce(
             CausalTime<OT::Time>,
         ) -> <T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
+        S::Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>,
         T::Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>,
         OT::ECGBody<T>: DAGBody<
                 T::Op,
@@ -356,6 +358,7 @@ impl<
             CausalTime<OT::Time>,
         )
             -> <T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
+        S::Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>,
         T::Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>,
         OT::ECGBody<T>: DAGBody<
                 T::Op,
@@ -399,14 +402,26 @@ impl<
     }
 
     /// Propose a strongly consistent state update.
-    pub fn propose_sc_update(&self, op: S::Op)
+    pub fn propose_sc_update(&self, op: S::Op) -> <OT::SCGHeader as DAGHeader>::HeaderId
+    where
+        S::Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>,
+        OT::SCGBody<S>: DAGBody<S::Op, S::Op, Header = OT::SCGHeader>,
     // pub fn propose_sc_update<F>(&self, op: F) -> OperationId<<OT::SCGHeader as DAGHeader>::HeaderId>
     // where
     //     F: FnOnce(
     //         CausalTime<OT::Time>,
     //     ) -> <T::Op as ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>>::Serialized,
     {
-        todo!("Propose this operation");
+        // Get latest op tips. // JP: Or latest committed frontier? + our pending proposals?
+        let parent_header_ids = {
+            let cookbook_store_state = self.sc_state.peek();
+            let cookbook_store_state = cookbook_store_state.as_ref().expect("TODO");
+            cookbook_store_state.dag.tips().clone()
+        };
+
+        // Propose the new operation as pending.
+        let header_id = (*self.handle).borrow_mut().propose(parent_header_ids, op);
+        header_id
     }
 }
 

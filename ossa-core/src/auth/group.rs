@@ -4,12 +4,10 @@ use ossa_typeable::Typeable;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    auth::identity::IdentityId,
-    store::{
+    auth::identity::IdentityId, store::{
         bft::{Round, SCDT},
         StoreRef,
-    },
-    util::Sha256Hash,
+    }, time::ConcretizeTime, util::Sha256Hash
 };
 
 pub type GroupId = StoreRef<Sha256Hash, Group, ()>;
@@ -75,6 +73,14 @@ pub enum GroupOp {
         round: Round,
     },
     // TODO: Update subgroup + public
+}
+
+impl<HeaderId> ConcretizeTime<HeaderId> for GroupOp {
+    type Serialized = GroupOp;
+
+    fn concretize_time(src: Self::Serialized, _current_header: HeaderId) -> Self {
+        src
+    }
 }
 
 impl SCDT for Group {
