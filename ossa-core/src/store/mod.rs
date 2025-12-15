@@ -1400,7 +1400,7 @@ fn apply_operations<OT: OssaType, T>(
 /// its own tokio thread.
 pub(crate) async fn run_handler<OT: OssaType, S, T>(
     mut store: State<OT::StoreId, OT::SCGHeader, OT::ECGHeader, S, T, OT::Hash>,
-    mut recv_commands: UnboundedReceiver<StoreCommand<OT::SCGHeader, S, OT::ECGHeader, OT::ECGBody<T>, T>>,
+    mut recv_commands: UnboundedReceiver<StoreCommand<OT::SCGHeader, OT::SCGBody<S>, S, OT::ECGHeader, OT::ECGBody<T>, T>>,
     send_commands_untyped: UnboundedSender<
         UntypedStoreCommand<
             OT::Hash,
@@ -1424,7 +1424,7 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
     // <<OT as OssaType>::ECGHeader as ECGHeader>::Body: ECGBody<T> + Send,
     S::Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>,
     T::Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>,
-    OT::SCGBody<S>: for<'d> Deserialize<'d>,
+    OT::SCGBody<S>: Serialize + for<'d> Deserialize<'d>,
     OT::ECGBody<T>: Serialize
         + for<'d> Deserialize<'d>
         + Debug
@@ -1552,6 +1552,12 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
 
                         // Register this subscriber.
                         listeners.push(send_state);
+                    }
+                    StoreCommand::Propose {
+                        operation_header,
+                        operation_body,
+                    } => {
+                        store = handle_propose::<OT, S, T>(store, &mut listeners, operation_header, operation_body).await;
                     }
                 }
             }
@@ -1725,14 +1731,59 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
     debug!("Store thread exiting.");
 }
 
-pub(crate) enum StoreCommand<SHeader: DAGHeader, S, THeader: DAGHeader, Body, T> {
+pub(crate) async fn handle_propose<OT: OssaType, S, T>(
+    mut store: State<OT::StoreId, OT::SCGHeader, OT::ECGHeader, S, T, OT::Hash>,
+    listeners: &mut [UnboundedSender<StateUpdate<OT::SCGHeader, S, OT::ECGHeader, T>>],
+    operation_header: OT::SCGHeader,
+    operation_body: OT::SCGBody<S>,
+) -> State<OT::StoreId, OT::SCGHeader, OT::ECGHeader, S, T, OT::Hash>
+where
+    S: SCDT<Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>> + Clone,
+    T: CRDT,
+    OT::SCGHeader: Clone,
+    OT::SCGBody<S>: Serialize,
+{
+    store.state_machine = match store.state_machine {
+        StateMachine::Syncing { metadata, merkle_tree, initial_state, ecg_state, mut sc_state, decrypted_state } => {
+            // Update SCG state.
+            let serialized_operations = serde_cbor::to_vec(&operation_body).expect("TODO");
+            let success = sc_state.dag_state.insert_header(operation_header, serialized_operations);
+            if !success {
+                todo!("Invalid header");
+            }
+
+            warn!("TODO: Vote for our own updates");
+
+            // Send state to subscribers.
+            update_sc_listeners(
+                listeners,
+                &sc_state.initial_state,
+                &sc_state.dag_state,
+            );
+
+            StateMachine::Syncing { metadata, merkle_tree, initial_state, ecg_state, sc_state, decrypted_state }
+        }
+        _ => {
+            warn!("JP: Does this ever happen?");
+            store.state_machine
+        }
+    };
+    store
+}
+
+pub(crate) enum StoreCommand<SHeader: DAGHeader, SBody, S, THeader: DAGHeader, TBody, T> {
     Apply {
         operation_header: THeader, // <Hash, T>,
-        operation_body: Body,     // <Hash, T>,
+        operation_body: TBody,     // <Hash, T>,
     },
     // TODO: Support unsubscribe.
     SubscribeState {
         send_state: UnboundedSender<StateUpdate<SHeader, S, THeader, T>>,
+    },
+    /// Propose a SC operation.
+    Propose {
+        operation_header: SHeader, // <Hash, T>,
+        operation_body: SBody,     // <Hash, T>,
     },
 }
 

@@ -73,7 +73,7 @@ impl OssaType for DefaultSetup {
 
 pub struct UseStore<
     OT: OssaType + 'static,
-    S: 'static,
+    S: SCDT<Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>> + 'static,
     T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>> + 'static,
 > {
     future: Task,
@@ -96,7 +96,7 @@ pub struct UseStore<
 
 impl<
     OT: OssaType + 'static,
-    S,
+    S: SCDT<Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>>,
     T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>,
 > Clone for UseStore<OT, S, T>
 {
@@ -240,7 +240,7 @@ where
 
 pub struct OperationBuilder<
     OT: OssaType,
-    S,
+    S: SCDT<Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>>,
     T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>,
 > {
     handle: Rc<RefCell<StoreHandle<OT, S, T>>>,
@@ -294,7 +294,7 @@ impl<
 
 impl<
     OT: OssaType,
-    S: SCDT,
+    S: SCDT<Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>>,
     T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>,
 > UseStore<OT, S, T>
 {

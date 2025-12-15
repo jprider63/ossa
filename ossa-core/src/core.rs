@@ -283,7 +283,9 @@ impl<OT: OssaType> Ossa<OT> {
                 <T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
                 Header = OT::ECGHeader,
             >,
-        OT::SCGBody<S>: for<'d> Deserialize<'d>,
+        OT::SCGBody<S>: Send
+            + Serialize
+            + for<'d> Deserialize<'d>,
         OT::ECGHeader: Clone,
         OT::SCGHeader: Clone,
     {
@@ -334,7 +336,9 @@ impl<OT: OssaType> Ossa<OT> {
                 <T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
                 Header = OT::ECGHeader,
             >,
-        OT::SCGBody<S>: for<'d> Deserialize<'d>,
+        OT::SCGBody<S>: Send
+            + Serialize
+            + for<'d> Deserialize<'d>,
         // T::Op: ConcretizeTime<T::Time>,
         // OT::ECGBody<T>:
         //     Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
@@ -457,7 +461,7 @@ impl<OT: OssaType> Ossa<OT> {
         OT::SCGHeader: Sync + Debug + Clone + for<'d> Deserialize<'d> + Serialize,
         S::Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>,
         T::Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>,
-        OT::SCGBody<S>: for<'d> Deserialize<'d>,
+        OT::SCGBody<S>: Send + Serialize + for<'d> Deserialize<'d>,
         OT::ECGBody<T>: Send
             + Serialize
             + for<'d> Deserialize<'d>
@@ -481,7 +485,7 @@ impl<OT: OssaType> Ossa<OT> {
 
         // Create channels to handle requests and send updates.
         let (send_commands, recv_commands) = tokio::sync::mpsc::unbounded_channel::<
-            store::StoreCommand<OT::SCGHeader, S, OT::ECGHeader, OT::ECGBody<T>, T>,
+            store::StoreCommand<OT::SCGHeader, OT::SCGBody<S>, S, OT::ECGHeader, OT::ECGBody<T>, T>,
         >();
         let (send_commands_untyped, recv_commands_untyped) = tokio::sync::mpsc::unbounded_channel::<
             store::UntypedStoreCommand<
@@ -595,7 +599,7 @@ pub struct OssaConfig {
 
 pub struct StoreHandle<
     O: OssaType,
-    S,
+    S: SCDT<Op: ConcretizeTime<<O::SCGHeader as DAGHeader>::HeaderId>>,
     T: CRDT<Time = O::Time, Op: ConcretizeTime<<O::ECGHeader as DAGHeader>::HeaderId>>,
 >
 // where
@@ -603,7 +607,7 @@ pub struct StoreHandle<
 //     T::Op<CausalTime<OT::Time>>: Serialize,
 {
     // future_handle: JoinHandle<()>, // JP: Maybe this should be owned by `Ossa`?
-    send_command_chan: UnboundedSender<StoreCommand<O::SCGHeader, S, O::ECGHeader, O::ECGBody<T>, T>>,
+    send_command_chan: UnboundedSender<StoreCommand<O::SCGHeader, O::SCGBody<S>, S, O::ECGHeader, O::ECGBody<T>, T>>,
     store_id: O::StoreId,
     phantom: PhantomData<fn(O, S)>,
 }
@@ -612,6 +616,7 @@ pub struct StoreHandle<
 impl<O, S, T> Clone for StoreHandle<O, S, T>
 where
     O: OssaType,
+    S: SCDT<Op: ConcretizeTime<<O::SCGHeader as DAGHeader>::HeaderId>>,
     T: CRDT<Time = O::Time, Op: ConcretizeTime<<O::ECGHeader as DAGHeader>::HeaderId>>,
 {
     fn clone(&self) -> Self {
@@ -784,13 +789,12 @@ impl<
         let header = body.new_header(parents);
         let header_id = header.get_header_id();
 
-        todo!();
-        // self.send_command_chan
-        //     .send(StoreCommand::Apply {
-        //         operation_header: header,
-        //         operation_body: body,
-        //     })
-        //     .expect("TODO");
+        self.send_command_chan
+            .send(StoreCommand::Propose {
+                operation_header: header,
+                operation_body: body,
+            })
+            .expect("TODO");
 
         header_id
     }
