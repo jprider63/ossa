@@ -101,6 +101,9 @@ impl<Header> NodeInfo<Header> {
     }
 }
 
+/// A frontier of header id's for a graph.
+pub type Frontier<A> = BTreeSet<A>;
+
 #[derive(Clone, Debug)]
 pub struct UntypedState<HeaderId, Header> {
     dependency_graph: StableDag<HeaderId, ()>, // JP: Hold the operations? Depth? Do we need StableDag?
@@ -113,11 +116,11 @@ pub struct UntypedState<HeaderId, Header> {
 
     /// Tips of the ECG (hashes of their headers).
     /// Invariant: All of these headers are in `node_info_map`.
-    tips: BTreeSet<HeaderId>,
+    tips: Frontier<HeaderId>,
 }
 
 impl<HeaderId, Header> UntypedState<HeaderId, Header> {
-    pub fn tips(&self) -> &BTreeSet<HeaderId> {
+    pub fn tips(&self) -> &Frontier<HeaderId> {
         &self.tips
     }
 

@@ -986,7 +986,14 @@ impl<
             }
         });
 
-        todo!("TODO: Update SCG listeners");
+        // Update listeners (except peer).
+        update_sc_listeners(
+            &mut self.scg_subscribers,
+            listeners,
+            &sc_state.initial_state,
+            &sc_state.dag_state,
+            Some(peer),
+        );
     }
 
     fn handle_received_ecg_operations<OT>(
@@ -1170,9 +1177,11 @@ impl<
             unreachable!("We just set our state to syncing")
         };
         update_sc_listeners(
+            &mut self.scg_subscribers,
             listeners,
             &sc_state.initial_state,
             &sc_state.dag_state,
+            Some(peer),
         );
         update_ec_listeners(
             &mut self.ecg_subscribers,
@@ -1201,13 +1210,18 @@ fn register_scg_operations<OT: OssaType, S: SCDT, T: CRDT>(
 where
     S::Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>,
 {
-    todo!()
+    warn!("TODO: Is there anything we need to do here? Some sort of validation of operations? Cache pending operations?");
 }
 
-fn update_sc_listeners<SHeader: dag::DAGHeader + Clone, S: Clone, THeader: dag::DAGHeader, T>(
+fn update_sc_listeners<SHeader: dag::DAGHeader + Clone + Debug, S: Clone, THeader: dag::DAGHeader, T>(
+    scg_subscribers: &mut BTreeMap<
+        DeviceId,
+        oneshot::Sender<dag::UntypedState<SHeader::HeaderId, SHeader>>,
+    >,
     listeners: &[UnboundedSender<StateUpdate<SHeader, S, THeader, T>>],
     latest_state: &S,
     dag_state: &dag::State<SHeader, S>,
+    from_peer: Option<DeviceId>,
 ) {
     for l in listeners {
         let snapshot: StateUpdate<SHeader, S, THeader, T> = StateUpdate::SnapshotSC {
@@ -1215,6 +1229,20 @@ fn update_sc_listeners<SHeader: dag::DAGHeader + Clone, S: Clone, THeader: dag::
             dag_state: dag_state.clone(),
         };
         l.send(snapshot).expect("TODO");
+    }
+
+    // Send updated state to one-time subscribers.
+    // warn!("TODO: Do we always want to update SCG subscribers here? Ex: We may not want to when transitioning from downloading to syncing"); JP: Maybe this is ok since our peer_store won't have anything to share and will resubscribe.
+    let subs = std::mem::take(scg_subscribers);
+    for (sub_peer, sub) in subs {
+        // Skip notifying subscriber if they told us about this update.
+        if Some(sub_peer) != from_peer {
+            sub.send(dag_state.state.clone()).expect("TODO");
+        } else {
+            warn!("TODO: Add headers that they sent us to their_known.");
+            // Need to add back subscriber.
+            scg_subscribers.insert(sub_peer, sub);
+        }
     }
 }
 
@@ -1756,9 +1784,11 @@ where
 
             // Send state to subscribers.
             update_sc_listeners(
+                &mut store.scg_subscribers,
                 listeners,
                 &sc_state.initial_state,
                 &sc_state.dag_state,
+                None,
             );
 
             StateMachine::Syncing { metadata, merkle_tree, initial_state, ecg_state, sc_state, decrypted_state }

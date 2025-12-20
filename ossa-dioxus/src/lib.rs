@@ -9,6 +9,7 @@ use tracing::debug;
 
 use std::cell::RefCell;
 use std::collections::BTreeSet;
+use std::fmt::Debug;
 use std::panic::Location;
 use std::rc::Rc;
 
@@ -139,7 +140,7 @@ impl<Header: Clone + dag::DAGHeader, A: Clone> Clone for StoreState<Header, A> {
 
 pub fn use_store<
     OT: OssaType + 'static,
-    S: SCDT<Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>> + 'static,
+    S: SCDT<Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>> + Debug + 'static,
     T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>,
     F,
 >(
@@ -156,7 +157,7 @@ where
 
 fn new_store_helper<
     OT: OssaType + 'static,
-    S: SCDT<Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>>,
+    S: SCDT<Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>> + Debug,
     T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>,
     F,
 >(
@@ -195,7 +196,7 @@ where
                     ec_state.set(None);
                 }
                 StateUpdate::SnapshotSC { snapshot, dag_state } => {
-                    debug!("Received EC state!");
+                    debug!("Received SC state: {dag_state:?}");
                     let s = StoreState {
                         state: snapshot,
                         dag: dag_state,
@@ -223,7 +224,7 @@ where
 
 pub fn new_store_in_scope<
     OT: OssaType + 'static,
-    S: SCDT<Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>>,
+    S: SCDT<Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>> + Debug,
     T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>,
     F,
 >(

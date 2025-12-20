@@ -1,4 +1,6 @@
-use crate::store::dag;
+use std::collections::BTreeSet;
+
+use crate::store::dag::{self, Frontier};
 
 /// A round in the BFT strong consistency protocol.
 pub type Round = u64;
@@ -9,12 +11,14 @@ pub trait SCDT {
 
     fn update(self, op: Self::Op) -> Self;
 
-    fn is_valid_operation(self, op: Self::Op) -> bool;
+    fn is_valid_operation(&self, op: Self::Op) -> bool;
 }
 
 pub(crate) struct State<Header: dag::DAGHeader, S> {
     pub(crate) initial_state: S, // JP: Should this go somewhere else? Potentially `DecryptedState`?
     pub(crate) dag_state: dag::State<Header, S>,
+    /// Frontier of operations that have been comitted in the DAG state.
+    pub(crate) committed_frontier: Frontier<Header::HeaderId>,
 }
 
 impl<Header: dag::DAGHeader, S> State<Header, S> {
@@ -22,6 +26,7 @@ impl<Header: dag::DAGHeader, S> State<Header, S> {
         Self {
             initial_state,
             dag_state: dag::State::new(),
+            committed_frontier: BTreeSet::new(),
         }
     }
 }

@@ -138,6 +138,7 @@ where
         mut stream: S,
     ) -> impl Future<Output = ()> + Send {
         async move {
+            debug!("StoreDAGSync server running!");
             let mut dag_sync: Option<ECGSyncInitiator<Hash, SHeaderId, SHeader>> = None;
 
             let mut recv_chan = self
@@ -187,6 +188,7 @@ where
         mut stream: S,
     ) -> impl Future<Output = ()> + Send {
         async move {
+            debug!("StoreDAGSync client running!");
             let mut dag_sync: Option<ECGSyncResponder<Hash, SHeaderId, SHeader>> = None;
 
             // TODO: Check when done.

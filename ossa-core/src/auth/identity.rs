@@ -126,7 +126,7 @@ impl SCDT for Identity {
         self
     }
 
-    fn is_valid_operation(self, op: Self::Op) -> bool {
+    fn is_valid_operation(&self, op: Self::Op) -> bool {
         match op {
             IdentityOp::AddDevice { keys, role: _ } => !self.devices.contains_key(&keys),
             IdentityOp::RemoveDevice { device } => self.devices.contains_key(&device),

@@ -118,7 +118,7 @@ impl SCDT for Group {
     }
 
     // JP: Is this actually needed? Remove it?
-    fn is_valid_operation(self, op: Self::Op) -> bool {
+    fn is_valid_operation(&self, op: Self::Op) -> bool {
         match op {
             // GroupOp::AddMember { member, .. } => !self.members.contains_key(&member),
             // GroupOp::RemoveMember { member } => self.members.contains_key(&member),
