@@ -81,13 +81,13 @@ pub(crate) enum MsgDAGSyncRequest<HeaderId> {
 pub(crate) enum MsgDAGSyncResponse<HeaderId, Header> {
     Response {
         have: Vec<HeaderId>,
-        operations: Vec<(Header, RawDAGBody)>, // ECG headers and serialized ECG body.
+        operations: Vec<(Header, RawDAGBody)>, // DAG headers and serialized DAG body.
     },
     Wait, // JP: Use StoreSyncResponse?
 }
 
 // Has initiative
-pub(crate) struct ECGSyncInitiator<Hash, HeaderId, Header> {
+pub(crate) struct DAGSyncInitiator<Hash, HeaderId, Header> {
     have: Vec<HeaderId>,
     phantom: PhantomData<fn(Hash, HeaderId, Header)>,
 }
@@ -96,7 +96,7 @@ impl<
         Hash: Send + Sync,
         HeaderId: Clone + Debug + Ord + Send + Sync,
         Header: Debug + Send + Sync,
-    > ECGSyncInitiator<Hash, HeaderId, Header>
+    > DAGSyncInitiator<Hash, HeaderId, Header>
 {
     async fn receive_response_helper<S: Stream<Msg>, Msg>(
         stream: &mut S,
@@ -125,7 +125,7 @@ impl<
     // TODO: Eventually take an Arc<RWLock>
     pub(crate) async fn run_new<S: Stream<Msg>, Msg>(
         stream: &mut S,
-        ecg_state: &dag::UntypedState<HeaderId, Header>,
+        dag_state: &dag::UntypedState<HeaderId, Header>,
     ) -> (Self, Vec<(Header, RawDAGBody)>)
     where
         MsgDAGSyncRequest<HeaderId>: Into<Msg>,
@@ -134,26 +134,26 @@ impl<
         // TODO: Limit on tips (128? 64? 32? MAX_HAVE_HEADERS)
         warn!("TODO: Check request sizes.");
         let req = MsgDAGSyncRequest::DAGInitialSync {
-            tips: ecg_state.tips().iter().cloned().collect(),
+            tips: dag_state.tips().iter().cloned().collect(),
         };
         send(stream, req).await.expect("TODO");
 
         // Receive response.
         let (have, operations) = Self::receive_response_helper(stream).await;
 
-        let ecg_sync = ECGSyncInitiator {
+        let dag_sync = DAGSyncInitiator {
             have,
             phantom: PhantomData,
         };
 
-        (ecg_sync, operations)
+        (dag_sync, operations)
     }
 
     /// Run a round of ECG sync, requesting new operations from peer.
     pub(crate) async fn run_round<S: Stream<Msg>, Msg>(
         &mut self,
         stream: &mut S,
-        ecg_state: &dag::UntypedState<HeaderId, Header>,
+        dag_state: &dag::UntypedState<HeaderId, Header>,
     ) -> Vec<(Header, RawDAGBody)>
     where
         MsgDAGSyncRequest<HeaderId>: Into<Msg>,
@@ -162,7 +162,7 @@ impl<
         // Check which headers they sent us that we know.
         let mut known_bitmap = BitArray::ZERO;
         for (i, header_id) in self.have.iter().enumerate() {
-            if ecg_state.contains(header_id) {
+            if dag_state.contains(header_id) {
                 // Respond with which headers we know.
                 known_bitmap.set(i, true);
             }
@@ -171,7 +171,7 @@ impl<
         // TODO: Limit on tips (128? 64? 32? MAX_HAVE_HEADERS)
         warn!("TODO: Check request sizes.");
         let req = MsgDAGSyncRequest::DAGSync {
-            tips: ecg_state.tips().iter().cloned().collect(),
+            tips: dag_state.tips().iter().cloned().collect(),
             known: known_bitmap,
         };
         send(stream, req).await.expect("TODO");
@@ -186,7 +186,7 @@ impl<
 }
 
 // Responder
-pub(crate) struct ECGSyncResponder<Hash, HeaderId, Header> {
+pub(crate) struct DAGSyncResponder<Hash, HeaderId, Header> {
     pub(crate) their_known: BTreeSet<HeaderId>,
     pub(crate) our_unknown: BTreeSet<HeaderId>,
     pub(crate) send_queue: BinaryHeap<(Reverse<u64>, HeaderId)>,
@@ -218,7 +218,7 @@ pub(crate) fn mark_as_known_helper<HeaderId, Header>(
     }
 }
 
-impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
+impl<Hash, HeaderId, Header> DAGSyncResponder<Hash, HeaderId, Header> {
     fn they_know(&self, header_id: &HeaderId) -> bool
     where
         HeaderId: Copy + Ord,
@@ -245,7 +245,7 @@ impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
     where
         HeaderId: std::cmp::Ord,
     {
-        ECGSyncResponder {
+        DAGSyncResponder {
             their_known: BTreeSet::new(),
             send_queue: BinaryHeap::new(),
             our_unknown: BTreeSet::new(),
@@ -536,7 +536,7 @@ impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
 pub(crate) trait DAGStateSubscriber<Hash, HeaderId, Header> {
     async fn request_dag_state(
         &self,
-        responder: &mut ECGSyncResponder<Hash, HeaderId, Header>,
+        responder: &mut DAGSyncResponder<Hash, HeaderId, Header>,
         tips: Option<BTreeSet<HeaderId>>,
     ) -> dag::UntypedState<HeaderId, Header>;
 }

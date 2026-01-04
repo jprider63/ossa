@@ -6,16 +6,15 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot;
 use tracing::debug;
 
-use crate::protocol::store_peer::ecg_sync::{DAGStateSubscriber, MsgDAGSyncResponse};
+use crate::protocol::store_peer::dag_sync::{DAGStateSubscriber, MsgDAGSyncResponse};
 use crate::store::dag;
 use crate::{
     auth::DeviceId,
     network::protocol::{receive, MiniProtocol},
     protocol::store_peer::{
-        ecg_sync::{ECGSyncInitiator, ECGSyncResponder, MsgDAGSyncRequest},
-        v0::{MsgStoreSync, MsgStoreSyncRequest},
+        dag_sync::{DAGSyncInitiator, DAGSyncResponder, MsgDAGSyncRequest},
     },
-    store::{dag::v0::HeaderId, UntypedStoreCommand},
+    store::UntypedStoreCommand,
 };
 
 /// Miniprotocol to sync the DAG in the strongly consistent BFT consensus protocol.
@@ -139,7 +138,7 @@ where
     ) -> impl Future<Output = ()> + Send {
         async move {
             debug!("StoreDAGSync server running!");
-            let mut dag_sync: Option<ECGSyncInitiator<Hash, SHeaderId, SHeader>> = None;
+            let mut dag_sync: Option<DAGSyncInitiator<Hash, SHeaderId, SHeader>> = None;
 
             let mut recv_chan = self
                 .recv_chan
@@ -153,7 +152,7 @@ where
 
                                 // JP: Eventually switch ecg_state to an Arc<RWLock>?
                                 let (new_dag_sync, operations) =
-                                    ECGSyncInitiator::<Hash, SHeaderId, SHeader>::run_new(
+                                    DAGSyncInitiator::<Hash, SHeaderId, SHeader>::run_new(
                                         &mut stream,
                                         &dag_state,
                                     )
@@ -189,7 +188,7 @@ where
     ) -> impl Future<Output = ()> + Send {
         async move {
             debug!("StoreDAGSync client running!");
-            let mut dag_sync: Option<ECGSyncResponder<Hash, SHeaderId, SHeader>> = None;
+            let mut dag_sync: Option<DAGSyncResponder<Hash, SHeaderId, SHeader>> = None;
 
             // TODO: Check when done.
             loop {
@@ -203,7 +202,7 @@ where
                             todo!("TODO: Error, SCG sync has already been initialized.");
                         }
 
-                        let mut dag_sync_ = ECGSyncResponder::new();
+                        let mut dag_sync_ = DAGSyncResponder::new();
 
                         let scg_state = self.request_dag_state(&mut dag_sync_, None).await;
 
@@ -236,7 +235,7 @@ where
 {
     async fn request_dag_state(
         &self,
-        responder: &mut ECGSyncResponder<Hash, SHeaderId, SHeader>,
+        responder: &mut DAGSyncResponder<Hash, SHeaderId, SHeader>,
         tips: Option<BTreeSet<SHeaderId>>,
     ) -> dag::UntypedState<SHeaderId, SHeader> {
         debug!("Requesting SCG state");

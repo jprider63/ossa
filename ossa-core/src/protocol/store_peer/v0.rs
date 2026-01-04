@@ -10,8 +10,8 @@ use tracing::debug;
 use crate::{
     auth::DeviceId,
     network::protocol::{receive, send, MiniProtocol},
-    protocol::store_peer::ecg_sync::{
-        DAGStateSubscriber, ECGSyncInitiator, ECGSyncResponder, MsgDAGSyncRequest,
+    protocol::store_peer::dag_sync::{
+        DAGStateSubscriber, DAGSyncInitiator, DAGSyncResponder, MsgDAGSyncRequest,
         MsgDAGSyncResponse,
     },
     store::{self, dag, HandlePeerRequest, UntypedStoreCommand},
@@ -199,7 +199,7 @@ where
 {
     async fn request_dag_state(
         &self,
-        responder: &mut ECGSyncResponder<Hash, THeaderId, THeader>,
+        responder: &mut DAGSyncResponder<Hash, THeaderId, THeader>,
         tips: Option<BTreeSet<THeaderId>>,
     ) -> dag::UntypedState<THeaderId, THeader> {
         debug!("Requesting ECG state");
@@ -356,7 +356,7 @@ impl<
         mut stream: S,
     ) -> impl Future<Output = ()> + Send {
         async move {
-            let mut ecg_sync: Option<ECGSyncInitiator<Hash, THeaderId, THeader>> = None;
+            let mut ecg_sync: Option<DAGSyncInitiator<Hash, THeaderId, THeader>> = None;
 
             // Wait for command from store.
             let mut recv_chan = self
@@ -465,7 +465,7 @@ impl<
 
                                 // JP: Eventually switch ecg_state to an Arc<RWLock>?
                                 let (new_ecg_sync, operations) =
-                                    ECGSyncInitiator::run_new(&mut stream, &ecg_state).await;
+                                    DAGSyncInitiator::run_new(&mut stream, &ecg_state).await;
                                 ecg_sync = Some(new_ecg_sync);
                                 operations
                             }
@@ -506,7 +506,7 @@ impl<
         mut stream: S,
     ) -> impl Future<Output = ()> + Send {
         async move {
-            let mut ecg_sync: Option<ECGSyncResponder<Hash, THeaderId, THeader>> = None;
+            let mut ecg_sync: Option<DAGSyncResponder<Hash, THeaderId, THeader>> = None;
 
             // TODO: Check when done.
             loop {
@@ -567,7 +567,7 @@ impl<
                                 todo!("TODO: Error, ECG sync has already been initialized.");
                             }
 
-                            let mut ecg_sync_ = ECGSyncResponder::new();
+                            let mut ecg_sync_ = DAGSyncResponder::new();
 
                             let ecg_state = self.request_dag_state(&mut ecg_sync_, None).await;
 

@@ -1,2 +1,2 @@
-pub mod ecg_sync;
+pub mod dag_sync;
 pub mod v0;

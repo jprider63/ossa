@@ -158,10 +158,11 @@ impl<
                             debug!("Manager command channel closed.");
                             // TODO: Do something here?
                         }
-                        Some(PeerManagerCommand::RequestStoreSync { store_id, spawn_task_ec, spawn_task_sc }) => {
+                        Some(PeerManagerCommand::RequestStoreSync { store_id, spawn_task_ec, spawn_task_sc, spawn_task_bft }) => {
                             let ec_stream_id = self.next_stream_id();
                             let sc_stream_id = self.next_stream_id();
-                            let _response = self.run_request_new_stream_server(&mut stream, store_id, ec_stream_id, spawn_task_ec, sc_stream_id, spawn_task_sc).await;
+                            let bft_stream_id = self.next_stream_id();
+                            let _response = self.run_request_new_stream_server(&mut stream, store_id, ec_stream_id, spawn_task_ec, sc_stream_id, spawn_task_sc, bft_stream_id, spawn_task_bft).await;
                             debug!("Requested to sync store with peer.");
                         }
                     }
@@ -201,6 +202,7 @@ impl<
                     store_id,
                     ec_stream_id,
                     sc_stream_id,
+                    bft_stream_id,
                 } => {
                     debug!(
                         "Received MsgManagerRequest::CreateStoreStream: {ec_stream_id}, {store_id:?}"
@@ -210,6 +212,7 @@ impl<
                         store_id,
                         ec_stream_id,
                         sc_stream_id,
+                        bft_stream_id,
                     )
                     .await;
                 }
@@ -247,6 +250,7 @@ impl<
         store_id: StoreId,
         ec_stream_id: StreamId,
         sc_stream_id: StreamId,
+        bft_stream_id: StreamId,
     ) {
         let accept = {
             // Check if stream is valid (it can be allocated by peer and is available).
@@ -273,7 +277,7 @@ impl<
                         .expect("TODO");
 
                     let spawn_task = rx.await.expect("TODO");
-                    if let Some((ec_spawn_task, sc_spawn_task)) = spawn_task {
+                    if let Some((ec_spawn_task, sc_spawn_task, bft_spawn_task)) = spawn_task {
                         // Tell multiplexer to create EC miniprotocol.
                         let is_running_ec = self
                             .create_multiplexer_stream(ec_stream_id, ec_spawn_task)
@@ -285,15 +289,29 @@ impl<
                                 .create_multiplexer_stream(sc_stream_id, sc_spawn_task)
                                 .await;
 
-                            if !is_running_sc {
+                            if is_running_sc {
+                                // Tell multiplexer to create BFT miniprotocol.
+                                let is_running_bft = self
+                                    .create_multiplexer_stream(bft_stream_id, bft_spawn_task)
+                                    .await;
+                                if !is_running_bft {
+                                    error!(
+                                        "Failed to create miniprotocol stream to sync BFT store."
+                                    );
+                                    panic!("TODO: Shutdown EC+SC miniprotocol...");
+                                }
+
+                                Ok(is_running_bft)
+                            } else {
                                 error!(
                                     "Failed to create miniprotocol stream to strongly sync store."
                                 );
                                 panic!("TODO: Shutdown EC miniprotocol...");
                             }
-
-                            Ok(is_running_sc)
                         } else {
+                            error!(
+                                "Failed to create miniprotocol stream to weakly sync store."
+                            );
                             Ok(false)
                         }
                     } else {
@@ -321,12 +339,15 @@ impl<
         ec_spawn_task: Box<SpawnMultiplexerTask>,
         sc_stream_id: StreamId,
         sc_spawn_task: Box<SpawnMultiplexerTask>,
+        bft_stream_id: StreamId,
+        bft_spawn_task: Box<SpawnMultiplexerTask>,
     ) {
         // Send request message.
         let req = MsgManagerRequest::CreateStoreStream {
             store_id,
             ec_stream_id,
             sc_stream_id,
+            bft_stream_id,
         };
         send(stream, req).await.expect("TODO");
 
@@ -362,6 +383,18 @@ impl<
 
                 if !is_running {
                     error!("Failed to create miniprotocol stream to sync SCG store.");
+                    panic!(
+                        "TODO: Send shutdown for this miniprotocol and restore status to Known."
+                    );
+                }
+
+                // Tell multiplexer to create BFT miniprotocol.
+                let is_running = self
+                    .create_multiplexer_stream(bft_stream_id, bft_spawn_task)
+                    .await;
+
+                if !is_running {
+                    error!("Failed to create miniprotocol stream to sync BFT store.");
                     panic!(
                         "TODO: Send shutdown for this miniprotocol and restore status to Known."
                     );
@@ -544,6 +577,8 @@ pub(crate) enum MsgManagerRequest<StoreId> {
         ec_stream_id: StreamId,
         /// Strongly consistent stream id.
         sc_stream_id: StreamId,
+        /// BFT stream id.
+        bft_stream_id: StreamId,
     },
 }
 
@@ -623,5 +658,6 @@ pub(crate) enum PeerManagerCommand<StoreId> {
         store_id: StoreId,
         spawn_task_ec: Box<SpawnMultiplexerTask>,
         spawn_task_sc: Box<SpawnMultiplexerTask>,
+        spawn_task_bft: Box<SpawnMultiplexerTask>,
     },
 }

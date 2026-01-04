@@ -1390,12 +1390,19 @@ async fn manage_peers<OT: OssaType, S: Clone, T: CRDT<Time = OT::Time> + Clone +
             })
         });
 
+        let spawn_task_bft = Box::new(move |_party, stream_id, sender, receiver| {
+            tokio::spawn(async move {
+                unimplemented!();
+            })
+        });
+
         // Send request to peer's manager for stream.
         let store_id = store.store_id();
         let cmd = PeerManagerCommand::RequestStoreSync {
             store_id,
             spawn_task_ec,
             spawn_task_sc,
+            spawn_task_bft,
         };
         command_chan.send(cmd).expect("TODO");
     }
@@ -1650,6 +1657,7 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
                                             debug!("Store ECG sync with peer (without initiative) exited.")
                                         })
                                     });
+
                                     let send_commands_untyped = send_commands_untyped.clone();
                                     let spawn_task_sc: Box<SpawnMultiplexerTask> = Box::new(move |party, stream_id, sender, receiver| {
                                         tokio::spawn(async move {
@@ -1666,7 +1674,13 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
                                             debug!("Store SCG sync with peer (without initiative) exited.")
                                         })
                                     });
-                                    Some((spawn_task_ec, spawn_task_sc))
+
+                                    let spawn_task_bft: Box<SpawnMultiplexerTask> = Box::new(move |party, stream_id, sender, receiver| {
+                                        tokio::spawn(async move {
+                                            unimplemented!();
+                                        })
+                                    });
+                                    Some((spawn_task_ec, spawn_task_sc, spawn_task_bft))
                                 } else {
                                     debug!("Store is already running");
                                     None
@@ -1852,7 +1866,7 @@ pub(crate) enum UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader
     SyncWithPeer {
         peer: DeviceId,
         response_chan:
-            oneshot::Sender<Option<(Box<SpawnMultiplexerTask>, Box<SpawnMultiplexerTask>)>>,
+            oneshot::Sender<Option<(Box<SpawnMultiplexerTask>, Box<SpawnMultiplexerTask>, Box<SpawnMultiplexerTask>)>>,
     },
     RegisterOutgoingPeerECGSyncing {
         peer: DeviceId,

@@ -50,7 +50,7 @@ pub(crate) struct RoundState<SHeader: dag::DAGHeader> {
     commit_round: ThresholdSigned<RoundComplete>,
 }
 
-pub(crate) struct BlockId(); // TODO: sha256
+pub(crate) struct BlockId(Sha256Hash);
 
 // A BFT block points to the tips of the DAG and the previous round's certificates.
 pub(crate) struct Block<SHeader: dag::DAGHeader> {
@@ -66,7 +66,7 @@ pub(crate) struct Block<SHeader: dag::DAGHeader> {
 pub(crate) struct ThresholdSignature(); // TODO
 pub(crate) struct PartialSignature(); // TODO
 
-pub(crate) struct CertificateId(); // TODO: sha256
+pub(crate) struct CertificateId(Sha256Hash);
 
 pub(crate) struct Certificate {
     // The block's id (hash).
