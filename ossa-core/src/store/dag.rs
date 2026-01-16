@@ -2,7 +2,6 @@
 use daggy::petgraph::visit::{EdgeRef, IntoEdgeReferences, IntoNodeReferences, NodeRef};
 use daggy::stable_dag::StableDag;
 use daggy::Walker;
-use ossa_crdt::CRDT;
 use std::cmp::{self, Reverse};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;

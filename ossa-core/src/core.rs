@@ -192,7 +192,7 @@ impl<OT: OssaType> Ossa<OT> {
                     // let device_id = DeviceId::new(identity_keys.auth_key().verifying_key());
                     let shared_state = shared_state.clone();
 
-                    let future_handle = tokio::spawn(async move {
+                    let _future_handle = tokio::spawn(async move {
                         // let (read_stream, write_stream) = tcpstream.split();
                         let stream = codec::Framed::new(tcpstream, LengthDelimitedCodec::new());
 
@@ -399,7 +399,7 @@ impl<OT: OssaType> Ossa<OT> {
         let shared_state = self.shared_state.clone();
 
         // Spawn async.
-        let future_handle = self.tokio_runtime.spawn(async move {
+        let _future_handle = self.tokio_runtime.spawn(async move {
             // Attempt to connect to peer, returning message on failure.
             info!("Connecting to peer: {address}");
             let mut stream = match TcpStream::connect(address).await {

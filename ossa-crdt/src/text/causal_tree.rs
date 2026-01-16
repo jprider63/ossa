@@ -27,6 +27,7 @@ struct Atom<T, A> {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 enum Letter<A> {
     Letter(A),
     Delete,

@@ -524,10 +524,15 @@ impl<Hash, HeaderId, Header> ECGSyncResponder<Hash, HeaderId, Header> {
         HeaderId: Ord + Copy,
     {
         // If we now know a header, remove it from our unknown and mark it as known to them.
-        for header_id in self
+        let to_remove: Vec<_> = self
             .our_unknown
-            .extract_if(|header_id| ecg_state.contains(header_id))
-        {
+            .iter()
+            .filter(|&header_id| ecg_state.contains(header_id))
+            .copied()
+            .collect();
+
+        for header_id in to_remove {
+            self.our_unknown.remove(&header_id);
             mark_as_known_helper(&mut self.their_known, ecg_state, header_id);
         }
     }

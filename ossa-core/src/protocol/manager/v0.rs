@@ -1,5 +1,5 @@
 use bitvec::{prelude::Msb0, BitArr};
-use rand::{thread_rng, Rng};
+use rand::{rng, Rng};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt::Debug;
@@ -443,7 +443,7 @@ where
         .collect();
 
     // Send store advertising request.
-    let nonce = thread_rng().gen();
+    let nonce = rng().random();
 
     let hashed_store_ids = store_ids
         .iter()

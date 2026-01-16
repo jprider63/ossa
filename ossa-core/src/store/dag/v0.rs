@@ -138,7 +138,7 @@ where
         HeaderId(tmp_hash(self))
     }
 
-    fn validate_header(&self, header_id: HeaderId<Hash>) -> bool {
+    fn validate_header(&self, _header_id: HeaderId<Hash>) -> bool {
         // TODO: Actually check this.
         true
     }
@@ -237,8 +237,8 @@ where
     }
 
     fn new_header(&self, parents: BTreeSet<<Self::Header as DAGHeader>::HeaderId>) -> Self::Header {
-        let mut rng = rand::thread_rng();
-        let nonce = rng.gen();
+        let mut rng = rand::rng();
+        let nonce = rng.random();
 
         // Sort parent headers.
         let parents = parents.into_iter().collect();
@@ -440,7 +440,7 @@ impl<A: CRDT> DAGHeader for TestHeader<A> {
         self.header_id
     }
 
-    fn validate_header(&self, header_id: Self::HeaderId) -> bool {
+    fn validate_header(&self, _header_id: Self::HeaderId) -> bool {
         true
     }
 

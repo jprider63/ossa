@@ -1,7 +1,7 @@
 use itertools::Itertools;
 use ossa_crdt::CRDT;
 use ossa_typeable::Typeable;
-use rand::{seq::SliceRandom as _, thread_rng};
+use rand::seq::SliceRandom as _;
 use replace_with::replace_with_or_abort;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display};
@@ -1203,9 +1203,9 @@ impl<
 }
 
 fn register_scg_operations<OT: OssaType, S: SCDT, T: CRDT>(
-    decrypted_state: &mut DecryptedState<OT::SCGHeader, OT::ECGHeader, T>,
-    scg_state: &dag::State<OT::SCGHeader, S>,
-    operation_body: OT::SCGBody<S>,
+    _decrypted_state: &mut DecryptedState<OT::SCGHeader, OT::ECGHeader, T>,
+    _scg_state: &dag::State<OT::SCGHeader, S>,
+    _operation_body: OT::SCGBody<S>,
 ) -> ()
 where
     S::Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>,
@@ -1631,7 +1631,7 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
 
                                     // Create closure that spawns task to sync store with peer.
                                     let send_commands_untyped_ = send_commands_untyped.clone();
-                                    let spawn_task_ec: Box<SpawnMultiplexerTask> = Box::new(move |party, stream_id, sender, receiver| {
+                                    let spawn_task_ec: Box<SpawnMultiplexerTask> = Box::new(move |_party, stream_id, sender, receiver| {
                                         // Create miniprotocol
                                         // Spawn task that syncs store with peer.
                                         // JP: Should run without initiative so that other peer can setup their handler?
@@ -1651,7 +1651,7 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
                                         })
                                     });
                                     let send_commands_untyped = send_commands_untyped.clone();
-                                    let spawn_task_sc: Box<SpawnMultiplexerTask> = Box::new(move |party, stream_id, sender, receiver| {
+                                    let spawn_task_sc: Box<SpawnMultiplexerTask> = Box::new(move |_party, stream_id, sender, receiver| {
                                         tokio::spawn(async move {
                                             // JP: Maybe this isn't needed???
                                             // Tell store we're running.
@@ -1706,7 +1706,7 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
                         // Update peer's state to syncing and register channel.
                         store.update_peer_scg_to_syncing_incoming(&peer);
                     }
-                    UntypedStoreCommand::HandleMetadataPeerRequest(HandlePeerRequest { peer, request, response_chan }) => {
+                    UntypedStoreCommand::HandleMetadataPeerRequest(HandlePeerRequest { peer, request: _, response_chan }) => {
                         store.handle_metadata_peer_request(peer, response_chan);
                     }
                     UntypedStoreCommand::HandleMerklePeerRequest(HandlePeerRequest { peer, request, response_chan }) => {

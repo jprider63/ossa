@@ -13,9 +13,8 @@ use crate::{
     network::protocol::{receive, MiniProtocol},
     protocol::store_peer::{
         ecg_sync::{ECGSyncInitiator, ECGSyncResponder, MsgDAGSyncRequest},
-        v0::{MsgStoreSync, MsgStoreSyncRequest},
     },
-    store::{dag::v0::HeaderId, UntypedStoreCommand},
+    store::UntypedStoreCommand,
 };
 
 /// Miniprotocol to sync the DAG in the strongly consistent BFT consensus protocol.

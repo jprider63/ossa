@@ -264,8 +264,8 @@ impl<T> futures::Stream for Channel<T> {
     type Item = Result<T, ProtocolError>;
 
     fn poll_next(
-        mut self: Pin<&mut Self>,
-        ctx: &mut Context<'_>,
+        self: Pin<&mut Self>,
+        _ctx: &mut Context<'_>,
     ) -> Poll<Option<Result<T, ProtocolError>>> {
         todo!()
         // let p = futures::Stream::poll_next(Pin::new(&mut self.recv), ctx);
@@ -282,8 +282,8 @@ impl<T> futures::Sink<T> for Channel<T> {
     type Error = ProtocolError;
 
     fn poll_ready(
-        mut self: Pin<&mut Self>,
-        ctx: &mut Context<'_>,
+        self: Pin<&mut Self>,
+        _ctx: &mut Context<'_>,
     ) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> {
         todo!()
         // let p = Pin::new(&mut self.send).poll_ready(ctx);
@@ -295,7 +295,7 @@ impl<T> futures::Sink<T> for Channel<T> {
         // })
     }
 
-    fn start_send(mut self: Pin<&mut Self>, x: T) -> Result<(), <Self as futures::Sink<T>>::Error> {
+    fn start_send(self: Pin<&mut Self>, _x: T) -> Result<(), <Self as futures::Sink<T>>::Error> {
         todo!()
         // let p = Pin::new(&mut self.send).start_send(x);
         // p.map_err(|e| {
@@ -305,8 +305,8 @@ impl<T> futures::Sink<T> for Channel<T> {
     }
 
     fn poll_flush(
-        mut self: Pin<&mut Self>,
-        ctx: &mut Context<'_>,
+        self: Pin<&mut Self>,
+        _ctx: &mut Context<'_>,
     ) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> {
         todo!()
         // let p = Pin::new(&mut self.send).poll_flush(ctx);
@@ -319,8 +319,8 @@ impl<T> futures::Sink<T> for Channel<T> {
     }
 
     fn poll_close(
-        mut self: Pin<&mut Self>,
-        ctx: &mut Context<'_>,
+        self: Pin<&mut Self>,
+        _ctx: &mut Context<'_>,
     ) -> Poll<Result<(), <Self as futures::Sink<T>>::Error>> {
         todo!()
         // let p = Pin::new(&mut self.send).poll_close(ctx);
@@ -527,8 +527,6 @@ pub(crate) fn is_power_of_two(x: u64) -> bool {
 }
 
 mod test {
-    use super::*;
-
     #[test]
     fn test_single_number() {
         let numbers = vec![5];

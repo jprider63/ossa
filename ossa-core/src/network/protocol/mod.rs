@@ -189,7 +189,7 @@ where
         }
         Some(Ok(msg)) => {
             match msg.try_into() {
-                Err(err) => {
+                Err(_err) => {
                     error!("Received unexpected data from peer"); // : {:?}", err);
                     Err(ProtocolError::ProtocolDeviation)
                 }

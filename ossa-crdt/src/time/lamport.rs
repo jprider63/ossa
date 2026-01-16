@@ -19,6 +19,7 @@ impl<Id> LamportTimestamp<Id> {
     }
 }
 
+#[allow(dead_code)]
 struct LamportState<Id>(PhantomData<Id>);
 
 impl<Id: Ord> CausalState for LamportState<Id> {
