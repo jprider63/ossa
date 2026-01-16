@@ -14,3 +14,7 @@ im = { workspace = true }
 serde = { workspace = true }
 ossa-typeable = { workspace = true }
 void = { workspace = true }
+
+[dev-dependencies]
+proptest = "1.5.0"
+zerocopy = "=0.7.35"
