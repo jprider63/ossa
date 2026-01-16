@@ -277,22 +277,22 @@ where
 
 // impl<Hash, Op> DAGBody<Op, Op> for Body<Hash, Op> {
 //     type Header = Header<Hash>;
-// 
+//
 //     fn new_body(operations: Vec<Op>) -> Self {
 //         todo!()
 //     }
-// 
+//
 //     fn operations(
 //         self,
 //         header_id: <Self::Header as DAGHeader>::HeaderId,
 //     ) -> impl Iterator<Item = Op> {
 //         todo!()
 //     }
-// 
+//
 //     fn operations_count(&self) -> u8 {
 //         todo!()
 //     }
-// 
+//
 //     fn new_header(&self, parents: BTreeSet<<Self::Header as DAGHeader>::HeaderId>) -> Self::Header {
 //         todo!()
 //     }

@@ -58,13 +58,19 @@ impl<StoreId: Display, S, C> Display for StoreRef<StoreId, S, C> {
 
 impl<StoreId, S, C> StoreRef<StoreId, S, C> {
     pub fn new(store_id: StoreId) -> Self {
-        Self { store_id, phantom: PhantomData }
+        Self {
+            store_id,
+            phantom: PhantomData,
+        }
     }
 }
 
 impl<StoreId: Clone, S, C> Clone for StoreRef<StoreId, S, C> {
     fn clone(&self) -> Self {
-        Self { store_id: self.store_id.clone(), phantom: PhantomData }
+        Self {
+            store_id: self.store_id.clone(),
+            phantom: PhantomData,
+        }
     }
 }
 
@@ -745,7 +751,9 @@ impl<
 
             if respond_immediately {
                 debug!("Responding immediately with SCG state.");
-                response_chan.send(sc_state.dag_state.state.clone()).expect("TODO");
+                response_chan
+                    .send(sc_state.dag_state.state.clone())
+                    .expect("TODO");
 
                 return;
             }
@@ -898,7 +906,11 @@ impl<
 
         let block_ids: Vec<_> = block_ids.into_iter().flatten().collect();
         if block_ids.len() != their_blocks.len() {
-            warn!("TODO: Peer provided an invalid response. Expected length {}. Received length {}", block_ids.len(), their_blocks.len());
+            warn!(
+                "TODO: Peer provided an invalid response. Expected length {}. Received length {}",
+                block_ids.len(),
+                their_blocks.len()
+            );
             return;
         }
 
@@ -1213,7 +1225,12 @@ where
     warn!("TODO: Is there anything we need to do here? Some sort of validation of operations? Cache pending operations?");
 }
 
-fn update_sc_listeners<SHeader: dag::DAGHeader + Clone + Debug, S: Clone, THeader: dag::DAGHeader, T>(
+fn update_sc_listeners<
+    SHeader: dag::DAGHeader + Clone + Debug,
+    S: Clone,
+    THeader: dag::DAGHeader,
+    T,
+>(
     scg_subscribers: &mut BTreeMap<
         DeviceId,
         oneshot::Sender<dag::UntypedState<SHeader::HeaderId, SHeader>>,
@@ -1246,7 +1263,12 @@ fn update_sc_listeners<SHeader: dag::DAGHeader + Clone + Debug, S: Clone, THeade
     }
 }
 
-fn update_ec_listeners<SHeader: dag::DAGHeader, S, THeader: dag::DAGHeader + Clone + Debug, T: CRDT + Clone>(
+fn update_ec_listeners<
+    SHeader: dag::DAGHeader,
+    S,
+    THeader: dag::DAGHeader + Clone + Debug,
+    T: CRDT + Clone,
+>(
     ecg_subscribers: &mut BTreeMap<
         DeviceId,
         oneshot::Sender<dag::UntypedState<THeader::HeaderId, THeader>>,
@@ -1428,7 +1450,9 @@ fn apply_operations<OT: OssaType, T>(
 /// its own tokio thread.
 pub(crate) async fn run_handler<OT: OssaType, S, T>(
     mut store: State<OT::StoreId, OT::SCGHeader, OT::ECGHeader, S, T, OT::Hash>,
-    mut recv_commands: UnboundedReceiver<StoreCommand<OT::SCGHeader, OT::SCGBody<S>, S, OT::ECGHeader, OT::ECGBody<T>, T>>,
+    mut recv_commands: UnboundedReceiver<
+        StoreCommand<OT::SCGHeader, OT::SCGBody<S>, S, OT::ECGHeader, OT::ECGBody<T>, T>,
+    >,
     send_commands_untyped: UnboundedSender<
         UntypedStoreCommand<
             OT::Hash,
@@ -1470,7 +1494,8 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
     S: SCDT + Clone + for<'d> Deserialize<'d>,
     T: CRDT<Time = OT::Time> + Debug + Clone + Send + 'static + for<'d> Deserialize<'d>,
 {
-    let mut listeners: Vec<UnboundedSender<StateUpdate<OT::SCGHeader, S, OT::ECGHeader, T>>> = vec![];
+    let mut listeners: Vec<UnboundedSender<StateUpdate<OT::SCGHeader, S, OT::ECGHeader, T>>> =
+        vec![];
 
     // TODO: Check when done
     loop {
@@ -1772,10 +1797,19 @@ where
     OT::SCGBody<S>: Serialize,
 {
     store.state_machine = match store.state_machine {
-        StateMachine::Syncing { metadata, merkle_tree, initial_state, ecg_state, mut sc_state, decrypted_state } => {
+        StateMachine::Syncing {
+            metadata,
+            merkle_tree,
+            initial_state,
+            ecg_state,
+            mut sc_state,
+            decrypted_state,
+        } => {
             // Update SCG state.
             let serialized_operations = serde_cbor::to_vec(&operation_body).expect("TODO");
-            let success = sc_state.dag_state.insert_header(operation_header, serialized_operations);
+            let success = sc_state
+                .dag_state
+                .insert_header(operation_header, serialized_operations);
             if !success {
                 todo!("Invalid header");
             }
@@ -1791,7 +1825,14 @@ where
                 None,
             );
 
-            StateMachine::Syncing { metadata, merkle_tree, initial_state, ecg_state, sc_state, decrypted_state }
+            StateMachine::Syncing {
+                metadata,
+                merkle_tree,
+                initial_state,
+                ecg_state,
+                sc_state,
+                decrypted_state,
+            }
         }
         _ => {
             warn!("JP: Does this ever happen?");

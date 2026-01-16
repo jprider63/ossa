@@ -188,4 +188,3 @@ impl<K: Typeable, V: Typeable> Typeable for BTreeMap<K, V> {
         TypeId(h.finalize().into())
     }
 }
-

@@ -6,7 +6,6 @@ use void::Void;
 
 use crate::CRDT;
 
-
 /// A CRDT that is constant and cannot be updated.
 #[derive(Clone, Debug, Typeable, Serialize, Deserialize)]
 pub struct Const<T, A> {
@@ -32,7 +31,11 @@ impl<T, A> CRDT for Const<T, A> {
 
     type Time = T;
 
-    fn apply<CS: crate::time::CausalState<Time = Self::Time>>(self, _causal_state: &CS, _op: Self::Op) -> Self {
+    fn apply<CS: crate::time::CausalState<Time = Self::Time>>(
+        self,
+        _causal_state: &CS,
+        _op: Self::Op,
+    ) -> Self {
         self
     }
 }

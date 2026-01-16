@@ -4,10 +4,13 @@ use ossa_typeable::Typeable;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    auth::identity::IdentityId, store::{
+    auth::identity::IdentityId,
+    store::{
         bft::{Round, SCDT},
         StoreRef,
-    }, time::ConcretizeTime, util::Sha256Hash
+    },
+    time::ConcretizeTime,
+    util::Sha256Hash,
 };
 
 pub type GroupId = StoreRef<Sha256Hash, Group, ()>;
@@ -48,7 +51,7 @@ impl Group {
     pub fn new(owner: IdentityId, public_permissions: Option<Role>) -> Self {
         let permissions = MemberInfo {
             permissions: Role::Admin,
-            round: 0
+            round: 0,
         };
         Group {
             members: BTreeMap::from([(owner, permissions)]),
@@ -94,7 +97,8 @@ impl SCDT for Group {
                 round,
             } => {
                 if let Some(permissions) = permissions {
-                    self.members.entry(member)
+                    self.members
+                        .entry(member)
                         .and_modify(|m| {
                             m.round = max(round, m.round);
                             m.permissions = permissions;
@@ -122,15 +126,14 @@ impl SCDT for Group {
         match op {
             // GroupOp::AddMember { member, .. } => !self.members.contains_key(&member),
             // GroupOp::RemoveMember { member } => self.members.contains_key(&member),
-            GroupOp::SetMemberAccess { .. } => { true }
+            GroupOp::SetMemberAccess { .. } => true,
             GroupOp::MemberUpdated { member, round } => {
                 if let Some(m) = self.members.get(&member) {
                     m.round <= round
                 } else {
                     false
                 }
-            }
-            // GroupOp::UpdateMember { member, .. } => self.members.contains_key(&member),
+            } // GroupOp::UpdateMember { member, .. } => self.members.contains_key(&member),
         }
     }
 }

@@ -5,7 +5,9 @@ use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    store::{bft::SCDT, StoreRef}, time::ConcretizeTime, util::Sha256Hash
+    store::{bft::SCDT, StoreRef},
+    time::ConcretizeTime,
+    util::Sha256Hash,
 };
 
 #[derive(Debug, Clone)]
@@ -31,7 +33,7 @@ impl DevicePrivateKeys {
 
     pub fn to_public_keys(&self) -> Device {
         Device {
-            auth_key: self.auth_key().verifying_key()
+            auth_key: self.auth_key().verifying_key(),
         }
     }
 }

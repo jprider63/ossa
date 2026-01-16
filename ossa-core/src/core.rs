@@ -283,9 +283,7 @@ impl<OT: OssaType> Ossa<OT> {
                 <T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
                 Header = OT::ECGHeader,
             >,
-        OT::SCGBody<S>: Send
-            + Serialize
-            + for<'d> Deserialize<'d>,
+        OT::SCGBody<S>: Send + Serialize + for<'d> Deserialize<'d>,
         OT::ECGHeader: Clone,
         OT::SCGHeader: Clone,
     {
@@ -315,7 +313,12 @@ impl<OT: OssaType> Ossa<OT> {
 
         // Launch the store.
         let store_handle = self.launch_store(store_id, store);
-        info!("Created store: {} ({}, {})", store_id, std::any::type_name::<S>(), std::any::type_name::<T>());
+        info!(
+            "Created store: {} ({}, {})",
+            store_id,
+            std::any::type_name::<S>(),
+            std::any::type_name::<T>()
+        );
         store_handle
     }
 
@@ -336,9 +339,7 @@ impl<OT: OssaType> Ossa<OT> {
                 <T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
                 Header = OT::ECGHeader,
             >,
-        OT::SCGBody<S>: Send
-            + Serialize
-            + for<'d> Deserialize<'d>,
+        OT::SCGBody<S>: Send + Serialize + for<'d> Deserialize<'d>,
         // T::Op: ConcretizeTime<T::Time>,
         // OT::ECGBody<T>:
         //     Send + ECGBody<T, Header = OT::ECGHeader> + Serialize + for<'d> Deserialize<'d> + Debug,
@@ -541,7 +542,6 @@ impl<OT: OssaType> Ossa<OT> {
     pub fn identity_store(&self) -> &Option<StoreHandle<OT, Identity, Const<OT::Time, ()>>> {
         &self.identity_store
     }
-
 }
 
 /// Thread to handle NAT traversals using UPnP IGD.
@@ -607,7 +607,9 @@ pub struct StoreHandle<
 //     T::Op<CausalTime<OT::Time>>: Serialize,
 {
     // future_handle: JoinHandle<()>, // JP: Maybe this should be owned by `Ossa`?
-    send_command_chan: UnboundedSender<StoreCommand<O::SCGHeader, O::SCGBody<S>, S, O::ECGHeader, O::ECGBody<T>, T>>,
+    send_command_chan: UnboundedSender<
+        StoreCommand<O::SCGHeader, O::SCGBody<S>, S, O::ECGHeader, O::ECGBody<T>, T>,
+    >,
     store_id: O::StoreId,
     phantom: PhantomData<fn(O, S)>,
 }
@@ -667,8 +669,8 @@ pub trait OssaType: 'static {
         + Serialize
         + for<'a> Deserialize<'a>;
     type SCGBody<S: SCDT<Op: ConcretizeTime<<Self::SCGHeader as DAGHeader>::HeaderId>>>; // : DAGBody<S::Op, <S::Op as ConcretizeTime<<Self::SCGHeader as DAGHeader>::HeaderId>>::Serialized, Header = Self::SCGHeader>;
-    //   Serialize
-    // + for<'a> Deserialize<'a>;
+                                                                                         //   Serialize
+                                                                                         // + for<'a> Deserialize<'a>;
     type Time;
     // type CausalState<T: CRDT<Time = Self::Time, Op<CausalTime<Self::Time>>: Serialize>>: CausalState<Time = Self::Time>;
     type CausalState<T: CRDT<Time = Self::Time>>: CausalState<Time = Self::Time>;
@@ -745,7 +747,9 @@ impl<
         header_id
     }
 
-    pub fn subscribe_to_state(&mut self) -> UnboundedReceiver<StateUpdate<O::SCGHeader, S, O::ECGHeader, T>> {
+    pub fn subscribe_to_state(
+        &mut self,
+    ) -> UnboundedReceiver<StateUpdate<O::SCGHeader, S, O::ECGHeader, T>> {
         let (send_state, recv_state) = tokio::sync::mpsc::unbounded_channel();
         self.send_command_chan
             .send(StoreCommand::SubscribeState { send_state })
@@ -765,7 +769,7 @@ impl<
         op: S::Op,
     ) -> <O::SCGHeader as DAGHeader>::HeaderId
     where
-        <O as OssaType>::SCGBody<S>: DAGBody<S::Op, S::Op, Header = O::SCGHeader>
+        <O as OssaType>::SCGBody<S>: DAGBody<S::Op, S::Op, Header = O::SCGHeader>,
     {
         self.propose_batch(parents, vec![op])
     }
@@ -775,9 +779,9 @@ impl<
         &mut self,
         parents: BTreeSet<<O::SCGHeader as DAGHeader>::HeaderId>,
         op: Vec<S::Op>,
-    ) -> <O::SCGHeader as DAGHeader>::HeaderId 
+    ) -> <O::SCGHeader as DAGHeader>::HeaderId
     where
-        <O as OssaType>::SCGBody<S>: DAGBody<S::Op, S::Op, Header = O::SCGHeader>
+        <O as OssaType>::SCGBody<S>: DAGBody<S::Op, S::Op, Header = O::SCGHeader>,
     {
         // TODO: Divide into 256 operation chunks.
         // if op.is_empty() {

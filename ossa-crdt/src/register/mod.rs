@@ -1,5 +1,5 @@
-pub mod lww;
 pub mod constant;
+pub mod lww;
 
-pub use lww::LWW;
 pub use constant::Const;
+pub use lww::LWW;

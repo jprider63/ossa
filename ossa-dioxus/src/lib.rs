@@ -1,7 +1,7 @@
 pub use dioxus;
-use dioxus::core::{current_scope_id, use_hook, Runtime, Task};
+use dioxus::core::{Runtime, Task, current_scope_id, use_hook};
 use dioxus::hooks::use_context;
-use dioxus::prelude::{ScopeId}; // , Task, current_scope_id, spawn_in_scope, use_hook};
+use dioxus::prelude::ScopeId; // , Task, current_scope_id, spawn_in_scope, use_hook};
 use dioxus::signals::{ReadableExt as _, ReadableRef, Signal, WritableExt as _};
 pub use dioxus_desktop;
 use ossa_core::store::bft::SCDT;
@@ -59,7 +59,7 @@ impl OssaType for DefaultSetup {
         Body<Sha256Hash, <T::Op as ConcretizeTime<HeaderId<Sha256Hash>>>::Serialized>;
     type SCGHeader = Header<Sha256Hash>;
     type SCGBody<S: SCDT<Op: ConcretizeTime<HeaderId<Sha256Hash>>>> =
-        Body<Sha256Hash, <S::Op as ConcretizeTime<HeaderId<Sha256Hash>>>::Serialized> ;
+        Body<Sha256Hash, <S::Op as ConcretizeTime<HeaderId<Sha256Hash>>>::Serialized>;
 
     type Time = OperationId<HeaderId<Sha256Hash>>;
 
@@ -114,7 +114,6 @@ impl<
 // #[derive(Clone)]
 // State for a store, corresponding to either the eventually consistent or strongly consistent state.
 pub struct StoreState<Header: dag::DAGHeader, A> {
-
     state: A,
     dag: dag::State<Header, A>,
 }
@@ -195,7 +194,10 @@ where
                     debug!("Store is downloading ({percent}%)");
                     ec_state.set(None);
                 }
-                StateUpdate::SnapshotSC { snapshot, dag_state } => {
+                StateUpdate::SnapshotSC {
+                    snapshot,
+                    dag_state,
+                } => {
                     debug!("Received SC state: {dag_state:?}");
                     let s = StoreState {
                         state: snapshot,
@@ -299,7 +301,8 @@ impl<
     T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>,
 > UseStore<OT, S, T>
 {
-    pub fn get_current_state(&self) -> Option<T> // ReadableRef<Signal<Option<T>>>
+    pub fn get_current_state(&self) -> Option<T>
+    // ReadableRef<Signal<Option<T>>>
     where
         S: Clone,
         T: Clone,
@@ -311,7 +314,9 @@ impl<
         self.ec_state.cloned().map(|s| s.state)
     }
 
-    pub fn get_current_store_ec_state(&self) -> ReadableRef<Signal<Option<StoreState<OT::ECGHeader, T>>>> // Option<StoreState<OT, S, T>>> //  Option<StoreState<OT, S, T>>
+    pub fn get_current_store_ec_state(
+        &self,
+    ) -> ReadableRef<Signal<Option<StoreState<OT::ECGHeader, T>>>> // Option<StoreState<OT, S, T>>> //  Option<StoreState<OT, S, T>>
     // where
     //     T: Clone,
     //     <OT as OssaType>::ECGHeader: Clone,
@@ -319,7 +324,9 @@ impl<
         self.ec_state.read()
     }
 
-    pub fn get_current_store_sc_state(&self) -> ReadableRef<Signal<Option<StoreState<OT::SCGHeader, S>>>> // Option<StoreState<OT, S, T>>> //  Option<StoreState<OT, S, T>>
+    pub fn get_current_store_sc_state(
+        &self,
+    ) -> ReadableRef<Signal<Option<StoreState<OT::SCGHeader, S>>>> // Option<StoreState<OT, S, T>>> //  Option<StoreState<OT, S, T>>
     // where
     //     T: Clone,
     //     <OT as OssaType>::ECGHeader: Clone,get_current_store_sc_state
@@ -332,7 +339,8 @@ impl<
     where
         F: FnOnce(
             CausalTime<OT::Time>,
-        ) -> <T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
+        )
+            -> <T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
         S::Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>,
         T::Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>,
         OT::ECGBody<T>: DAGBody<
@@ -407,11 +415,11 @@ impl<
     where
         S::Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>,
         OT::SCGBody<S>: DAGBody<S::Op, S::Op, Header = OT::SCGHeader>,
-    // pub fn propose_sc_update<F>(&self, op: F) -> OperationId<<OT::SCGHeader as DAGHeader>::HeaderId>
-    // where
-    //     F: FnOnce(
-    //         CausalTime<OT::Time>,
-    //     ) -> <T::Op as ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>>::Serialized,
+        // pub fn propose_sc_update<F>(&self, op: F) -> OperationId<<OT::SCGHeader as DAGHeader>::HeaderId>
+        // where
+        //     F: FnOnce(
+        //         CausalTime<OT::Time>,
+        //     ) -> <T::Op as ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>>::Serialized,
     {
         // Get latest op tips. // JP: Or latest committed frontier? + our pending proposals?
         let parent_header_ids = {
