@@ -98,7 +98,7 @@ impl<K: Ord + Debug, V: Debug> Debug for TwoPMap<K, V> {
 }
 
 // TODO: Define CBOR properly
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum TwoPMapOp<K, V, Op> {
     Insert { key: K, value: V },
     Apply { key: K, operation: Op },
@@ -241,3 +241,312 @@ impl<K: Ord, V: CRDT> TwoPMap<K, V> {
 //         }
 //     }
 // }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::register::LWW;
+    use crate::time::CausalState;
+    use proptest::prelude::*;
+
+    struct SimpleCausalState;
+    impl CausalState for SimpleCausalState {
+        type Time = u64;
+        fn happens_before(&self, t1: &Self::Time, t2: &Self::Time) -> bool {
+            t1 < t2
+        }
+    }
+
+    #[test]
+    fn test_twopmap_new() {
+        let map: TwoPMap<u64, LWW<u64, i32>> = TwoPMap::new();
+        assert_eq!(map.get(&1), None);
+    }
+
+    #[test]
+    fn test_twopmap_insert() {
+        let st = SimpleCausalState;
+        let map: TwoPMap<u64, LWW<u64, i32>> = TwoPMap::new();
+
+        let op = TwoPMapOp::Insert {
+            key: 1,
+            value: LWW::new(1, 42),
+        };
+
+        let map = map.apply(&st, op);
+        assert_eq!(map.get(&1).map(|v| v.value()), Some(&42));
+    }
+
+    #[test]
+    fn test_twopmap_insert_multiple() {
+        let st = SimpleCausalState;
+        let map: TwoPMap<u64, LWW<u64, i32>> = TwoPMap::new();
+
+        let op1 = TwoPMapOp::Insert {
+            key: 1,
+            value: LWW::new(1, 42),
+        };
+        let op2 = TwoPMapOp::Insert {
+            key: 2,
+            value: LWW::new(2, 100),
+        };
+
+        let map = map.apply(&st, op1).apply(&st, op2);
+
+        assert_eq!(map.get(&1).map(|v| v.value()), Some(&42));
+        assert_eq!(map.get(&2).map(|v| v.value()), Some(&100));
+    }
+
+    #[test]
+    fn test_twopmap_apply_nested() {
+        let st = SimpleCausalState;
+        let map: TwoPMap<u64, LWW<u64, i32>> = TwoPMap::new();
+
+        // First insert a value
+        let insert_op = TwoPMapOp::Insert {
+            key: 1,
+            value: LWW::new(1, 42),
+        };
+        let map = map.apply(&st, insert_op);
+
+        // Then apply a nested update
+        let update_op = TwoPMapOp::Apply {
+            key: 1,
+            operation: LWW::new(2, 100),
+        };
+        let map = map.apply(&st, update_op);
+
+        assert_eq!(map.get(&1).map(|v| v.value()), Some(&100));
+    }
+
+    #[test]
+    fn test_twopmap_delete() {
+        let st = SimpleCausalState;
+        let map: TwoPMap<u64, LWW<u64, i32>> = TwoPMap::new();
+
+        let insert_op = TwoPMapOp::Insert {
+            key: 1,
+            value: LWW::new(1, 42),
+        };
+        let map = map.apply(&st, insert_op);
+        assert_eq!(map.get(&1).map(|v| v.value()), Some(&42));
+
+        let delete_op = TwoPMapOp::Delete { key: 1 };
+        let map = map.apply(&st, delete_op);
+
+        // After deletion, key should not be in the map
+        assert_eq!(map.get(&1), None);
+    }
+
+    #[test]
+    fn test_twopmap_delete_is_permanent() {
+        let st = SimpleCausalState;
+        let map: TwoPMap<u64, LWW<u64, i32>> = TwoPMap::new();
+
+        let insert_op = TwoPMapOp::Insert {
+            key: 1,
+            value: LWW::new(1, 42),
+        };
+        let map = map.apply(&st, insert_op);
+
+        let delete_op = TwoPMapOp::Delete { key: 1 };
+        let map = map.apply(&st, delete_op);
+
+        // Try to insert again - should be ignored due to tombstone
+        let reinsert_op = TwoPMapOp::Insert {
+            key: 1,
+            value: LWW::new(2, 100),
+        };
+        let map = map.apply(&st, reinsert_op);
+
+        assert_eq!(map.get(&1), None);
+    }
+
+    #[test]
+    fn test_twopmap_update_after_delete_ignored() {
+        let st = SimpleCausalState;
+        let map: TwoPMap<u64, LWW<u64, i32>> = TwoPMap::new();
+
+        let insert_op = TwoPMapOp::Insert {
+            key: 1,
+            value: LWW::new(1, 42),
+        };
+        let map = map.apply(&st, insert_op);
+
+        let delete_op = TwoPMapOp::Delete { key: 1 };
+        let map = map.apply(&st, delete_op);
+
+        // Try to apply an update - should be ignored
+        let update_op = TwoPMapOp::Apply {
+            key: 1,
+            operation: LWW::new(2, 100),
+        };
+        let map = map.apply(&st, update_op);
+
+        assert_eq!(map.get(&1), None);
+    }
+
+    #[test]
+    fn test_twopmap_convergence_insert_order() {
+        let st = SimpleCausalState;
+        let map: TwoPMap<u64, LWW<u64, i32>> = TwoPMap::new();
+
+        let op1 = TwoPMapOp::Insert {
+            key: 1,
+            value: LWW::new(1, 10),
+        };
+        let op2 = TwoPMapOp::Insert {
+            key: 2,
+            value: LWW::new(2, 20),
+        };
+
+        // Apply in different orders
+        let result1 = map.clone().apply(&st, op1.clone()).apply(&st, op2.clone());
+        let result2 = map.clone().apply(&st, op2.clone()).apply(&st, op1.clone());
+
+        // Should converge to same state
+        assert_eq!(result1.get(&1).map(|v| v.value()), result2.get(&1).map(|v| v.value()));
+        assert_eq!(result1.get(&2).map(|v| v.value()), result2.get(&2).map(|v| v.value()));
+    }
+
+    #[test]
+    fn test_twopmap_convergence_with_deletes() {
+        let st = SimpleCausalState;
+        let map: TwoPMap<u64, LWW<u64, i32>> = TwoPMap::new();
+
+        let insert_op = TwoPMapOp::Insert {
+            key: 1,
+            value: LWW::new(1, 42),
+        };
+        let update_op = TwoPMapOp::Apply {
+            key: 1,
+            operation: LWW::new(2, 100),
+        };
+        let delete_op = TwoPMapOp::Delete { key: 1 };
+
+        // Replica A: insert, update, delete
+        let replica_a = map.clone()
+            .apply(&st, insert_op.clone())
+            .apply(&st, update_op.clone())
+            .apply(&st, delete_op.clone());
+
+        // Replica B: insert, delete, update (update should be ignored)
+        let replica_b = map.clone()
+            .apply(&st, insert_op.clone())
+            .apply(&st, delete_op.clone())
+            .apply(&st, update_op.clone());
+
+        // Both should converge to deleted state
+        assert_eq!(replica_a.get(&1), None);
+        assert_eq!(replica_b.get(&1), None);
+    }
+
+    #[test]
+    fn test_twopmap_iter() {
+        let st = SimpleCausalState;
+        let map: TwoPMap<u64, LWW<u64, i32>> = TwoPMap::new();
+
+        let map = map
+            .apply(&st, TwoPMapOp::Insert { key: 1, value: LWW::new(1, 10) })
+            .apply(&st, TwoPMapOp::Insert { key: 2, value: LWW::new(2, 20) })
+            .apply(&st, TwoPMapOp::Insert { key: 3, value: LWW::new(3, 30) });
+
+        let entries: Vec<_> = map.iter().map(|(k, v)| (*k, *v.value())).collect();
+        assert_eq!(entries.len(), 3);
+        assert!(entries.contains(&(1, 10)));
+        assert!(entries.contains(&(2, 20)));
+        assert!(entries.contains(&(3, 30)));
+    }
+
+    proptest! {
+        #[test]
+        fn prop_twopmap_insert_retrievable(
+            key in 0u64..100,
+            time in 0u64..1000,
+            value in any::<i32>(),
+        ) {
+            let st = SimpleCausalState;
+            let map: TwoPMap<u64, LWW<u64, i32>> = TwoPMap::new();
+
+            let op = TwoPMapOp::Insert {
+                key,
+                value: LWW::new(time, value),
+            };
+
+            let map = map.apply(&st, op);
+            prop_assert_eq!(map.get(&key).map(|v| v.value()), Some(&value));
+        }
+
+        #[test]
+        fn prop_twopmap_convergence_any_order(
+            k1 in 0u64..10,
+            k2 in 10u64..20,
+            k3 in 20u64..30,
+            v1 in any::<i32>(),
+            v2 in any::<i32>(),
+            v3 in any::<i32>(),
+        ) {
+            let st = SimpleCausalState;
+            let map: TwoPMap<u64, LWW<u64, i32>> = TwoPMap::new();
+
+            let op1 = TwoPMapOp::Insert { key: k1, value: LWW::new(k1, v1) };
+            let op2 = TwoPMapOp::Insert { key: k2, value: LWW::new(k2, v2) };
+            let op3 = TwoPMapOp::Insert { key: k3, value: LWW::new(k3, v3) };
+
+            // Apply in different orders
+            let result_123 = map.clone()
+                .apply(&st, op1.clone())
+                .apply(&st, op2.clone())
+                .apply(&st, op3.clone());
+
+            let result_321 = map.clone()
+                .apply(&st, op3.clone())
+                .apply(&st, op2.clone())
+                .apply(&st, op1.clone());
+
+            // Should converge
+            prop_assert_eq!(
+                result_123.get(&k1).map(|v| v.value()),
+                result_321.get(&k1).map(|v| v.value())
+            );
+            prop_assert_eq!(
+                result_123.get(&k2).map(|v| v.value()),
+                result_321.get(&k2).map(|v| v.value())
+            );
+            prop_assert_eq!(
+                result_123.get(&k3).map(|v| v.value()),
+                result_321.get(&k3).map(|v| v.value())
+            );
+        }
+
+        #[test]
+        fn prop_twopmap_delete_always_wins(
+            key in 0u64..100,
+            insert_time in 0u64..100,
+            insert_value in any::<i32>(),
+        ) {
+            let st = SimpleCausalState;
+            let map: TwoPMap<u64, LWW<u64, i32>> = TwoPMap::new();
+
+            let insert_op = TwoPMapOp::Insert {
+                key,
+                value: LWW::new(insert_time, insert_value),
+            };
+            let delete_op = TwoPMapOp::Delete { key };
+
+            // Delete before insert
+            let result1 = map.clone()
+                .apply(&st, delete_op.clone())
+                .apply(&st, insert_op.clone());
+
+            // Delete after insert
+            let result2 = map.clone()
+                .apply(&st, insert_op.clone())
+                .apply(&st, delete_op.clone());
+
+            // Both should result in deletion
+            prop_assert_eq!(result1.get(&key), None);
+            prop_assert_eq!(result2.get(&key), None);
+        }
+    }
+}
