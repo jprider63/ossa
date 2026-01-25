@@ -339,7 +339,6 @@ struct MiniprotocolState {
     sender: mpsc::Sender<BytesMut>,
 }
 
-// JP: TODO: This O probably isn't needed.
 pub(crate) async fn run_miniprotocol_async<P: MiniProtocol>(
     p: P,
     is_client: bool,

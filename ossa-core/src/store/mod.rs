@@ -16,6 +16,7 @@ use tokio::sync::{
 };
 use tracing::{debug, error, warn};
 
+use crate::protocol::store_bft_sync::v0::StoreBFTSync;
 use crate::store::bft::SCDT;
 use crate::store::v0::BLOCK_SIZE;
 use crate::time::ConcretizeTime;
@@ -26,7 +27,7 @@ use crate::{
     network::multiplexer::{run_miniprotocol_async, SpawnMultiplexerTask},
     protocol::{
         manager::v0::PeerManagerCommand,
-        store_bft_dag::v0::{StoreDAGSync, StoreSCGSyncCommand},
+        store_sc_dag::v0::{StoreDAGSync, StoreSCGSyncCommand},
         store_peer::v0::{StoreSync, StoreSyncCommand},
     },
     store::{
@@ -1677,7 +1678,12 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
 
                                     let spawn_task_bft: Box<SpawnMultiplexerTask> = Box::new(move |party, stream_id, sender, receiver| {
                                         tokio::spawn(async move {
-                                            unimplemented!();
+                                            warn!("TODO: Should we tell store we're running?");
+
+                                            // Start miniprotocol as client.
+                                            let mp = StoreBFTSync::new_client(peer, send_commands_untyped);
+                                            run_miniprotocol_async(mp, true, stream_id, sender, receiver).await;
+                                            debug!("Store BFT sync with peer (without initiative) exited.")
                                         })
                                     });
                                     Some((spawn_task_ec, spawn_task_sc, spawn_task_bft))

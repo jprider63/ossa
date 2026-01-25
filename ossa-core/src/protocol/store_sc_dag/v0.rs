@@ -4,10 +4,11 @@ use std::{collections::BTreeSet, fmt::Debug};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::protocol::store_peer::dag_sync::{DAGStateSubscriber, MsgDAGSyncResponse};
 use crate::store::dag;
+use crate::util::Stream;
 use crate::{
     auth::DeviceId,
     network::protocol::{receive, MiniProtocol},
@@ -132,7 +133,7 @@ where
     type Message = MsgStoreDAGSync<SHeaderId, SHeader>;
 
     // Has initiative
-    fn run_server<S: crate::util::Stream<Self::Message>>(
+    fn run_server<S: Stream<Self::Message>>(
         self,
         mut stream: S,
     ) -> impl Future<Output = ()> + Send {
@@ -150,7 +151,7 @@ where
                             None => {
                                 // First round of DAG sync, so create and run first round.
 
-                                // JP: Eventually switch ecg_state to an Arc<RWLock>?
+                                // JP: Eventually switch dag_state to an Arc<RWLock>?
                                 let (new_dag_sync, operations) =
                                     DAGSyncInitiator::<Hash, SHeaderId, SHeader>::run_new(
                                         &mut stream,
@@ -161,6 +162,7 @@ where
                                 operations
                             }
                             Some(ref mut dag_sync) => {
+                                warn!("TODO: External updates to `dag_state` might make this out of sync?");
                                 // Subsequent rounds of ECG sync.
                                 dag_sync.run_round(&mut stream, &dag_state).await
                             }
@@ -182,7 +184,7 @@ where
         }
     }
 
-    fn run_client<S: crate::util::Stream<Self::Message>>(
+    fn run_client<S: Stream<Self::Message>>(
         self,
         mut stream: S,
     ) -> impl Future<Output = ()> + Send {

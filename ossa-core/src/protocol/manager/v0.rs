@@ -256,7 +256,8 @@ impl<
             // Check if stream is valid (it can be allocated by peer and is available).
             let is_valid_id_ec = self.is_valid_stream_id(false, &ec_stream_id);
             let is_valid_id_sc = self.is_valid_stream_id(false, &sc_stream_id);
-            if !is_valid_id_ec || !is_valid_id_sc {
+            let is_valid_id_bft = self.is_valid_stream_id(false, &bft_stream_id);
+            if !is_valid_id_ec || !is_valid_id_sc || !is_valid_id_bft {
                 debug!("Peer sent invalid stream id.");
                 Err(MsgManagerError::InvalidStreamId)
             } else {
