@@ -22,8 +22,6 @@ pub(crate) struct State<SHeader: dag::DAGHeader, S> {
     pub(crate) dag_state: dag::State<SHeader, S>,
     /// Frontier of operations that have been committed in the DAG state.
     pub(crate) committed_frontier: Frontier<SHeader::HeaderId>,
-    /// State for BFT sync / consensus.
-    pub(crate) bft_state: watch::Sender<BFTState<SHeader::HeaderId>>,
 }
 
 pub(crate) struct BFTState<SHeaderId> {
@@ -64,7 +62,6 @@ impl<Header: dag::DAGHeader, S> State<Header, S> {
             initial_state,
             dag_state: dag::State::new(),
             committed_frontier: BTreeSet::new(),
-            bft_state: watch::Sender::new(BFTState::new()),
         }
     }
 }
