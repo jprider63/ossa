@@ -633,7 +633,9 @@ impl<
                     let dag_state = sc_state.dag_state.state().clone();
                     let message = StoreSCGSyncCommand::SCGSyncRequest { dag_state };
                     debug!("Sending SCG sync request to peer ({})", p.0);
-                    send_command(&mut p.1.scg_status, message)
+                    send_command(&mut p.1.scg_status, message);
+
+                    todo!("Send BFT sync requests");
                 });
             }
             _ => {}

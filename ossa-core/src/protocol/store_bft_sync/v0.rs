@@ -8,9 +8,9 @@ use std::{future::Future, marker::PhantomData};
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc::{UnboundedReceiver, UnboundedSender}, watch};
-use tracing::debug;
+use tracing::{debug, warn};
 
-use crate::{auth::DeviceId, network::protocol::{send, MiniProtocol}, store::{bft::{BFTState, Block, BlockId, PartialSignature, Round, ThresholdSignature}, dag, UntypedStoreCommand}, util::{Sha256Hash, Stream}};
+use crate::{auth::DeviceId, network::protocol::{receive, send, MiniProtocol}, store::{bft::{BFTState, Block, BlockId, PartialSignature, Round, ThresholdSignature}, dag, UntypedStoreCommand}, util::{Sha256Hash, Stream}};
 
 
 pub(crate) struct StoreBFTSync<Hash, SHeaderId, SHeader, THeaderId, THeader> {
@@ -82,7 +82,7 @@ where
                 .expect("Unreachable. Server must be given a receive channel.");
             while let Some(cmd) = recv_chan.recv().await {
                 match cmd {
-                    StoreBFTSyncCommand::BFTSyncRequest => { // { dag_state } => {
+                    StoreBFTSyncCommand::BFTSyncRequest => {
                         let updates = match bft_sync {
                             None => {
                                 let (new_bft_sync, operations) =
@@ -117,7 +117,32 @@ where
         mut stream: S,
     ) -> impl Future<Output = ()> + Send {
         async move {
-            todo!()
+            debug!("StoreBFTSync client running!");
+            let mut bft_sync: Option<BFTSyncResponder> = None;
+
+            // TODO: Check when done.
+            loop {
+                // Receive request.
+                let request = receive(&mut stream).await.expect("TODO");
+                match request {
+                    MsgBFTSyncRequest::BFTInitialSync { round, block_tips, round_complete } => {
+                        debug!("Received initial BFT sync request with round: {round:?}\nblock_tips: {block_tips:?}\nround_complete: {round_complete:?}");
+
+                        if bft_sync.is_some() {
+                            todo!("TODO: Error, BFT sync has already been initialized.");
+                        }
+
+                        let mut bft_sync_ = BFTSyncResponder::new();
+                        bft_sync_.run_initial().await;
+                        bft_sync = Some(bft_sync_);
+
+
+
+                        // TODO: If our round is behind their round, we may want to request updates from them
+                    }
+                }
+            }
+            debug!("StoreBFTSync client exited");
         }
     }
 }
@@ -165,6 +190,17 @@ impl<SHeaderId> From<MsgBFTSyncRequest> for MsgStoreBFTSync<SHeaderId> {
     }
 }
 
+impl<SHeaderId> TryInto<MsgBFTSyncRequest> for MsgStoreBFTSync<SHeaderId> {
+    type Error = ();
+
+    fn try_into(self) -> Result<MsgBFTSyncRequest, Self::Error> {
+        match self {
+            MsgStoreBFTSync::Request(msg_bftsync_request) => Ok(msg_bftsync_request),
+            MsgStoreBFTSync::BFTResponse(_msg_bftsync_response) => Err(()),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) enum MsgBFTSyncResponse<SHeaderId> {
     Response {
@@ -200,6 +236,7 @@ impl<SHeaderId> BFTSyncInitiator<SHeaderId> {
     async fn run_new<S: Stream<MsgStoreBFTSync<SHeaderId>>>(stream: &mut S, bft_state: &mut watch::Receiver<BFTState<SHeaderId>>) -> (Self, Vec<()>) {
         let req = {
             // TODO: Limit on request sizes.
+            warn!("TODO: Check request sizes.");
             // Acquire read lock on state.
             let bft_state = bft_state.borrow_and_update();
             let round = bft_state.current_round();
@@ -213,7 +250,7 @@ impl<SHeaderId> BFTSyncInitiator<SHeaderId> {
 
                 (*round, block_id, signature_ids)
             }).chain(
-                current_round.blocks().iter().map(|(_peer_id, signed_block)| {
+                current_round.blocks().values().map(|signed_block| {
                     let block = signed_block.value();
                     let block_id = block.block_id();
                     let signature_ids = current_round.certificates().get(&block_id).map_or_else(|| ThresholdSignatureId::new(), |s| s.signature_ids());
@@ -235,3 +272,23 @@ impl<SHeaderId> BFTSyncInitiator<SHeaderId> {
     }
 }
 
+pub struct BFTSyncResponder {
+}
+
+impl BFTSyncResponder {
+    fn new() -> Self {
+        Self {  }
+    }
+
+    async fn run_initial(&self) {
+        continuehere
+        // TODO: Record everything they have
+        //
+        // For each block_tips:
+        //   If round is less than our round and we have the block, respond with all children of that block recursively (signatures should be aggregate for these blocks)
+        //   
+        // If their round matches our round, send everything they don't have from the current round.
+        // If round is less than our round, respond with round_complete signatures for rounds greater than or equal to round (and less than the rounds that we fully responded with).
+        todo!()
+    }
+}

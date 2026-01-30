@@ -226,6 +226,7 @@ where
                     }
                 }
             }
+            debug!("StoreDAGSync client exited");
         }
     }
 }
