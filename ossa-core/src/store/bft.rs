@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 
-use crate::{auth::DeviceId, protocol::store_bft_sync::v0::ThresholdSignatureId, store::dag::{self, Frontier}, util::Sha256Hash};
+use crate::{auth::DeviceId, protocol::store_bft_sync::v0::{SignatureId, ThresholdSignatureId}, store::dag::{self, Frontier}, util::Sha256Hash};
 
 /// A round in the BFT strong consistency protocol.
 pub type Round = u64;
@@ -53,6 +53,11 @@ impl<SHeaderId> BFTState<SHeaderId> {
 
     pub(crate) fn previous_tips(&self) -> &[(Round, DeviceId)] {
         &self.previous_tips
+    }
+
+    pub(crate) fn get_current_tips(&self) -> &[(Round, DeviceId)] {
+        // Get all active tips
+        todo!()
     }
 }
 
@@ -167,7 +172,8 @@ pub(crate) enum ThresholdSigned<A> {
 }
 
 impl<A> ThresholdSigned<A> {
-    pub fn signature_ids(&self) -> ThresholdSignatureId {
+    // pub fn signature_ids(&self) -> ThresholdSignatureId {
+    pub fn signature_ids(&self) -> Vec<SignatureId> {
         todo!()
     }
 }

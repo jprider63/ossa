@@ -10,8 +10,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc::{UnboundedReceiver, UnboundedSender}, watch};
 use tracing::{debug, warn};
 
-use crate::{auth::DeviceId, network::protocol::{receive, send, MiniProtocol}, store::{bft::{BFTState, Block, BlockId, PartialSignature, Round, ThresholdSignature}, dag, UntypedStoreCommand}, util::{Sha256Hash, Stream}};
-
+use crate::{auth::DeviceId, network::protocol::{receive, send, MiniProtocol}, protocol::store_peer::dag_sync::MAX_HAVE_HEADERS, store::{bft::{BFTState, Block, BlockId, PartialSignature, Round, ThresholdSignature}, dag, UntypedStoreCommand}, util::{Sha256Hash, Stream}};
 
 pub(crate) struct StoreBFTSync<Hash, SHeaderId, SHeader, THeaderId, THeader> {
     peer: DeviceId,
@@ -169,6 +168,20 @@ impl ThresholdSignatureId {
     }
 }
 
+// For use in a Vec of block tips, ordered by (Round, BlockId). Block signatures ordered by SignatureId.
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) enum BlockStreamElement {
+    Block(Round, BlockId),
+    BlockSignatures(SignatureId),
+    End,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) enum RoundCompleteStreamElement {
+    RoundSignatures(SignatureId),
+    End,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) enum MsgBFTSyncRequest {
     BFTInitialSync {
@@ -176,11 +189,11 @@ pub(crate) enum MsgBFTSyncRequest {
         round: Round,
 
         /// Tips/frontier of blocks with their round and corresponding signatures.
-        block_tips: Vec<(Round, BlockId, ThresholdSignatureId)>,
+        block_tips: Vec<BlockStreamElement>,
 
-        /// Signatures attesting to completion of the current round.
+        /// Signatures attesting to completion of the current round, in order by SignatureId.
         // JP: Or just send the signatures?
-        round_complete: ThresholdSignatureId,
+        round_complete: Vec<RoundCompleteStreamElement>,
     },
 }
 
@@ -235,10 +248,74 @@ impl<SHeaderId> BFTSyncInitiator<SHeaderId> {
     /// Create a new ECGSyncInitiator and run the first round.
     async fn run_new<S: Stream<MsgStoreBFTSync<SHeaderId>>>(stream: &mut S, bft_state: &mut watch::Receiver<BFTState<SHeaderId>>) -> (Self, Vec<()>) {
         let req = {
-            // TODO: Limit on request sizes.
-            warn!("TODO: Check request sizes.");
             // Acquire read lock on state.
             let bft_state = bft_state.borrow_and_update();
+            let round = bft_state.current_round();
+
+            // Get the current tips.
+            let current_tips = bft_state.get_current_tips();
+
+            // Sort by (Round, BlockId)
+            let sorted_blocks = current_tips.iter().map(|(round, peer_id)| {
+                let round_state = &bft_state.round_states()[*round as usize];
+                let signed_block = round_state.blocks().get(peer_id).expect("Block not found even though it is a tip");
+                let block = signed_block.value();
+                let block_id = block.block_id();
+
+                // Return signatures on block, sorted.
+                let signatures = round_state.certificates().get(&block_id).map_or_else(|| vec![], |ts| {
+                    let mut sig_ids = ts.signature_ids();
+                    sig_ids.sort();
+                    sig_ids
+                });
+
+                (round, block_id, signatures)
+            }).collect::<Vec<_>>();
+            sorted_blocks.sort_by_key(|(round, peer_id, _)| (round, peer_id));
+
+            let mut block_tips = Vec::with_capacity(MAX_HAVE_HEADERS as usize);
+            let mut current_block_pos = 0;
+            let mut current_signature_pos = None;
+
+            // Iterate over them, up to the limit:
+            while block_tips.len() < MAX_HAVE_HEADERS.into() {
+                let Some(current_block) = sorted_blocks.get(current_block_pos) else {
+                    // We're done so end the stream and exit the loop.
+                    block_tips.push(BlockStreamElement::End);
+                    break;
+                };
+
+                match current_signature_pos {
+                    Some(j) => {
+                        if let Some(signature_id) = current_block.2.get(j) {
+                            //  Append signature
+                            let elmt = BlockStreamElement::BlockSignatures(*signature_id);
+                            block_tips.push(elmt);
+                            current_signature_pos = Some(j + 1);
+                        } else {
+                            // We're done with the signatures so go to the next block.
+                            current_block_pos += 1;
+                            current_signature_pos = None;
+                        }
+                    },
+                    None => {
+                        //  Append block
+                        let elmt = BlockStreamElement::Block(*current_block.0, current_block.1);
+                        block_tips.push(elmt)
+                    }
+                }
+
+            }
+
+
+
+
+
+
+
+            // OLD:
+            /*
+
             let round = bft_state.current_round();
             let current_round = &bft_state.round_states()[round as usize];
             let block_tips = bft_state.previous_tips().iter().map(|(round, peer_id)| {
@@ -265,6 +342,9 @@ impl<SHeaderId> BFTSyncInitiator<SHeaderId> {
                 block_tips,
                 round_complete,
             }
+
+            */
+            todo!()
         };
         send(stream, req).await.expect("TODO");
 
@@ -290,5 +370,19 @@ impl BFTSyncResponder {
         // If their round matches our round, send everything they don't have from the current round.
         // If round is less than our round, respond with round_complete signatures for rounds greater than or equal to round (and less than the rounds that we fully responded with).
         todo!()
+
+
+        // TODO: Send tips in order (Round, BlockId)? Upon receipt of a tip, if we see that a tip was skipped, respond with the skipped tips. Upon receiving END, queue everything after the last tip
+        //
+        // If our round is behind theirs, tell them to wait?
+        //
+        // Upon receipt of their tip, cases:
+        //     - we have tip
+        //         - Check for skipped tips and send those. (or if we have an aggregate signature and they don't, send the aggregate signature
+        //         - Start queue of children to send
+        //     - we don't have tip
+        //         - Either the tip is:
+        //             - a descendent of what we know (round is later than our current round?)
+        //             - in a fork/sibling of our view (round is <= our current round)
     }
 }
