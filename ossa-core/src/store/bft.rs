@@ -108,7 +108,7 @@ impl<SHeaderId> RoundState<SHeaderId> {
     }
 }
 
-#[derive(Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub(crate) struct BlockId(Sha256Hash);
 
 // A BFT block points to the tips of the DAG and the previous round's certificates.

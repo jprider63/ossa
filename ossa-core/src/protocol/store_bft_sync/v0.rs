@@ -256,7 +256,7 @@ impl<SHeaderId> BFTSyncInitiator<SHeaderId> {
             let current_tips = bft_state.get_current_tips();
 
             // Sort by (Round, BlockId)
-            let sorted_blocks = current_tips.iter().map(|(round, peer_id)| {
+            let mut sorted_blocks = current_tips.iter().map(|(round, peer_id)| {
                 let round_state = &bft_state.round_states()[*round as usize];
                 let signed_block = round_state.blocks().get(peer_id).expect("Block not found even though it is a tip");
                 let block = signed_block.value();
@@ -271,7 +271,7 @@ impl<SHeaderId> BFTSyncInitiator<SHeaderId> {
 
                 (round, block_id, signatures)
             }).collect::<Vec<_>>();
-            sorted_blocks.sort_by_key(|(round, peer_id, _)| (round, peer_id));
+            sorted_blocks.sort_by_key(|(round, peer_id, _)| (*round, *peer_id));
 
             let mut block_tips = Vec::with_capacity(MAX_HAVE_HEADERS as usize);
             let mut current_block_pos = 0;
@@ -301,50 +301,25 @@ impl<SHeaderId> BFTSyncInitiator<SHeaderId> {
                     None => {
                         //  Append block
                         let elmt = BlockStreamElement::Block(*current_block.0, current_block.1);
-                        block_tips.push(elmt)
+                        block_tips.push(elmt);
+                        current_signature_pos = Some(0);
                     }
                 }
-
             }
 
-
-
-
-
-
-
-            // OLD:
-            /*
-
-            let round = bft_state.current_round();
+            // Send round complete signatures.
             let current_round = &bft_state.round_states()[round as usize];
-            let block_tips = bft_state.previous_tips().iter().map(|(round, peer_id)| {
-                let round_state = &bft_state.round_states()[*round as usize];
-                let signed_block = round_state.blocks().get(peer_id).expect("Block not found even though it is a tip");
-                let block = signed_block.value();
-                let block_id = block.block_id();
-                let signature_ids = round_state.certificates().get(&block_id).expect("Signature not found for previous block that's a tip").signature_ids();
+            let mut round_complete = current_round.commit_round().signature_ids().into_iter().map(RoundCompleteStreamElement::RoundSignatures).collect::<Vec<_>>();
+            round_complete.push(RoundCompleteStreamElement::End);
+            let remaining_round_complete = round_complete.split_off(MAX_HAVE_HEADERS.into());
 
-                (*round, block_id, signature_ids)
-            }).chain(
-                current_round.blocks().values().map(|signed_block| {
-                    let block = signed_block.value();
-                    let block_id = block.block_id();
-                    let signature_ids = current_round.certificates().get(&block_id).map_or_else(|| ThresholdSignatureId::new(), |s| s.signature_ids());
-                    (round, block_id, signature_ids)
-                })
-            ).collect();
+            // TODO: Store remaining_round_complete and other state.
 
-
-            let round_complete = current_round.commit_round().signature_ids();
             MsgBFTSyncRequest::BFTInitialSync {
                 round, 
                 block_tips,
                 round_complete,
             }
-
-            */
-            todo!()
         };
         send(stream, req).await.expect("TODO");
 
