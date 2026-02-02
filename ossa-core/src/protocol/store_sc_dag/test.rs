@@ -192,7 +192,7 @@ fn run_dag_sync(
         for (header_id, _) in r_ops {
             assert!(
                 i_state.contains(header_id),
-                "Initiator is missing header {} from responder's state",
+                "Initiator is missing header {} from responder's state\n{results:?}",
                 header_id
             );
         }
@@ -381,9 +381,10 @@ fn example_7_multiple_roots_missing_parent() {
     let results = run_dag_sync(
         &[(0, &[])],
         &[(0, &[]), (1, &[]), (2, &[0, 1])],
-        1,
+        2,
         PanicSubscriber,
     );
     // R2(1) is sent before A(2), so the initiator has all parents.
-    assert_eq!(results[0], vec![1, 2]);
+    assert_eq!(results[0], vec![]);
+    assert_eq!(results[1], vec![1, 2]);
 }

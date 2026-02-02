@@ -369,27 +369,16 @@ impl<Hash, HeaderId, Header> DAGSyncResponder<Hash, HeaderId, Header> {
         while let Some((depth, header_id)) = self.send_queue.pop() {
             // Skip if they already know this header.
             let skip = self.they_know(&header_id);
-            if !skip {
-                // Ensure all parents are known by them before sending this node.
-                let unknown_parents: Vec<_> = ecg_state
+
+            // Skip if any children are unknown.
+            // JP: Do we need to add the parents to the haves_queue? Could also handle this where the send_queue is populated?
+            let has_unknown_parent = ecg_state
                     .get_parents(&header_id)
                     .expect("We know this header.")
-                    .into_iter()
-                    .filter(|p| !self.they_know(p))
-                    .collect();
+                    .iter()
+                    .any(|p| !self.they_know(p));
 
-                if !unknown_parents.is_empty() {
-                    // Queue unknown parents and re-queue this node for later.
-                    for parent_id in unknown_parents {
-                        let depth = ecg_state
-                            .get_header_depth(&parent_id)
-                            .expect("We know this parent.");
-                        self.send_queue.push((Reverse(depth), parent_id));
-                    }
-                    self.send_queue.push((depth, header_id));
-                    continue;
-                }
-
+            if !(skip || has_unknown_parent) {
                 // Send header to peer.
                 if let Some(node) = ecg_state.get_node(&header_id) {
                     operations.push((node.header().clone(), node.operations().clone()));
