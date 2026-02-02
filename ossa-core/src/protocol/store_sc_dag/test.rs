@@ -399,3 +399,165 @@ fn example_8_multiple_roots_missing_parent() {
     );
     assert_eq!(results[0], vec![2]);
 }
+
+/// Example 9: Diamond from Single Root (1 round)
+///
+/// A single root branches into two children that merge at a common descendant.
+/// Both siblings are direct children of the known tip, so they are both
+/// enqueued immediately. The merge node C is only enqueued once both siblings
+/// have been sent.
+///
+/// ```text
+/// Initiator:  R(0)                                   tips: {0}
+/// Responder:  R(0) ─┬── A(1) ─┬── C(3)              tips: {3}
+///                    └── B(2) ─┘
+/// ```
+#[test]
+fn example_9_diamond_single_root() {
+    let results = run_dag_sync(
+        &[(0, &[])],
+        &[(0, &[]), (1, &[0]), (2, &[0]), (3, &[1, 2])],
+        1,
+        PanicSubscriber,
+    );
+    // Both siblings are children of the known tip, so all three arrive in one round.
+    // Heap pops B(2) before A(1) at equal depth (higher HeaderId first), then C(3).
+    assert_eq!(results[0], vec![2, 1, 3]);
+}
+
+/// Example 10: Two Chains from Different Roots Merging (2 rounds)
+///
+/// Two independent chains (rooted at R1 and R2) merge at node C. The
+/// initiator only knows R1, so R2's chain must be discovered via haves.
+///
+/// ```text
+/// Initiator:  R1(0)                                  tips: {0}
+/// Responder:  R1(0) ── A(2) ─┬── C(4)               tips: {4}
+///             R2(1) ── B(3) ─┘
+/// ```
+#[test]
+fn example_10_two_chains_merge() {
+    let results = run_dag_sync(
+        &[(0, &[])],
+        &[(0, &[]), (1, &[]), (2, &[0]), (3, &[1]), (4, &[2, 3])],
+        2,
+        PanicSubscriber,
+    );
+    // Round 1: A(2) is sent (child of known R1). C(4) blocked on unknown B(3).
+    assert_eq!(results[0], vec![2]);
+    // Round 2: R2(1) discovered via haves, then B(3) and C(4) follow.
+    assert_eq!(results[1], vec![1, 3, 4]);
+}
+
+/// Example 11: Three Roots Merging (2 rounds)
+///
+/// Three independent roots all merge at a single node D. The initiator only
+/// knows R1, so R2 and R3 must be discovered via haves before D can be sent.
+///
+/// ```text
+/// Initiator:  R1(0)                                  tips: {0}
+/// Responder:  R1(0) ──┐
+///             R2(1) ──┼── D(3)                       tips: {3}
+///             R3(2) ──┘
+/// ```
+#[test]
+fn example_11_three_roots_merge() {
+    let results = run_dag_sync(
+        &[(0, &[])],
+        &[(0, &[]), (1, &[]), (2, &[]), (3, &[0, 1, 2])],
+        2,
+        PanicSubscriber,
+    );
+    // Round 1: D(3) blocked on unknown R2 and R3, nothing sent.
+    assert_eq!(results[0], vec![]);
+    // Round 2: R2 and R3 discovered via haves, then D follows.
+    assert_eq!(results[1], vec![2, 1, 3]);
+}
+
+/// Example 12: Diamond Where Initiator Knows One Branch (2 rounds)
+///
+/// Same diamond shape as Example 9, but the initiator already knows one
+/// branch (R and A). The other branch B must be discovered via haves
+/// before the merge node C can be sent.
+///
+/// ```text
+/// Initiator:  R(0) ── A(1)                           tips: {1}
+/// Responder:  R(0) ─┬── A(1) ─┬── C(3)              tips: {3}
+///                    └── B(2) ─┘
+/// ```
+#[test]
+fn example_12_diamond_one_branch_known() {
+    let results = run_dag_sync(
+        &[(0, &[]), (1, &[0])],
+        &[(0, &[]), (1, &[0]), (2, &[0]), (3, &[1, 2])],
+        2,
+        PanicSubscriber,
+    );
+    // Round 1: C(3) blocked on unknown B(2), nothing sent.
+    assert_eq!(results[0], vec![]);
+    // Round 2: B(2) discovered via haves, then C(3) follows.
+    assert_eq!(results[1], vec![2, 3]);
+}
+
+/// Example 13: Initiator Knows Different Root (2 rounds)
+///
+/// Two roots merge at C, but the initiator only knows R2 — the opposite root
+/// from the one that would normally be discovered first. R1 must be discovered
+/// via haves before C can be sent.
+///
+/// ```text
+/// Initiator:  R2(1)                                  tips: {1}
+/// Responder:  R1(0) ──── C(2)                        tips: {2}
+/// ```
+#[test]
+fn example_13_initiator_knows_different_root() {
+    let results = run_dag_sync(
+        &[(1, &[])],
+        &[(0, &[]), (2, &[0])],
+        2,
+        PanicSubscriber,
+    );
+    // Round 1: C(2) blocked on unknown R1(0), nothing sent.
+    assert_eq!(results[0], vec![]);
+    // Round 2: R1(0) discovered via haves (root), then C(2) follows.
+    assert_eq!(results[1], vec![0, 2]);
+}
+
+#[test]
+fn example_14_initiator_knows_different_root() {
+    let results = run_dag_sync(
+        &[(1, &[])],
+        &[(0, &[])],
+        2,
+        PanicSubscriber,
+    );
+    // Round 1: C(2) blocked on unknown R1(0), nothing sent.
+    assert_eq!(results[0], vec![]);
+    // Round 2: R1(0) discovered via haves (root), then C(2) follows.
+    assert_eq!(results[1], vec![0]);
+}
+
+/// Example 15: Initiator Has Chain from Different Root (2 rounds)
+///
+/// Two chains from separate roots merge at D. The initiator has R2's chain
+/// (R2 → B) but nothing from R1's chain. R1 and A must be discovered via
+/// haves before D can be sent.
+///
+/// ```text
+/// Initiator:  R2(1) ── B(3)                          tips: {3}
+/// Responder:  R1(0) ── A(2) ─┬── D(4)               tips: {4}
+///             R2(1) ── B(3) ─┘
+/// ```
+#[test]
+fn example_15_initiator_has_chain_from_different_root() {
+    let results = run_dag_sync(
+        &[(1, &[]), (3, &[1])],
+        &[(0, &[]), (1, &[]), (2, &[0]), (3, &[1]), (4, &[2, 3])],
+        2,
+        PanicSubscriber,
+    );
+    // Round 1: D(4) blocked on unknown A(2), nothing sent.
+    assert_eq!(results[0], vec![]);
+    // Round 2: R1(0) discovered via haves (root), then A(2) and D(4) follow.
+    assert_eq!(results[1], vec![0, 2, 4]);
+}
