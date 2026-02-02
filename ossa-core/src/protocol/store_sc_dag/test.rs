@@ -181,3 +181,198 @@ fn run_dag_sync(
         results
     })
 }
+
+/// Example 1: Linear Catch-Up (1 round)
+///
+/// The initiator is behind on the same chain. The responder has B (the
+/// initiator's tip) so it immediately identifies the fork point and sends
+/// B's descendants C and D.
+///
+/// ```text
+/// Initiator:  R(0) ← A(1) ← B(2)                  tips: {2}
+/// Responder:  R(0) ← A(1) ← B(2) ← C(3) ← D(4)   tips: {4}
+/// ```
+#[test]
+fn example_1_linear_catchup() {
+    let results = run_dag_sync(
+        &[(0, &[]), (1, &[0]), (2, &[1])],
+        &[(0, &[]), (1, &[0]), (2, &[1]), (3, &[2]), (4, &[3])],
+        1,
+        PanicSubscriber,
+    );
+    assert_eq!(results[0], vec![3, 4]);
+}
+
+/// Example 2: Initiator Is Empty (1 round)
+///
+/// The initiator has no data. Empty tips trigger the root-node path — the
+/// responder queues all roots and BFS delivers everything depth-first.
+///
+/// ```text
+/// Initiator:  (empty)                      tips: {}
+/// Responder:  R(0) ← A(1) ← B(2)          tips: {2}
+/// ```
+#[test]
+fn example_2_initiator_empty() {
+    let results = run_dag_sync(
+        &[],
+        &[(0, &[]), (1, &[0]), (2, &[1])],
+        1,
+        PanicSubscriber,
+    );
+    assert_eq!(results[0], vec![0, 1, 2]);
+}
+
+/// Example 3: Simple Fork (2 rounds)
+///
+/// Both peers diverged from a common root R. The responder doesn't have X;
+/// the initiator doesn't have A, B, C.
+///
+/// Round 1: Responder sends haves [C, B, A, R] (exponential backoff from
+/// tip C). Round 2: Initiator knows only R → responder sends A, B, C.
+///
+/// ```text
+/// Initiator:  R(0) ── X(10)                        tips: {10}
+/// Responder:  R(0) ── A(1) ── B(2) ── C(3)         tips: {3}
+/// ```
+#[test]
+fn example_3_simple_fork() {
+    let results = run_dag_sync(
+        &[(0, &[]), (10, &[0])],
+        &[(0, &[]), (1, &[0]), (2, &[1]), (3, &[2])],
+        2,
+        PanicSubscriber,
+    );
+    assert_eq!(results[0], vec![]);        // Round 1: haves only
+    assert_eq!(results[1], vec![1, 2, 3]); // Round 2: A, B, C
+}
+
+/// Example 4: Deep Chain with Exponential Backoff (2 rounds)
+///
+/// A long chain where the fork point is deep. The responder's exponential
+/// backoff selects haves at distances 0, 1, 2, 4, 8 from the tip plus the
+/// root (depth=1), covering 15 nodes with only 6 probes.
+///
+/// Round 1: haves = [15, 14, 13, 11, 7, R]. Round 2: Initiator knows 7 and
+/// R → responder identifies the fork region.
+///
+/// ```text
+/// Shared:     R(0) ← 1 ← 2 ← 3 ← 4 ← 5 ← 6 ← 7
+/// Initiator:  7 ← X(99)                              tips: {99}
+/// Responder:  7 ← 8 ← 9 ← 10 ← 11 ← 12 ← 13 ← 14 ← 15   tips: {15}
+/// ```
+///
+/// Note: `mark_as_known_helper` has an inverted condition (`dag_sync.rs:210`):
+/// `BTreeSet::insert` returns `true` for newly-inserted values, but the code
+/// checks `if !contains` — so it only explores parents for *already-known*
+/// nodes. This means `mark_as_known(7)` marks only `{7}`, not `{7..0}`.
+/// As a result, shared nodes 1-6 are unnecessarily re-sent in round 2
+/// (the initiator already has them). Node 7 is correctly skipped because it
+/// was directly marked. Ideally round 2 would send only `[8..15]`.
+#[test]
+fn example_4_deep_chain_exponential_backoff() {
+    let results = run_dag_sync(
+        &[
+            (0, &[]), (1, &[0]), (2, &[1]), (3, &[2]),
+            (4, &[3]), (5, &[4]), (6, &[5]), (7, &[6]),
+            (99, &[7]), // X
+        ],
+        &[
+            (0, &[]), (1, &[0]), (2, &[1]), (3, &[2]),
+            (4, &[3]), (5, &[4]), (6, &[5]), (7, &[6]),
+            (8, &[7]), (9, &[8]), (10, &[9]), (11, &[10]),
+            (12, &[11]), (13, &[12]), (14, &[13]), (15, &[14]),
+        ],
+        2,
+        PanicSubscriber,
+    );
+    assert_eq!(results[0], vec![]);
+    // Nodes 1-6 are re-sent due to the mark_as_known_helper bug described above.
+    // Once fixed, this should be vec![8, 9, 10, 11, 12, 13, 14, 15].
+    assert_eq!(results[1], vec![1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15]);
+}
+
+/// Example 5: Already Synchronized — Wait (1 round)
+///
+/// Both peers have identical DAGs. The responder has nothing to send, so it
+/// sends `Wait` and blocks on `DAGStateSubscriber::request_dag_state()`.
+/// The mock subscriber returns a state with an additional node C(3). The
+/// responder loops, discovers C, and sends it.
+///
+/// ```text
+/// Initiator:       R(0) ← A(1) ← B(2)              tips: {2}
+/// Responder:       R(0) ← A(1) ← B(2)              tips: {2}
+/// Subscriber:      R(0) ← A(1) ← B(2) ← C(3)      tips: {3}
+/// ```
+#[test]
+fn example_5_already_synchronized_wait() {
+    let common: &[(u32, &[u32])] = &[(0, &[]), (1, &[0]), (2, &[1])];
+    let subscriber_state: &[(u32, &[u32])] = &[(0, &[]), (1, &[0]), (2, &[1]), (3, &[2])];
+
+    let results = run_dag_sync(
+        common,
+        common,
+        1,
+        MockSubscriber::new(subscriber_state),
+    );
+    assert_eq!(results[0], vec![3]);
+}
+
+/// Example 6: Responder Is Behind the Initiator (2 rounds, Wait in round 2)
+///
+/// The responder has strictly less data than the initiator (R ⊂ I).
+///
+/// Round 1: Responder doesn't have C(3), sends haves [A(1), R(0)].
+/// Round 2: Initiator knows both → bitmap [1,1]. Responder marks all its
+/// nodes as known by initiator, has nothing left → sends Wait. The mock
+/// subscriber provides an expanded state including D(4). The responder
+/// discovers C(3) (previously in `our_unknown`) is now resolved, queues
+/// C's child D, and sends D(4).
+///
+/// ```text
+/// Initiator:       R(0) ← A(1) ← B(2) ← C(3)      tips: {3}
+/// Responder:       R(0) ← A(1)                      tips: {1}
+/// Subscriber:      R(0) ← A(1) ← B(2) ← C(3) ← D(4)  tips: {4}
+/// ```
+#[test]
+fn example_6_responder_behind() {
+    let subscriber_state: &[(u32, &[u32])] = &[
+        (0, &[]), (1, &[0]), (2, &[1]), (3, &[2]), (4, &[3]),
+    ];
+
+    let results = run_dag_sync(
+        &[(0, &[]), (1, &[0]), (2, &[1]), (3, &[2])],
+        &[(0, &[]), (1, &[0])],
+        2,
+        MockSubscriber::new(subscriber_state),
+    );
+    assert_eq!(results[0], vec![]);  // Round 1: haves only
+    assert_eq!(results[1], vec![4]); // Round 2: Wait → subscriber → D(4)
+}
+
+/// Example 7: Multiple Roots with Missing Parent (1 round)
+///
+/// The DAG has two roots (R1, R2) from concurrent writers. Node A has both
+/// as parents. The initiator only has R1.
+///
+/// The responder sends A (child of R1, which is the initiator's known tip)
+/// but never sends R2 — it's a separate root never added to `send_queue`.
+/// However, `mark_as_known(A)` BFS-walks through both parents and marks R2
+/// as known, creating an incorrect model of the initiator's state.
+///
+/// ```text
+/// Initiator:  R1(0)                                  tips: {0}
+/// Responder:  R1(0) ─┬── A(2)                        tips: {2}
+///             R2(1) ──┘
+/// ```
+#[test]
+fn example_7_multiple_roots_missing_parent() {
+    let results = run_dag_sync(
+        &[(0, &[])],
+        &[(0, &[]), (1, &[]), (2, &[0, 1])],
+        1,
+        PanicSubscriber,
+    );
+    // A(2) is sent, but R2(1) is not — known limitation.
+    assert_eq!(results[0], vec![2]);
+}
