@@ -356,6 +356,31 @@ impl<Hash, HeaderId, Header> DAGSyncResponder<Hash, HeaderId, Header> {
             .await;
     }
 
+    // Send children of a node as long as their parents are known.
+    fn send_children(
+        &mut self,
+        ecg_state: &dag::UntypedState<HeaderId, Header>,
+        header_id: &HeaderId,
+    )
+    where
+        HeaderId: Ord + Copy,
+    {
+        let children = ecg_state
+            .get_children_with_depth(header_id)
+            .expect("Unreachable since we have this header.")
+            .into_iter()
+            // Skip if any children are unknown.
+            .filter(|c_id|
+                !ecg_state
+                    .get_parents(&c_id.1)
+                    .expect("We know this header.")
+                    .iter()
+                    .any(|p| !self.they_know(p))
+            )
+            .collect::<Vec<_>>();
+        self.send_queue.extend(children);
+    }
+
     fn prepare_operations(
         &mut self,
         ecg_state: &dag::UntypedState<HeaderId, Header>,
@@ -370,15 +395,7 @@ impl<Hash, HeaderId, Header> DAGSyncResponder<Hash, HeaderId, Header> {
             // Skip if they already know this header.
             let skip = self.they_know(&header_id);
 
-            // Skip if any children are unknown.
-            // JP: Do we need to add the parents to the haves_queue? Could also handle this where the send_queue is populated?
-            let has_unknown_parent = ecg_state
-                    .get_parents(&header_id)
-                    .expect("We know this header.")
-                    .iter()
-                    .any(|p| !self.they_know(p));
-
-            if !(skip || has_unknown_parent) {
+            if !skip {
                 // Send header to peer.
                 if let Some(node) = ecg_state.get_node(&header_id) {
                     operations.push((node.header().clone(), node.operations().clone()));
@@ -391,10 +408,7 @@ impl<Hash, HeaderId, Header> DAGSyncResponder<Hash, HeaderId, Header> {
             }
 
             // Add children to queue.
-            let children = ecg_state
-                .get_children_with_depth(&header_id)
-                .expect("Unreachable since we proposed this header.");
-            self.send_queue.extend(children);
+            self.send_children(ecg_state, &header_id);
 
             if operations.len() == MAX_DELIVER_HEADERS.into() {
                 return operations;
@@ -458,10 +472,7 @@ impl<Hash, HeaderId, Header> DAGSyncResponder<Hash, HeaderId, Header> {
                 self.mark_as_known(ecg_state, *header_id);
 
                 // Add children to send queue.
-                let children = ecg_state
-                    .get_children_with_depth(header_id)
-                    .expect("Unreachable since we have this header.");
-                self.send_queue.extend(children);
+                self.send_children(ecg_state, &header_id);
             } else {
                 // Record header as known by them but not us.
                 self.our_unknown.insert(*header_id);
@@ -497,20 +508,17 @@ impl<Hash, HeaderId, Header> DAGSyncResponder<Hash, HeaderId, Header> {
     ) where
         HeaderId: Copy + Ord,
     {
-        for (i, header_id) in self.sent_haves.iter().cloned().enumerate() {
+        for (i, header_id) in self.sent_haves.clone().iter().enumerate() {
             // Check if they claimed they know this header.
             let they_know = *their_known
                 .get(i)
                 .expect("Unreachable since we're iterating on the headers we sent.");
             if they_know {
                 // Mark header as known by them.
-                mark_as_known_helper(&mut self.their_known, ecg_state, header_id);
+                mark_as_known_helper(&mut self.their_known, ecg_state, *header_id);
 
                 // Send children if they know this node.
-                let children = ecg_state
-                    .get_children_with_depth(&header_id)
-                    .expect("Unreachable since we sent this header.");
-                self.send_queue.extend(children);
+                self.send_children(ecg_state, &header_id);
             } else {
                 let parents = ecg_state
                     .get_parents(&header_id)
@@ -522,7 +530,7 @@ impl<Hash, HeaderId, Header> DAGSyncResponder<Hash, HeaderId, Header> {
                     let depth = ecg_state
                         .get_header_depth(&header_id)
                         .expect("Unreachable since we sent this header.");
-                    self.send_queue.push((Reverse(depth), header_id));
+                    self.send_queue.push((Reverse(depth), *header_id));
                 }
             }
         }

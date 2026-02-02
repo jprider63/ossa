@@ -388,3 +388,14 @@ fn example_7_multiple_roots_missing_parent() {
     assert_eq!(results[0], vec![]);
     assert_eq!(results[1], vec![1, 2]);
 }
+
+#[test]
+fn example_8_multiple_roots_missing_parent() {
+    let results = run_dag_sync(
+        &[(0, &[]), (1, &[])],
+        &[(0, &[]), (1, &[]), (2, &[0, 1])],
+        1,
+        PanicSubscriber,
+    );
+    assert_eq!(results[0], vec![2]);
+}
