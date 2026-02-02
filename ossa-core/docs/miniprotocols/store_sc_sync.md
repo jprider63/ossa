@@ -230,6 +230,294 @@ Implementation for `StoreDAGSync`:
 3. Call `responder.update_our_unknown()` with the new state
 4. Return the state
 
+## DAG Sync Examples
+
+The following examples trace the algorithm step-by-step on small DAGs. In all diagrams, arrows point from parent to child (left-to-right = older-to-newer), root nodes are on the left, and tips are on the right. Depth starts at 1 for root nodes.
+
+### Example 1: Linear Catch-Up (1 round)
+
+The initiator is behind on the same chain.
+
+```
+Initiator's DAG:     R ← A ← B              tips: {B}
+                     1    2    3
+
+Responder's DAG:     R ← A ← B ← C ← D     tips: {D}
+                     1    2    3    4    5
+```
+
+**Round 1** — Initiator sends `DAGInitialSync { tips: [B] }`:
+
+| Step | Action | Result |
+|------|--------|--------|
+| `handle_their_tips` | Responder has B | Mark {B, A, R} as `their_known`. Queue B's children: {C@4} into `send_queue` |
+| `prepare_operations` | Pop C (depth 4) | Send C. Queue D@5. Pop D (depth 5). Send D. **operations = [C, D]** |
+| `prepare_sent_haves` | All nodes already known by them | **sent_haves = []** |
+
+Response: `{ have: [], operations: [C, D] }` — **sync complete in 1 round**.
+
+**Why it works**: The shared tip B lets the responder immediately identify the fork point and start sending from B's children. No negotiation rounds needed.
+
+### Example 2: Initiator Is Empty (1 round)
+
+The initiator has no data; the responder bootstraps it.
+
+```
+Initiator's DAG:     (empty)                 tips: {}
+
+Responder's DAG:     R ← A ← B              tips: {B}
+                     1    2    3
+```
+
+**Round 1** — Initiator sends `DAGInitialSync { tips: [] }`:
+
+| Step | Action | Result |
+|------|--------|--------|
+| `handle_their_tips` | Tips are empty | Queue all root nodes: {R@1} into `send_queue` |
+| `prepare_operations` | Pop R (depth 1) | Send R. Queue A@2. Pop A. Send A. Queue B@3. Pop B. Send B. **operations = [R, A, B]** |
+
+Response: `{ have: [], operations: [R, A, B] }` — **sync complete in 1 round**.
+
+**Why it works**: Empty tips trigger the root-node path — the responder queues all roots and BFS delivers everything depth-first.
+
+### Example 3: Simple Fork (2 rounds)
+
+Both peers diverged from a common root.
+
+```
+Initiator's DAG:     R ── X                  tips: {X}
+                     1    2
+
+Responder's DAG:     R ── A ── B ── C        tips: {C}
+                     1    2    3    4
+```
+
+The responder does not have X; the initiator does not have A, B, C.
+
+**Round 1** — Initiator sends `DAGInitialSync { tips: [X] }`:
+
+| Step | Action | Result |
+|------|--------|--------|
+| `handle_their_tips` | X not in responder's DAG | `our_unknown = {X}` |
+| `prepare_operations` | `send_queue` is empty | **operations = []** |
+| `prepare_sent_haves` | Walk back from tip C with exponential distances | See trace below |
+
+Haves trace (starting from tip C, depth 4):
+
+```
+Node   Depth   Distance   is_power_of_two(dist)?   depth==1?   Include?
+ C       4        0              yes                  no          yes
+ B       3        1              yes                  no          yes
+ A       2        2              yes                  no          yes
+ R       1        3              no                   yes         yes
+```
+
+Response: `{ have: [C, B, A, R], operations: [] }`
+
+**Round 2** — Initiator checks which haves it knows:
+
+```
+Have    Known by initiator?    Bitmap
+ C            no                  0
+ B            no                  0
+ A            no                  0
+ R            yes                 1
+```
+
+Initiator sends `DAGSync { tips: [X], known: [0, 0, 0, 1] }`:
+
+| Step | Action | Result |
+|------|--------|--------|
+| `handle_their_known` | R (bitmap=1): mark {R} as `their_known`. Queue R's children: {A@2} | `their_known = {R}`, `send_queue = {A@2}` |
+| | C, B, A (bitmap=0): parents not yet in `their_known` at time of processing | No additional queuing |
+| `prepare_operations` | Pop A (depth 2): send. Queue B@3. Pop B: send. Queue C@4. Pop C: send. | **operations = [A, B, C]** |
+
+Response: `{ have: [], operations: [A, B, C] }` — **sync complete in 2 rounds**.
+
+**Why it works**: The responder's haves probed the DAG at exponential intervals. The initiator's bitmap reply identified R as the meeting point — the deepest shared ancestor. The responder then sent everything from R's children onward.
+
+> **Note**: This protocol is unidirectional. The responder sent {A, B, C} to the initiator, but the initiator's operation X is not sent in this direction. X will be synced on the reverse channel where the other peer is the server/initiator.
+
+### Example 4: Deep Chain with Exponential Backoff (2 rounds)
+
+A long chain where the fork point is deep — demonstrating O(log N) convergence.
+
+```
+Shared:
+
+  R ── 1 ── 2 ── 3 ── 4 ── 5 ── 6 ── 7
+  1    2    3    4    5    6    7    8
+
+Initiator:  7 ── X     tips: {X}
+
+Responder:  7 ── 8 ── 9 ── 10 ── 11 ── 12 ── 13 ── 14 ── 15     tips: {15}
+            8    9    10   11    12    13    14    15    16
+```
+
+The initiator has nodes {R..7, X}. The responder has {R..15}. The fork is at node 7 (depth 8).
+
+**Round 1** — Initiator sends `DAGInitialSync { tips: [X] }`:
+
+X is unknown to the responder. `prepare_sent_haves` walks back from tip 15 (depth 16):
+
+```
+Node   Depth   Distance from tip   is_power_of_two?   depth==1?   Include?
+ 15      16          0                  yes              no          yes
+ 14      15          1                  yes              no          yes
+ 13      14          2                  yes              no          yes
+ 12      13          3                  no               no           .
+ 11      12          4                  yes              no          yes
+ 10      11          5                  no               no           .
+  9      10          6                  no               no           .
+  8       9          7                  no               no           .
+  7       8          8                  yes              no          yes
+  6       7          9                  no               no           .
+  5       6         10                  no               no           .
+  4       5         11                  no               no           .
+  3       4         12                  no               no           .
+  2       3         13                  no               no           .
+  1       2         14                  no               no           .
+  R       1         15                  no              yes          yes
+```
+
+Response: `{ have: [15, 14, 13, 11, 7, R], operations: [] }`
+
+6 haves cover 15 nodes of depth. The exponential spacing (distances 0, 1, 2, 4, 8, and the root) creates a binary-search-like probe.
+
+**Round 2** — Initiator knows 7 and R; doesn't know 15, 14, 13, 11:
+
+```
+Have    Known?    Bitmap
+ 15       no        0
+ 14       no        0
+ 13       no        0
+ 11       no        0
+  7      yes        1       <── fork point identified
+  R      yes        1
+```
+
+Initiator sends `DAGSync { tips: [X], known: [0, 0, 0, 0, 1, 1] }`:
+
+| Step | Action | Result |
+|------|--------|--------|
+| `handle_their_known` | 7 (bitmap=1): mark {7,6,5,4,3,2,1,R} as `their_known`. Queue {8@9} | Fork point found |
+| | R (bitmap=1): already known | — |
+| | 15, 14, 13, 11 (bitmap=0): parents not in `their_known` | Skipped |
+| `prepare_operations` | Skip known nodes 1-7. Pop 8: send. Pop 9: send. ... Pop 15: send. | **operations = [8..15]** |
+
+Response: `{ have: [], operations: [8, 9, 10, 11, 12, 13, 14, 15] }` — **sync complete in 2 rounds**.
+
+**Why it works**: With 15 nodes in the responder's chain, only 6 haves were needed to binary-search for the fork point. One bitmap reply pinpointed node 7 as the common ancestor. In general, for a chain of length N, the first round proposes O(log N) haves, and the bitmap reply narrows the search to the exact fork point.
+
+```
+Haves selected (marked with *) over the 15-node chain:
+
+R ── 1 ── 2 ── 3 ── 4 ── 5 ── 6 ── 7 ── 8 ── 9 ── 10 ── 11 ── 12 ── 13 ── 14 ── 15
+*                                    *                     *              *     *     *
+↑                                    ↑                     ↑              ↑     ↑     ↑
+dist=15                           dist=8                dist=4         dist=2 dist=1 dist=0
+(depth=1)                         (2^3)                 (2^2)          (2^1)  (2^0)  (= 0)
+```
+
+The initiator's reply `[no, no, no, no, YES, YES]` immediately tells the responder: "The fork is between node 7 (known) and node 11 (unknown)." Since 7 is confirmed known, its children are the starting point.
+
+### Example 5: Already Synchronized — Wait
+
+Both peers have identical DAGs.
+
+```
+Initiator's DAG:     R ── A ── B              tips: {B}
+                     1    2    3
+
+Responder's DAG:     R ── A ── B              tips: {B}
+                     1    2    3
+```
+
+**Round 1** — Initiator sends `DAGInitialSync { tips: [B] }`:
+
+| Step | Action | Result |
+|------|--------|--------|
+| `handle_their_tips` | B is known | Mark {B, A, R} as `their_known`. Queue B's children: {} (B is a leaf) |
+| `prepare_operations` | `send_queue` empty | **operations = []** |
+| `prepare_sent_haves` | Tip B is in `their_known` → skip. A, R also known → skip | **sent_haves = []** |
+| Both empty | Send `Wait`. Subscribe for updates. Block. | — |
+
+The responder sends `Wait` and blocks on `DAGStateSubscriber::request_dag_state()`. When the store later acquires new operations (e.g., a local write or sync from another peer), the subscriber is notified, and `run_response_helper` loops back to prepare a `Response` with the new data.
+
+**Why it works**: If both DAGs are identical, there is nothing to send. Rather than busy-polling, the responder subscribes for updates and only resumes when new data arrives. The initiator blocks on the stream waiting for the eventual `Response`.
+
+### Example 6: Responder Is Behind the Initiator
+
+The responder has strictly less data than the initiator.
+
+```
+Initiator's DAG:     R ── A ── B ── C        tips: {C}
+                     1    2    3    4
+
+Responder's DAG:     R ── A                   tips: {A}
+                     1    2
+```
+
+**Round 1** — Initiator sends `DAGInitialSync { tips: [C] }`:
+
+| Step | Action | Result |
+|------|--------|--------|
+| `handle_their_tips` | C not in responder | `our_unknown = {C}` |
+| `prepare_operations` | `send_queue` empty | **operations = []** |
+| `prepare_sent_haves` | A (dist=0, pow2) → have. R (dist=1, pow2) → have | **sent_haves = [A, R]** |
+
+Response: `{ have: [A, R], operations: [] }`
+
+**Round 2** — Initiator knows both: `known = [1, 1]`:
+
+| Step | Action | Result |
+|------|--------|--------|
+| `handle_their_known` | A (bitmap=1): mark {A, R} as known. Queue A's children (from **responder's** DAG): **none** (A is a leaf in the responder's DAG) | `their_known = {A, R}` |
+| | R (bitmap=1): already known. Queue R's children: {A} (already known) | — |
+| `prepare_operations` | `send_queue` empty | **operations = []** |
+| `prepare_sent_haves` | All our nodes known by them | **sent_haves = []** |
+| Both empty | Send `Wait`. Subscribe for updates. Block. | — |
+
+The responder has nothing the initiator needs — R \ I = {} because the responder's DAG is a subset of the initiator's. The responder sends `Wait` and blocks until it acquires new data.
+
+**Why it works**: The protocol is unidirectional — it computes R \ I (what the responder has minus what the initiator has). When R ⊆ I, there is nothing to send. The initiator's extra nodes {B, C} will be synced on the **reverse** channel, where the other peer acts as server/initiator.
+
+> **Key insight**: A's children are looked up in the **responder's** DAG, not the initiator's. The responder only has R and A, so A has no children. Nodes B and C exist only in the initiator's DAG and are invisible to the responder.
+
+### Example 7: Edge Case — Multiple Roots with Missing Parent
+
+The DAG has multiple root nodes from concurrent writers. The initiator is missing one root.
+
+```
+Initiator's DAG:     R1                       tips: {R1}
+                      1
+
+Responder's DAG:     R1 ─┬── A               tips: {A}
+                      1   │   3
+                     R2 ──┘
+                      1
+```
+
+Node A has two parents: R1 and R2. The initiator has only R1.
+
+**Round 1** — Initiator sends `DAGInitialSync { tips: [R1] }`:
+
+| Step | Action | Result |
+|------|--------|--------|
+| `handle_their_tips` | R1 is known | Mark {R1} as `their_known`. Queue R1's children: {A@3} |
+| `prepare_operations` | Pop A (depth 3): not known → send | `mark_as_known(A)` BFS-marks {A, R1, R2} as `their_known`. **operations = [A]** |
+| `prepare_sent_haves` | Tip A already in `their_known` → skip. No parents explored. | **sent_haves = []** |
+
+Response: `{ have: [], operations: [A] }`
+
+The problem: R2 was never sent. `handle_their_tips` only queued children of the initiator's known tips (R1). R2 is a separate root that was never added to `send_queue`. However, `mark_as_known` BFS-walked from A through both parents and marked R2 as `their_known` — even though the initiator never received R2.
+
+**What happens next**: The initiator receives A and calls `insert_header(A)`, which checks that all parents are in the local DAG. R2 is not present, so insertion fails (logged warning, operation skipped). On subsequent rounds, the responder believes the initiator knows {R1, R2, A} (based on its `their_known` set), so it has nothing to send and responds with `Wait`. **The protocol is stuck** for this peer pair.
+
+**Resolution**: The initiator will eventually receive R2 from another peer (or via the reverse sync channel where the other peer is the server). Once R2 is in the initiator's DAG, a future sync round will succeed in delivering A.
+
+> **Limitation**: `prepare_operations` sends operations in depth order but does not verify that all of a node's parents have been sent first. `mark_as_known` then marks unsent ancestors as known, creating an incorrect model of the initiator's state. This only manifests with multi-root DAGs where the initiator is missing a root that isn't one of its tips.
+
 ## Store Integration
 
 ### Spawning
