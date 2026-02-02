@@ -348,10 +348,9 @@ fn example_6_responder_behind() {
 /// The DAG has two roots (R1, R2) from concurrent writers. Node A has both
 /// as parents. The initiator only has R1.
 ///
-/// The responder sends A (child of R1, which is the initiator's known tip)
-/// but never sends R2 — it's a separate root never added to `send_queue`.
-/// However, `mark_as_known(A)` BFS-walks through both parents and marks R2
-/// as known, creating an incorrect model of the initiator's state.
+/// When the responder pops A from the send queue, it detects that parent R2
+/// is unknown to the initiator. It queues R2 (and re-queues A) so that R2
+/// is sent first, ensuring the initiator receives all parents before A.
 ///
 /// ```text
 /// Initiator:  R1(0)                                  tips: {0}
@@ -366,6 +365,6 @@ fn example_7_multiple_roots_missing_parent() {
         1,
         PanicSubscriber,
     );
-    // A(2) is sent, but R2(1) is not — known limitation.
-    assert_eq!(results[0], vec![2]);
+    // R2(1) is sent before A(2), so the initiator has all parents.
+    assert_eq!(results[0], vec![1, 2]);
 }
