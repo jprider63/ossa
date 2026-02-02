@@ -366,10 +366,30 @@ impl<Hash, HeaderId, Header> DAGSyncResponder<Hash, HeaderId, Header> {
     {
         let mut operations = Vec::with_capacity(MAX_DELIVER_HEADERS as usize);
 
-        while let Some((_depth, header_id)) = self.send_queue.pop() {
+        while let Some((depth, header_id)) = self.send_queue.pop() {
             // Skip if they already know this header.
             let skip = self.they_know(&header_id);
             if !skip {
+                // Ensure all parents are known by them before sending this node.
+                let unknown_parents: Vec<_> = ecg_state
+                    .get_parents(&header_id)
+                    .expect("We know this header.")
+                    .into_iter()
+                    .filter(|p| !self.they_know(p))
+                    .collect();
+
+                if !unknown_parents.is_empty() {
+                    // Queue unknown parents and re-queue this node for later.
+                    for parent_id in unknown_parents {
+                        let depth = ecg_state
+                            .get_header_depth(&parent_id)
+                            .expect("We know this parent.");
+                        self.send_queue.push((Reverse(depth), parent_id));
+                    }
+                    self.send_queue.push((depth, header_id));
+                    continue;
+                }
+
                 // Send header to peer.
                 if let Some(node) = ecg_state.get_node(&header_id) {
                     operations.push((node.header().clone(), node.operations().clone()));
