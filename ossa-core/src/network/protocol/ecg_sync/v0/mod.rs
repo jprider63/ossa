@@ -43,11 +43,11 @@ pub type ECGSync = Send<(), Eps>; // TODO
 //
 // Client:
 //
-// Send all headers he have that they don't (batched).
+// Send all headers we have that they don't (batched).
 //
 // Client:
 //
-// Send all headers he have that they don't (batched).
+// Send all headers we have that they don't (batched).
 //
 
 /// The maximum number of `have` hashes that can be sent in each message.

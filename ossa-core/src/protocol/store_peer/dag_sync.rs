@@ -171,7 +171,7 @@ impl<
         // TODO: Limit on tips (128? 64? 32? MAX_HAVE_HEADERS)
         warn!("TODO: Check request sizes.");
         let req = MsgDAGSyncRequest::DAGSync {
-            tips: dag_state.tips().iter().cloned().collect(),
+            tips: dag_state.tips().iter().cloned().collect(), // JP: Why does this send all the tips again? TODO: Limit the tips... Maybe do this on the DAG construction side?
             known: known_bitmap,
         };
         send(stream, req).await.expect("TODO");

@@ -131,8 +131,13 @@ where
                             todo!("TODO: Error, BFT sync has already been initialized.");
                         }
 
-                        let mut bft_sync_ = BFTSyncResponder::new();
-                        bft_sync_.run_initial().await;
+                        let bft_sync_ = BFTSyncResponder::run_initial(
+                            &mut stream,
+                            &mut self.bft_state,
+                            round,
+                            block_tips,
+                            round_complete,
+                        ).await;
                         bft_sync = Some(bft_sync_);
 
 
@@ -230,6 +235,22 @@ pub(crate) enum MsgBFTSyncResponse<SHeaderId> {
     Wait,
 }
 
+impl<SHeaderId> From<MsgBFTSyncResponse<SHeaderId>> for MsgStoreBFTSync<SHeaderId> {
+    fn from(msg: MsgBFTSyncResponse<SHeaderId>) -> Self {
+        MsgStoreBFTSync::BFTResponse(msg)
+    }
+}
+
+impl<SHeaderId> TryInto<MsgBFTSyncResponse<SHeaderId>> for MsgStoreBFTSync<SHeaderId> {
+    type Error = ();
+
+    fn try_into(self) -> Result<MsgBFTSyncResponse<SHeaderId>, Self::Error> {
+        match self {
+            MsgStoreBFTSync::Request(_msg_bftsync_request) => Err(()),
+            MsgStoreBFTSync::BFTResponse(msg_bftsync_response) => Ok(msg_bftsync_response),
+        }
+    }
+}
 
 #[derive(Debug)]
 pub(crate) enum StoreBFTSyncCommand {
@@ -327,29 +348,68 @@ impl<SHeaderId> BFTSyncInitiator<SHeaderId> {
     }
 }
 
-pub struct BFTSyncResponder {
+pub struct BFTSyncResponder<SHeaderId> {
+    their_round: Round,
+    their_block_tips: Vec<BlockStreamElement>,
+    their_round_complete: Vec<RoundCompleteStreamElement>,
+    _phantom: PhantomData<SHeaderId>, // JP: Is SHeaderId needed?
 }
 
-impl BFTSyncResponder {
-    fn new() -> Self {
-        Self {  }
-    }
+impl<SHeaderId> BFTSyncResponder<SHeaderId> {
 
-    async fn run_initial(&self) {
-        continuehere
-        // TODO: Record everything they have
-        //
-        // For each block_tips:
-        //   If round is less than our round and we have the block, respond with all children of that block recursively (signatures should be aggregate for these blocks)
-        //   
-        // If their round matches our round, send everything they don't have from the current round.
-        // If round is less than our round, respond with round_complete signatures for rounds greater than or equal to round (and less than the rounds that we fully responded with).
-        todo!()
+    async fn run_initial<S: Stream<MsgStoreBFTSync<SHeaderId>>>(
+        stream: &mut S,
+        bft_state: &mut watch::Receiver<BFTState<SHeaderId>>,
+        their_round: Round,
+        their_block_tips: Vec<BlockStreamElement>,
+        their_round_complete: Vec<RoundCompleteStreamElement>,
+    ) -> Self {
+        let new = Self {
+            their_round,
+            their_block_tips,
+            their_round_complete,
+            _phantom: PhantomData,
+        };
 
+        // // TODO: Record everything they have
+        // //
+        // // For each block_tips:
+        // //   If round is less than our round and we have the block, respond with all children of that block recursively (signatures should be aggregate for these blocks)
+        // //   
+        // // If their round matches our round, send everything they don't have from the current round.
+        // // If round is less than our round, respond with round_complete signatures for rounds greater than or equal to round (and less than the rounds that we fully responded with).
+
+        let resp_m = {
+            // Acquire read lock on state.
+            let bft_state = bft_state.borrow_and_update();
+            let round = bft_state.current_round();
+
+            // If our round is behind theirs, tell them to wait.
+            if round < their_round {
+                None // JP: Send previous tips that they don't have?
+            } else {
+                let resp = new.build_response(bft_state);
+                Some(resp)
+            }
+        };
+
+        match resp_m {
+            Some(resp) => {
+                send(stream, resp).await.expect("TODO");
+            }
+            None => {
+                send(stream, MsgBFTSyncResponse::Wait).await.expect("TODO");
+
+                // Acquire read lock on state once we've caught up.
+                let bft_state = bft_state.wait_for(|s| s.current_round() >= their_round).await.expect("TODO: channel closed");
+
+                let resp = new.build_response(bft_state);
+                send(stream, resp).await.expect("TODO");
+            }
+        }
 
         // TODO: Send tips in order (Round, BlockId)? Upon receipt of a tip, if we see that a tip was skipped, respond with the skipped tips. Upon receiving END, queue everything after the last tip
         //
-        // If our round is behind theirs, tell them to wait?
         //
         // Upon receipt of their tip, cases:
         //     - we have tip
@@ -359,5 +419,26 @@ impl BFTSyncResponder {
         //         - Either the tip is:
         //             - a descendent of what we know (round is later than our current round?)
         //             - in a fork/sibling of our view (round is <= our current round)
+
+        new
+    }
+
+    // Precondition: our_round >= their_round
+    fn build_response(
+        &self,
+        bft_state: watch::Ref<'_, BFTState<SHeaderId>>,
+    ) -> MsgBFTSyncResponse<SHeaderId> {
+         // Send all previous tips (sorted) less that the current round (that they don't have)?
+        // Get and sort our tips. Along with everything starting from their_round???
+        // Iterate over their tips
+        // JP: With this approach, we'll miss nodes where we know a child that depends on it but they dont?
+        //  Or they know a child that depends on it but we do? But in this case, it's ok, we'll just send it even though they don't need it.
+
+
+        // Alternative:
+        //
+        // Mark th
+
+        todo!()
     }
 }
