@@ -113,7 +113,7 @@ fn run_dag_sync(
 ) -> Vec<Vec<u32>> {
     assert!(num_rounds >= 1, "Must run at least 1 round");
 
-    let i_state = build_state(i_ops);
+    let mut i_state = build_state(i_ops);
     let r_state = build_state(r_ops);
 
     let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
@@ -147,6 +147,11 @@ fn run_dag_sync(
         );
         results.push(extract_header_ids(&ops1));
 
+        // Update initiator state with received headers.
+        for (header, body) in ops1 {
+            i_state.insert_header(header, body);
+        }
+
         // Subsequent rounds: The initiator sends DAGSync with its tips and a bitmap
         // indicating which of the responder's previous haves it knows. The responder
         // uses the bitmap to narrow down the fork point and sends operations/haves.
@@ -176,6 +181,20 @@ fn run_dag_sync(
                 }
             );
             results.push(extract_header_ids(&ops));
+
+            // Update initiator state with received headers.
+            for (header, body) in ops {
+                i_state.insert_header(header, body);
+            }
+        }
+
+        // Assert that the initiator's final state includes all responder headers.
+        for (header_id, _) in r_ops {
+            assert!(
+                i_state.contains(header_id),
+                "Initiator is missing header {} from responder's state",
+                header_id
+            );
         }
 
         results
