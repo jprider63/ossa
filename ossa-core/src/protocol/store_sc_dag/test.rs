@@ -262,13 +262,8 @@ fn example_3_simple_fork() {
 /// Responder:  7 ← 8 ← 9 ← 10 ← 11 ← 12 ← 13 ← 14 ← 15   tips: {15}
 /// ```
 ///
-/// Note: `mark_as_known_helper` has an inverted condition (`dag_sync.rs:210`):
-/// `BTreeSet::insert` returns `true` for newly-inserted values, but the code
-/// checks `if !contains` — so it only explores parents for *already-known*
-/// nodes. This means `mark_as_known(7)` marks only `{7}`, not `{7..0}`.
-/// As a result, shared nodes 1-6 are unnecessarily re-sent in round 2
-/// (the initiator already has them). Node 7 is correctly skipped because it
-/// was directly marked. Ideally round 2 would send only `[8..15]`.
+/// Round 2: Initiator knows 7 and R → responder identifies the fork region
+/// and sends only the divergent nodes 8-15.
 #[test]
 fn example_4_deep_chain_exponential_backoff() {
     let results = run_dag_sync(
@@ -287,9 +282,7 @@ fn example_4_deep_chain_exponential_backoff() {
         PanicSubscriber,
     );
     assert_eq!(results[0], vec![]);
-    // Nodes 1-6 are re-sent due to the mark_as_known_helper bug described above.
-    // Once fixed, this should be vec![8, 9, 10, 11, 12, 13, 14, 15].
-    assert_eq!(results[1], vec![1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15]);
+    assert_eq!(results[1], vec![8, 9, 10, 11, 12, 13, 14, 15]);
 }
 
 /// Example 5: Already Synchronized — Wait (1 round)

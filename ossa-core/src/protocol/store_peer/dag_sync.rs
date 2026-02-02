@@ -207,8 +207,8 @@ pub(crate) fn mark_as_known_helper<HeaderId, Header>(
     queue.push_back(header_id);
 
     while let Some(header_id) = queue.pop_front() {
-        let contains = their_known.insert(header_id);
-        if !contains {
+        let newly_inserted = their_known.insert(header_id);
+        if newly_inserted {
             if let Some(parents) = state.get_parents(&header_id) {
                 queue.extend(parents);
             } else {
