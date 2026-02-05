@@ -4,6 +4,7 @@ use ossa_typeable::Typeable;
 use rand::{seq::SliceRandom as _, thread_rng};
 use replace_with::replace_with_or_abort;
 use serde::{Deserialize, Serialize};
+use tokio::sync::watch;
 use std::fmt::{Debug, Display};
 use std::marker::PhantomData;
 use std::{
@@ -16,7 +17,8 @@ use tokio::sync::{
 };
 use tracing::{debug, error, warn};
 
-use crate::store::bft::SCDT;
+use crate::protocol::store_bft_sync::v0::StoreBFTSync;
+use crate::store::bft::{BFTState, SCDT};
 use crate::store::v0::BLOCK_SIZE;
 use crate::time::ConcretizeTime;
 use crate::util::merkle_tree::{MerkleTree, Potential};
@@ -26,7 +28,7 @@ use crate::{
     network::multiplexer::{run_miniprotocol_async, SpawnMultiplexerTask},
     protocol::{
         manager::v0::PeerManagerCommand,
-        store_bft_dag::v0::{StoreDAGSync, StoreSCGSyncCommand},
+        store_sc_dag::v0::{StoreDAGSync, StoreSCGSyncCommand},
         store_peer::v0::{StoreSync, StoreSyncCommand},
     },
     store::{
@@ -106,6 +108,8 @@ pub struct State<StoreId, SHeader: dag::DAGHeader, THeader: dag::DAGHeader, S, T
     scg_subscribers:
         BTreeMap<DeviceId, oneshot::Sender<dag::UntypedState<SHeader::HeaderId, SHeader>>>,
     // listeners: Vec<UnboundedSender<StateUpdate<Header, T>>>,
+    /// State for BFT sync / consensus.
+    pub(crate) bft_state: watch::Sender<BFTState<SHeader::HeaderId>>,
 }
 
 // States are:
@@ -296,6 +300,7 @@ impl<
             block_subscribers: BTreeMap::new(),
             ecg_subscribers: BTreeMap::new(),
             scg_subscribers: BTreeMap::new(),
+            bft_state: watch::Sender::new(BFTState::new()),
         }
     }
 
@@ -311,6 +316,7 @@ impl<
             block_subscribers: BTreeMap::new(),
             ecg_subscribers: BTreeMap::new(),
             scg_subscribers: BTreeMap::new(),
+            bft_state: watch::Sender::new(BFTState::new()),
         }
     }
 
@@ -627,7 +633,9 @@ impl<
                     let dag_state = sc_state.dag_state.state().clone();
                     let message = StoreSCGSyncCommand::SCGSyncRequest { dag_state };
                     debug!("Sending SCG sync request to peer ({})", p.0);
-                    send_command(&mut p.1.scg_status, message)
+                    send_command(&mut p.1.scg_status, message);
+
+                    todo!("Send BFT sync requests");
                 });
             }
             _ => {}
@@ -1390,12 +1398,19 @@ async fn manage_peers<OT: OssaType, S: Clone, T: CRDT<Time = OT::Time> + Clone +
             })
         });
 
+        let spawn_task_bft = Box::new(move |_party, stream_id, sender, receiver| {
+            tokio::spawn(async move {
+                unimplemented!();
+            })
+        });
+
         // Send request to peer's manager for stream.
         let store_id = store.store_id();
         let cmd = PeerManagerCommand::RequestStoreSync {
             store_id,
             spawn_task_ec,
             spawn_task_sc,
+            spawn_task_bft,
         };
         command_chan.send(cmd).expect("TODO");
     }
@@ -1650,7 +1665,8 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
                                             debug!("Store ECG sync with peer (without initiative) exited.")
                                         })
                                     });
-                                    let send_commands_untyped = send_commands_untyped.clone();
+
+                                    let send_commands_untyped_ = send_commands_untyped.clone();
                                     let spawn_task_sc: Box<SpawnMultiplexerTask> = Box::new(move |party, stream_id, sender, receiver| {
                                         tokio::spawn(async move {
                                             // JP: Maybe this isn't needed???
@@ -1658,15 +1674,28 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
                                             let register_cmd = UntypedStoreCommand::RegisterIncomingPeerSCGSyncing {
                                                 peer,
                                             };
-                                            send_commands_untyped.send(register_cmd).expect("TODO");
+                                            send_commands_untyped_.send(register_cmd).expect("TODO");
 
                                             // Start miniprotocol as client.
-                                            let mp = StoreDAGSync::new_client(peer, send_commands_untyped);
+                                            let mp = StoreDAGSync::new_client(peer, send_commands_untyped_);
                                             run_miniprotocol_async(mp, true, stream_id, sender, receiver).await;
                                             debug!("Store SCG sync with peer (without initiative) exited.")
                                         })
                                     });
-                                    Some((spawn_task_ec, spawn_task_sc))
+
+                                    let send_commands_untyped_ = send_commands_untyped.clone();
+                                    let bft_state = store.bft_state.subscribe();
+                                    let spawn_task_bft: Box<SpawnMultiplexerTask> = Box::new(move |party, stream_id, sender, receiver| {
+                                        tokio::spawn(async move {
+                                            warn!("TODO: Should we tell store we're running?");
+
+                                            // Start miniprotocol as client.
+                                            let mp = StoreBFTSync::new_client(peer, send_commands_untyped_, bft_state);
+                                            run_miniprotocol_async(mp, true, stream_id, sender, receiver).await;
+                                            debug!("Store BFT sync with peer (without initiative) exited.")
+                                        })
+                                    });
+                                    Some((spawn_task_ec, spawn_task_sc, spawn_task_bft))
                                 } else {
                                     debug!("Store is already running");
                                     None
@@ -1852,7 +1881,7 @@ pub(crate) enum UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader
     SyncWithPeer {
         peer: DeviceId,
         response_chan:
-            oneshot::Sender<Option<(Box<SpawnMultiplexerTask>, Box<SpawnMultiplexerTask>)>>,
+            oneshot::Sender<Option<(Box<SpawnMultiplexerTask>, Box<SpawnMultiplexerTask>, Box<SpawnMultiplexerTask>)>>,
     },
     RegisterOutgoingPeerECGSyncing {
         peer: DeviceId,

@@ -4,18 +4,18 @@ use std::{collections::BTreeSet, fmt::Debug};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot;
-use tracing::debug;
+use tracing::{debug, warn};
 
-use crate::protocol::store_peer::ecg_sync::{DAGStateSubscriber, MsgDAGSyncResponse};
+use crate::protocol::store_peer::dag_sync::{DAGStateSubscriber, MsgDAGSyncResponse};
 use crate::store::dag;
+use crate::util::Stream;
 use crate::{
     auth::DeviceId,
     network::protocol::{receive, MiniProtocol},
     protocol::store_peer::{
-        ecg_sync::{ECGSyncInitiator, ECGSyncResponder, MsgDAGSyncRequest},
-        v0::{MsgStoreSync, MsgStoreSyncRequest},
+        dag_sync::{DAGSyncInitiator, DAGSyncResponder, MsgDAGSyncRequest},
     },
-    store::{dag::v0::HeaderId, UntypedStoreCommand},
+    store::UntypedStoreCommand,
 };
 
 /// Miniprotocol to sync the DAG in the strongly consistent BFT consensus protocol.
@@ -133,13 +133,13 @@ where
     type Message = MsgStoreDAGSync<SHeaderId, SHeader>;
 
     // Has initiative
-    fn run_server<S: crate::util::Stream<Self::Message>>(
+    fn run_server<S: Stream<Self::Message>>(
         self,
         mut stream: S,
     ) -> impl Future<Output = ()> + Send {
         async move {
             debug!("StoreDAGSync server running!");
-            let mut dag_sync: Option<ECGSyncInitiator<Hash, SHeaderId, SHeader>> = None;
+            let mut dag_sync: Option<DAGSyncInitiator<Hash, SHeaderId, SHeader>> = None;
 
             let mut recv_chan = self
                 .recv_chan
@@ -151,9 +151,9 @@ where
                             None => {
                                 // First round of DAG sync, so create and run first round.
 
-                                // JP: Eventually switch ecg_state to an Arc<RWLock>?
+                                // JP: Eventually switch dag_state to an Arc<RWLock>?
                                 let (new_dag_sync, operations) =
-                                    ECGSyncInitiator::<Hash, SHeaderId, SHeader>::run_new(
+                                    DAGSyncInitiator::<Hash, SHeaderId, SHeader>::run_new(
                                         &mut stream,
                                         &dag_state,
                                     )
@@ -162,6 +162,7 @@ where
                                 operations
                             }
                             Some(ref mut dag_sync) => {
+                                warn!("TODO: External updates to `dag_state` might make this out of sync?");
                                 // Subsequent rounds of ECG sync.
                                 dag_sync.run_round(&mut stream, &dag_state).await
                             }
@@ -183,13 +184,13 @@ where
         }
     }
 
-    fn run_client<S: crate::util::Stream<Self::Message>>(
+    fn run_client<S: Stream<Self::Message>>(
         self,
         mut stream: S,
     ) -> impl Future<Output = ()> + Send {
         async move {
             debug!("StoreDAGSync client running!");
-            let mut dag_sync: Option<ECGSyncResponder<Hash, SHeaderId, SHeader>> = None;
+            let mut dag_sync: Option<DAGSyncResponder<Hash, SHeaderId, SHeader>> = None;
 
             // TODO: Check when done.
             loop {
@@ -203,7 +204,7 @@ where
                             todo!("TODO: Error, SCG sync has already been initialized.");
                         }
 
-                        let mut dag_sync_ = ECGSyncResponder::new();
+                        let mut dag_sync_ = DAGSyncResponder::new();
 
                         let scg_state = self.request_dag_state(&mut dag_sync_, None).await;
 
@@ -225,6 +226,7 @@ where
                     }
                 }
             }
+            debug!("StoreDAGSync client exited");
         }
     }
 }
@@ -236,7 +238,7 @@ where
 {
     async fn request_dag_state(
         &self,
-        responder: &mut ECGSyncResponder<Hash, SHeaderId, SHeader>,
+        responder: &mut DAGSyncResponder<Hash, SHeaderId, SHeader>,
         tips: Option<BTreeSet<SHeaderId>>,
     ) -> dag::UntypedState<SHeaderId, SHeader> {
         debug!("Requesting SCG state");
