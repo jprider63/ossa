@@ -89,6 +89,7 @@ pub(crate) enum MsgDAGSyncResponse<HeaderId, Header> {
 // Has initiative
 pub(crate) struct DAGSyncInitiator<Hash, HeaderId, Header> {
     have: Vec<HeaderId>,
+    sent_tips: BTreeSet<HeaderId>,
     phantom: PhantomData<fn(Hash, HeaderId, Header)>,
 }
 
@@ -98,6 +99,33 @@ impl<
         Header: Debug + Send + Sync,
     > DAGSyncInitiator<Hash, HeaderId, Header>
 {
+    /// Select tips that haven't been sent yet, capped at `MAX_HAVE_HEADERS`.
+    ///
+    /// Prunes `sent_tips` of entries no longer in the frontier, then collects
+    /// unsent tips (up to the cap) and records them as sent.
+    fn select_new_tips(
+        dag_state: &dag::UntypedState<HeaderId, Header>,
+        sent_tips: &mut BTreeSet<HeaderId>,
+    ) -> Vec<HeaderId> {
+        let current_tips = dag_state.tips();
+
+        // Prune sent_tips: remove entries no longer in the frontier.
+        sent_tips.retain(|t| current_tips.contains(t));
+
+        // Collect unsent tips, capped at MAX_HAVE_HEADERS.
+        let new_tips: Vec<HeaderId> = current_tips
+            .iter()
+            .filter(|t| !sent_tips.contains(t))
+            .take(MAX_HAVE_HEADERS.into())
+            .cloned()
+            .collect();
+
+        // Record them as sent.
+        sent_tips.extend(new_tips.iter().cloned());
+
+        new_tips
+    }
+
     async fn receive_response_helper<S: Stream<Msg>, Msg>(
         stream: &mut S,
     ) -> (Vec<HeaderId>, Vec<(Header, RawDAGBody)>)
@@ -131,11 +159,10 @@ impl<
         MsgDAGSyncRequest<HeaderId>: Into<Msg>,
         Msg: TryInto<MsgDAGSyncResponse<HeaderId, Header>>,
     {
-        // TODO: Limit on tips (128? 64? 32? MAX_HAVE_HEADERS)
         warn!("TODO: Check request sizes.");
-        let req = MsgDAGSyncRequest::DAGInitialSync {
-            tips: dag_state.tips().iter().cloned().collect(),
-        };
+        let mut sent_tips = BTreeSet::new();
+        let tips = Self::select_new_tips(dag_state, &mut sent_tips);
+        let req = MsgDAGSyncRequest::DAGInitialSync { tips };
         send(stream, req).await.expect("TODO");
 
         // Receive response.
@@ -143,6 +170,7 @@ impl<
 
         let dag_sync = DAGSyncInitiator {
             have,
+            sent_tips,
             phantom: PhantomData,
         };
 
@@ -168,10 +196,9 @@ impl<
             }
         }
 
-        // TODO: Limit on tips (128? 64? 32? MAX_HAVE_HEADERS)
-        warn!("TODO: Check request sizes.");
+        let tips = Self::select_new_tips(dag_state, &mut self.sent_tips);
         let req = MsgDAGSyncRequest::DAGSync {
-            tips: dag_state.tips().iter().cloned().collect(), // JP: Why does this send all the tips again? TODO: Limit the tips... Maybe do this on the DAG construction side?
+            tips,
             known: known_bitmap,
         };
         send(stream, req).await.expect("TODO");

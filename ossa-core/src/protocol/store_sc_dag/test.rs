@@ -5,7 +5,8 @@ use ossa_crdt::register::LWW;
 
 use crate::network::protocol::receive;
 use crate::protocol::store_peer::dag_sync::{
-    DAGStateSubscriber, DAGSyncInitiator, DAGSyncResponder, MsgDAGSyncRequest,
+    DAGSyncInitiator, DAGSyncResponder, MsgDAGSyncRequest,
+    DAGStateSubscriber, MAX_HAVE_HEADERS,
 };
 use crate::protocol::store_sc_dag::v0::MsgStoreDAGSync;
 use crate::store::dag::{self, DAGHeader};
@@ -560,4 +561,85 @@ fn example_15_initiator_has_chain_from_different_root() {
     assert_eq!(results[0], vec![]);
     // Round 2: R1(0) discovered via haves (root), then A(2) and D(4) follow.
     assert_eq!(results[1], vec![0, 2, 4]);
+}
+
+/// Helper: builds a list of `(header_id, parent_ids)` tuples for `count`
+/// independent root nodes with IDs `0..count`.
+fn make_roots(count: u32) -> Vec<(u32, Vec<u32>)> {
+    (0..count).map(|id| (id, vec![])).collect()
+}
+
+/// Converts owned ops into the borrowed form that `run_dag_sync` expects.
+fn to_borrowed(ops: &[(u32, Vec<u32>)]) -> Vec<(u32, &[u32])> {
+    ops.iter().map(|(id, parents)| (*id, parents.as_slice())).collect()
+}
+
+/// Example 16: More Than MAX_HAVE_HEADERS Tips (2 rounds)
+///
+/// The initiator has 40 independent roots (0-39). Because `select_new_tips`
+/// caps tips at MAX_HAVE_HEADERS (32), only the first 32 tips (0-31) are sent
+/// in round 1. The responder has the same 40 roots plus a node 1000 whose
+/// sole parent is root 39. Since root 39 isn't communicated until round 2,
+/// the responder can't deliver node 1000 until then.
+///
+/// ```text
+/// Initiator:  40 independent roots (0..39)        tips: {0..39}
+/// Responder:  40 roots + 1000(parent=39)           tips: {0..38, 1000}
+/// ```
+#[test]
+fn example_16_more_than_max_tips() {
+    let n: u32 = (MAX_HAVE_HEADERS as u32) + 8; // 40 roots
+
+    let i_ops = make_roots(n);
+    let mut r_ops = make_roots(n);
+    // Add node 1000 as a child of the last root (n-1 = 39), which is beyond
+    // the first MAX_HAVE_HEADERS tips in BTreeSet order.
+    r_ops.push((1000, vec![n - 1]));
+
+    let i_ref = to_borrowed(&i_ops);
+    let r_ref = to_borrowed(&r_ops);
+
+    let results = run_dag_sync(&i_ref, &r_ref, 2, PanicSubscriber);
+
+    // Round 1: responder doesn't know initiator has root 39 → can't send 1000.
+    assert!(!results[0].contains(&1000),
+        "Node 1000 should not be delivered in round 1 (parent tip not yet sent)");
+    // Round 2: remaining tips (32-39) are sent, responder delivers 1000.
+    assert!(results[1].contains(&1000),
+        "Node 1000 should be delivered in round 2 after remaining tips are sent");
+}
+
+/// Example 17: More Than 2×MAX_HAVE_HEADERS Tips (3 rounds)
+///
+/// The initiator has 70 independent roots (0-69). Tips are sent in batches of
+/// MAX_HAVE_HEADERS (32): round 1 sends 0-31, round 2 sends 32-63, round 3
+/// sends 64-69. The responder has these 70 roots plus a node 2000 whose sole
+/// parent is root 69. Node 2000 is only deliverable in round 3 when root 69
+/// is finally communicated.
+///
+/// ```text
+/// Initiator:  70 independent roots (0..69)        tips: {0..69}
+/// Responder:  70 roots + 2000(parent=69)           tips: {0..68, 2000}
+/// ```
+#[test]
+fn example_17_more_than_double_max_tips() {
+    let n: u32 = (MAX_HAVE_HEADERS as u32) * 2 + 6; // 70 roots
+
+    let i_ops = make_roots(n);
+    let mut r_ops = make_roots(n);
+    r_ops.push((2000, vec![n - 1]));
+
+    let i_ref = to_borrowed(&i_ops);
+    let r_ref = to_borrowed(&r_ops);
+
+    let results = run_dag_sync(&i_ref, &r_ref, 3, PanicSubscriber);
+
+    // Rounds 1 and 2: responder doesn't know initiator has root 69.
+    assert!(!results[0].contains(&2000),
+        "Node 2000 should not be delivered in round 1");
+    assert!(!results[1].contains(&2000),
+        "Node 2000 should not be delivered in round 2");
+    // Round 3: root 69 is finally sent, responder delivers 2000.
+    assert!(results[2].contains(&2000),
+        "Node 2000 should be delivered in round 3 after all tips are sent");
 }
