@@ -207,7 +207,7 @@ fn impl_typeable_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
             }));
             quote! {
                 helper_u8(&mut h, 1);
-                helper_counter(#c);
+                helper_counter(&mut h, #c);
                 #vs
             }
         }

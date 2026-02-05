@@ -11,8 +11,8 @@ use tracing::{debug, error};
 
 pub mod v0;
 
-/// Trait that ECG headers (nodes?) must implement.
-pub trait ECGHeader {
+/// Trait that DAG headers (nodes?) must implement.
+pub trait DAGHeader {
     type HeaderId: Ord + Copy + Debug;
 
     // /// Type identifying operations that implements CausalOrder so that it can be used as CRDT::Time.
@@ -41,9 +41,9 @@ pub trait ECGHeader {
     // fn get_operation_times<T>(&self, body: &Self::Body) -> Vec<T::Time> where T: CRDT;
 }
 
-pub trait ECGBody<Op, SerializedOp> {
+pub trait DAGBody<Op, SerializedOp> {
     /// Header type associated with this body.
-    type Header: ECGHeader;
+    type Header: DAGHeader;
 
     /// Create a new body from a vector of operations.
     // fn new_body(operations: Vec<T::Op<CausalTime<T::Time>>>) -> Self;
@@ -52,14 +52,14 @@ pub trait ECGBody<Op, SerializedOp> {
     /// The operations in this body.
     fn operations(
         self,
-        header_id: <Self::Header as ECGHeader>::HeaderId,
+        header_id: <Self::Header as DAGHeader>::HeaderId,
     ) -> impl Iterator<Item = Op>;
 
     /// The number of operations in this body.
     fn operations_count(&self) -> u8;
 
     // fn new_header(&self, parents: BTreeSet<<Self::Header as ECGHeader>::HeaderId>) -> Self::Header
-    fn new_header(&self, parents: BTreeSet<<Self::Header as ECGHeader>::HeaderId>) -> Self::Header;
+    fn new_header(&self, parents: BTreeSet<<Self::Header as DAGHeader>::HeaderId>) -> Self::Header;
     // fn new_header<HeaderId>(&self, parents: BTreeSet<HeaderId>) -> Self::Header
     // where
     //     // Self::Header: ECGHeader;
@@ -77,7 +77,7 @@ pub trait ECGBody<Op, SerializedOp> {
 }
 
 // Serialized ECG body
-pub(crate) type RawECGBody = Vec<u8>;
+pub(crate) type RawDAGBody = Vec<u8>;
 
 #[derive(Clone, Debug)]
 pub(crate) struct NodeInfo<Header> {
@@ -88,7 +88,7 @@ pub(crate) struct NodeInfo<Header> {
     /// The header this node is storing.
     header: Header,
     /// Raw serialized and potentially encrypted operations.
-    operations: RawECGBody,
+    operations: RawDAGBody,
 }
 
 impl<Header> NodeInfo<Header> {
@@ -100,6 +100,9 @@ impl<Header> NodeInfo<Header> {
         &self.operations
     }
 }
+
+/// A frontier of header id's for a graph.
+pub type Frontier<A> = BTreeSet<A>;
 
 #[derive(Clone, Debug)]
 pub struct UntypedState<HeaderId, Header> {
@@ -113,11 +116,11 @@ pub struct UntypedState<HeaderId, Header> {
 
     /// Tips of the ECG (hashes of their headers).
     /// Invariant: All of these headers are in `node_info_map`.
-    tips: BTreeSet<HeaderId>,
+    tips: Frontier<HeaderId>,
 }
 
 impl<HeaderId, Header> UntypedState<HeaderId, Header> {
-    pub fn tips(&self) -> &BTreeSet<HeaderId> {
+    pub fn tips(&self) -> &Frontier<HeaderId> {
         &self.tips
     }
 
@@ -226,13 +229,13 @@ impl<HeaderId, Header> UntypedState<HeaderId, Header> {
 }
 
 #[derive(Debug)]
-pub struct State<Header: ECGHeader, T> {
+pub struct State<Header: DAGHeader, T> {
     pub(crate) state: UntypedState<Header::HeaderId, Header>,
 
     phantom: PhantomData<fn(T)>, // TODO: Delete T?
 }
 
-impl<Header: ECGHeader + Clone, T: CRDT> Clone for State<Header, T> {
+impl<Header: DAGHeader + Clone, T> Clone for State<Header, T> {
     fn clone(&self) -> Self {
         let state = self.state.clone();
         State {
@@ -242,7 +245,7 @@ impl<Header: ECGHeader + Clone, T: CRDT> Clone for State<Header, T> {
     }
 }
 
-impl<Header: ECGHeader, T: CRDT> State<Header, T> {
+impl<Header: DAGHeader, T> State<Header, T> {
     pub fn new() -> State<Header, T> {
         let state = UntypedState {
             dependency_graph: StableDag::new(),
@@ -304,7 +307,7 @@ impl<Header: ECGHeader, T: CRDT> State<Header, T> {
         self.state.get_header_depth(n)
     }
 
-    pub fn insert_header(&mut self, header: Header, operations: RawECGBody) -> bool {
+    pub fn insert_header(&mut self, header: Header, operations: RawDAGBody) -> bool {
         let header_id = header.get_header_id();
 
         // Validate header.
@@ -431,7 +434,7 @@ impl<Header: ECGHeader, T: CRDT> State<Header, T> {
 
 /// Tests whether two ecg states have the same DAG.
 #[cfg(test)]
-pub(crate) fn equal_dags<Header: ECGHeader, T>(l: &State<Header, T>, r: &State<Header, T>) -> bool
+pub(crate) fn equal_dags<Header: DAGHeader, T>(l: &State<Header, T>, r: &State<Header, T>) -> bool
 where
     Header::HeaderId: Copy,
 {
@@ -459,7 +462,7 @@ where
 }
 
 #[cfg(test)]
-pub(crate) fn print_dag<Header: ECGHeader, T>(s: &State<Header, T>) {
+pub(crate) fn print_dag<Header: DAGHeader, T>(s: &State<Header, T>) {
     use petgraph::dot::{Config, Dot};
     use petgraph::stable_graph::StableDiGraph;
 

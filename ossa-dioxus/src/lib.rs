@@ -1,21 +1,24 @@
 pub use dioxus;
+use dioxus::core::{current_scope_id, use_hook, Runtime, Task};
 use dioxus::hooks::use_context;
-use dioxus::prelude::{current_scope_id, use_hook, Runtime, ScopeId, Task};
-use dioxus::signals::{Readable as _, Signal, Writable as _};
+use dioxus::prelude::{ScopeId}; // , Task, current_scope_id, spawn_in_scope, use_hook};
+use dioxus::signals::{ReadableExt as _, ReadableRef, Signal, WritableExt as _};
 pub use dioxus_desktop;
+use ossa_core::store::bft::SCDT;
 use tracing::debug;
 
 use std::cell::RefCell;
 use std::collections::BTreeSet;
+use std::fmt::Debug;
 use std::panic::Location;
 use std::rc::Rc;
 
 use ossa_core::Ossa;
 use ossa_core::core::OssaType;
 use ossa_core::core::StoreHandle;
-use ossa_core::store::ecg::v0::{Body, Header, HeaderId, OperationId};
-use ossa_core::store::ecg::{ECGBody, ECGHeader};
-use ossa_core::store::{StateUpdate, ecg};
+use ossa_core::store::dag::v0::{Body, Header, HeaderId, OperationId};
+use ossa_core::store::dag::{DAGBody, DAGHeader};
+use ossa_core::store::{StateUpdate, dag};
 use ossa_core::time::{CausalTime, ConcretizeTime};
 use ossa_core::util::Sha256Hash;
 use ossa_crdt::CRDT;
@@ -54,13 +57,16 @@ impl OssaType for DefaultSetup {
     type ECGHeader = Header<Sha256Hash>;
     type ECGBody<T: CRDT<Op: ConcretizeTime<HeaderId<Sha256Hash>>>> =
         Body<Sha256Hash, <T::Op as ConcretizeTime<HeaderId<Sha256Hash>>>::Serialized>;
+    type SCGHeader = Header<Sha256Hash>;
+    type SCGBody<S: SCDT<Op: ConcretizeTime<HeaderId<Sha256Hash>>>> =
+        Body<Sha256Hash, <S::Op as ConcretizeTime<HeaderId<Sha256Hash>>>::Serialized> ;
 
     type Time = OperationId<HeaderId<Sha256Hash>>;
 
-    type CausalState<T: CRDT<Time = Self::Time>> = ecg::State<Self::ECGHeader, T>;
+    type CausalState<T: CRDT<Time = Self::Time>> = dag::State<Self::ECGHeader, T>;
 
     fn to_causal_state<T: CRDT<Time = Self::Time>>(
-        st: &ecg::State<Self::ECGHeader, T>,
+        st: &dag::State<Self::ECGHeader, T>,
     ) -> &Self::CausalState<T> {
         st
     }
@@ -68,12 +74,14 @@ impl OssaType for DefaultSetup {
 
 pub struct UseStore<
     OT: OssaType + 'static,
-    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>> + 'static,
+    S: SCDT<Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>> + 'static,
+    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>> + 'static,
 > {
     future: Task,
-    handle: Rc<RefCell<StoreHandle<OT, T>>>,
+    handle: Rc<RefCell<StoreHandle<OT, S, T>>>,
     // handle: StoreHandle<OT, T>,
-    state: Signal<Option<StoreState<OT, T>>>,
+    sc_state: Signal<Option<StoreState<OT::SCGHeader, S>>>,
+    ec_state: Signal<Option<StoreState<OT::ECGHeader, T>>>,
     // peers, connections, etc
 }
 
@@ -89,57 +97,59 @@ pub struct UseStore<
 
 impl<
     OT: OssaType + 'static,
-    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>,
-> Clone for UseStore<OT, T>
+    S: SCDT<Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>>,
+    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>,
+> Clone for UseStore<OT, S, T>
 {
     fn clone(&self) -> Self {
         UseStore {
             future: self.future,
             handle: self.handle.clone(),
-            state: self.state,
+            ec_state: self.ec_state,
+            sc_state: self.sc_state,
         }
     }
 }
 
 // #[derive(Clone)]
-pub struct StoreState<OT: OssaType, T: CRDT<Time = OT::Time>> {
-    state: T,
-    ecg: ecg::State<OT::ECGHeader, T>,
+// State for a store, corresponding to either the eventually consistent or strongly consistent state.
+pub struct StoreState<Header: dag::DAGHeader, A> {
+
+    state: A,
+    dag: dag::State<Header, A>,
 }
 
-impl<OT: OssaType, T: CRDT<Time = OT::Time>> StoreState<OT, T> {
-    pub fn state(&self) -> &T {
+impl<Header: dag::DAGHeader, A> StoreState<Header, A> {
+    pub fn state(&self) -> &A {
         &self.state
     }
 
-    pub fn ecg(&self) -> &ecg::State<OT::ECGHeader, T> {
-        &self.ecg
+    pub fn dag(&self) -> &dag::State<Header, A> {
+        &self.dag
     }
 }
 
-impl<OT: OssaType, T: CRDT<Time = OT::Time> + Clone> Clone for StoreState<OT, T>
-where
-    <OT as OssaType>::ECGHeader: Clone,
-{
+impl<Header: Clone + dag::DAGHeader, A: Clone> Clone for StoreState<Header, A> {
     fn clone(&self) -> Self {
         StoreState {
             state: self.state.clone(),
-            ecg: self.ecg.clone(),
+            dag: self.dag.clone(),
         }
     }
 }
 
 pub fn use_store<
     OT: OssaType + 'static,
-    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>,
+    S: SCDT<Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>> + Debug + 'static,
+    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>,
     F,
 >(
     build_store_handle: F,
-) -> UseStore<OT, T>
+) -> UseStore<OT, S, T>
 where
-    F: FnOnce(&Ossa<OT>) -> StoreHandle<OT, T>,
+    F: FnOnce(&Ossa<OT>) -> StoreHandle<OT, S, T>,
 {
-    let scope = current_scope_id().expect("Failed to get scope id");
+    let scope = current_scope_id();
     let ossa = use_context::<OssaProp<OT>>().ossa;
     let caller = std::panic::Location::caller();
     use_hook(|| new_store_helper(&ossa, scope, caller, build_store_handle).unwrap())
@@ -147,69 +157,82 @@ where
 
 fn new_store_helper<
     OT: OssaType + 'static,
-    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>,
+    S: SCDT<Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>> + Debug,
+    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>,
     F,
 >(
     ossa: &Ossa<OT>,
     scope: ScopeId,
     caller: &'static Location,
     build_store_handle: F,
-) -> Option<UseStore<OT, T>>
+) -> Option<UseStore<OT, S, T>>
 where
-    F: FnOnce(&Ossa<OT>) -> StoreHandle<OT, T>,
+    F: FnOnce(&Ossa<OT>) -> StoreHandle<OT, S, T>,
 {
     let mut handle = build_store_handle(ossa);
     let mut recv_st = handle.subscribe_to_state();
 
-    let mut state = Signal::new_maybe_sync_in_scope_with_caller(None, scope, caller);
+    let mut ec_state = Signal::new_maybe_sync_in_scope_with_caller(None, scope, caller);
+    let mut sc_state = Signal::new_maybe_sync_in_scope_with_caller(None, scope, caller);
+    // TODO: Update sc_state.
 
     let future = spawn_in_scope(scope, async move {
         debug!("Creating future for store");
         while let Some(msg) = recv_st.recv().await {
             match msg {
-                StateUpdate::Snapshot {
+                StateUpdate::SnapshotEC {
                     snapshot,
-                    ecg_state,
+                    dag_state,
                 } => {
-                    debug!("Received state!");
+                    debug!("Received EC state!");
                     let s = StoreState {
                         state: snapshot,
-                        ecg: ecg_state,
+                        dag: dag_state,
                     };
-                    state.set(Some(s));
+                    ec_state.set(Some(s));
                 }
                 StateUpdate::Downloading { percent } => {
                     debug!("Store is downloading ({percent}%)");
-                    state.set(None);
+                    ec_state.set(None);
+                }
+                StateUpdate::SnapshotSC { snapshot, dag_state } => {
+                    debug!("Received SC state: {dag_state:?}");
+                    let s = StoreState {
+                        state: snapshot,
+                        dag: dag_state,
+                    };
+                    sc_state.set(Some(s));
                 }
             }
         }
         debug!("Future for store is exiting");
     });
 
-    let Some(future) = future else {
-        state.manually_drop(); // JP: Is this needed?
-        return None;
-    };
+    // let Some(future) = future else {
+    //     state.manually_drop(); // JP: Is this needed?
+    //     return None;
+    // };
 
     let handle = Rc::new(RefCell::new(handle));
     Some(UseStore {
         future,
         handle,
-        state,
+        ec_state,
+        sc_state,
     })
 }
 
 pub fn new_store_in_scope<
     OT: OssaType + 'static,
-    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>,
+    S: SCDT<Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>> + Debug,
+    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>,
     F,
 >(
     scope: ScopeId,
     build_store_handle: F,
-) -> Option<UseStore<OT, T>>
+) -> Option<UseStore<OT, S, T>>
 where
-    F: FnOnce(&Ossa<OT>) -> StoreHandle<OT, T>,
+    F: FnOnce(&Ossa<OT>) -> StoreHandle<OT, S, T>,
 {
     let ossa = use_context::<OssaProp<OT>>().ossa;
     let caller = std::panic::Location::caller();
@@ -218,18 +241,20 @@ where
 
 pub struct OperationBuilder<
     OT: OssaType,
-    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>,
+    S: SCDT<Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>>,
+    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>,
 > {
-    handle: Rc<RefCell<StoreHandle<OT, T>>>,
-    parents: BTreeSet<<<OT as OssaType>::ECGHeader as ECGHeader>::HeaderId>,
-    operations: Vec<<T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized>,
+    handle: Rc<RefCell<StoreHandle<OT, S, T>>>,
+    parents: BTreeSet<<<OT as OssaType>::ECGHeader as DAGHeader>::HeaderId>,
+    operations: Vec<<T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized>,
 }
 
 const MAX_OPS: usize = 256; // TODO: This is already defined somewhere else?
 impl<
     OT: OssaType,
-    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>,
-> OperationBuilder<OT, T>
+    S: SCDT<Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>>,
+    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>,
+> OperationBuilder<OT, S, T>
 {
     /// Queue up an operation to apply.
     /// Cannot queue up more than 256 operations inside a single queue.
@@ -241,7 +266,7 @@ impl<
         F: FnOnce(
             CausalTime<OT::Time>,
         )
-            -> <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
+            -> <T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
     {
         if self.operations.len() >= MAX_OPS {
             return None;
@@ -252,13 +277,13 @@ impl<
         Some(t)
     }
 
-    pub fn apply(self) -> <OT::ECGHeader as ECGHeader>::HeaderId
+    pub fn apply(self) -> <OT::ECGHeader as DAGHeader>::HeaderId
     where
         // T::Op<CausalTime<OT::Time>>: Serialize,
-        T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
-        OT::ECGBody<T>: ECGBody<
+        T::Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>,
+        OT::ECGBody<T>: DAGBody<
                 T::Op,
-                <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
+                <T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
                 Header = OT::ECGHeader,
             >,
     {
@@ -270,61 +295,75 @@ impl<
 
 impl<
     OT: OssaType,
-    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>,
-> UseStore<OT, T>
+    S: SCDT<Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>>,
+    T: CRDT<Time = OT::Time, Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>,
+> UseStore<OT, S, T>
 {
-    pub fn get_current_state(&self) -> Option<T>
+    pub fn get_current_state(&self) -> Option<T> // ReadableRef<Signal<Option<T>>>
     where
+        S: Clone,
         T: Clone,
+        <OT as OssaType>::SCGHeader: Clone,
         <OT as OssaType>::ECGHeader: Clone,
     {
-        self.state.cloned().map(|s| s.state)
+        // TODO: Get rid of this clone
+        // self.state.read().map(|s| s.map(|s| s.ec_state))
+        self.ec_state.cloned().map(|s| s.state)
     }
 
-    pub fn get_current_store_state(&self) -> Option<StoreState<OT, T>>
-    where
-        T: Clone,
-        <OT as OssaType>::ECGHeader: Clone,
+    pub fn get_current_store_ec_state(&self) -> ReadableRef<Signal<Option<StoreState<OT::ECGHeader, T>>>> // Option<StoreState<OT, S, T>>> //  Option<StoreState<OT, S, T>>
+    // where
+    //     T: Clone,
+    //     <OT as OssaType>::ECGHeader: Clone,
     {
-        self.state.cloned()
+        self.ec_state.read()
+    }
+
+    pub fn get_current_store_sc_state(&self) -> ReadableRef<Signal<Option<StoreState<OT::SCGHeader, S>>>> // Option<StoreState<OT, S, T>>> //  Option<StoreState<OT, S, T>>
+    // where
+    //     T: Clone,
+    //     <OT as OssaType>::ECGHeader: Clone,get_current_store_sc_state
+    {
+        self.sc_state.read()
     }
 
     /// Applies an operation to the Store's CRDT with the closure the builds the operation. If  you want to apply multiple operations, use `operation_builder`.
-    pub fn apply<F>(&self, op: F) -> OperationId<<OT::ECGHeader as ECGHeader>::HeaderId>
+    pub fn apply<F>(&self, op: F) -> OperationId<<OT::ECGHeader as DAGHeader>::HeaderId>
     where
         F: FnOnce(
             CausalTime<OT::Time>,
-        )
-            -> <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
-        T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
-        OT::ECGBody<T>: ECGBody<
+        ) -> <T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
+        S::Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>,
+        T::Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>,
+        OT::ECGBody<T>: DAGBody<
                 T::Op,
-                <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
+                <T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
                 Header = OT::ECGHeader,
             >,
     {
         let parent_header_ids = {
-            let cookbook_store_state = self.state.peek();
+            let cookbook_store_state = self.ec_state.peek();
             let cookbook_store_state = cookbook_store_state.as_ref().expect("TODO");
-            cookbook_store_state.ecg.tips().clone()
+            cookbook_store_state.dag.tips().clone()
         };
         self.apply_with_parents(parent_header_ids, op)
     }
 
     pub fn apply_with_parents<F>(
         &self,
-        parents: BTreeSet<<<OT as OssaType>::ECGHeader as ECGHeader>::HeaderId>,
+        parents: BTreeSet<<<OT as OssaType>::ECGHeader as DAGHeader>::HeaderId>,
         op: F,
-    ) -> OperationId<<OT::ECGHeader as ECGHeader>::HeaderId>
+    ) -> OperationId<<OT::ECGHeader as DAGHeader>::HeaderId>
     where
         F: FnOnce(
             CausalTime<OT::Time>,
         )
-            -> <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
-        T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
-        OT::ECGBody<T>: ECGBody<
+            -> <T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
+        S::Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>,
+        T::Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>,
+        OT::ECGBody<T>: DAGBody<
                 T::Op,
-                <T::Op as ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>>::Serialized,
+                <T::Op as ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>>::Serialized,
                 Header = OT::ECGHeader,
             >,
     {
@@ -348,13 +387,13 @@ impl<
     //     (*self.handle).borrow_mut().apply_batch(parents, op)
     // }
 
-    pub fn operations_builder(&self) -> OperationBuilder<OT, T>
+    pub fn operations_builder(&self) -> OperationBuilder<OT, S, T>
     where
-        T::Op: ConcretizeTime<<OT::ECGHeader as ECGHeader>::HeaderId>,
+        T::Op: ConcretizeTime<<OT::ECGHeader as DAGHeader>::HeaderId>,
     {
-        let cookbook_store_state = self.state.peek();
+        let cookbook_store_state = self.ec_state.peek();
         let cookbook_store_state = cookbook_store_state.as_ref().expect("TODO");
-        let parent_header_ids = cookbook_store_state.ecg.tips().clone();
+        let parent_header_ids = cookbook_store_state.dag.tips().clone();
 
         OperationBuilder {
             handle: self.handle.clone(),
@@ -362,11 +401,34 @@ impl<
             operations: vec![],
         }
     }
+
+    /// Propose a strongly consistent state update.
+    pub fn propose_sc_update(&self, op: S::Op) -> <OT::SCGHeader as DAGHeader>::HeaderId
+    where
+        S::Op: ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>,
+        OT::SCGBody<S>: DAGBody<S::Op, S::Op, Header = OT::SCGHeader>,
+    // pub fn propose_sc_update<F>(&self, op: F) -> OperationId<<OT::SCGHeader as DAGHeader>::HeaderId>
+    // where
+    //     F: FnOnce(
+    //         CausalTime<OT::Time>,
+    //     ) -> <T::Op as ConcretizeTime<<OT::SCGHeader as DAGHeader>::HeaderId>>::Serialized,
+    {
+        // Get latest op tips. // JP: Or latest committed frontier? + our pending proposals?
+        let parent_header_ids = {
+            let cookbook_store_state = self.sc_state.peek();
+            let cookbook_store_state = cookbook_store_state.as_ref().expect("TODO");
+            cookbook_store_state.dag.tips().clone()
+        };
+
+        // Propose the new operation as pending.
+        let header_id = (*self.handle).borrow_mut().propose(parent_header_ids, op);
+        header_id
+    }
 }
 
 /// Dioxus helper that spawns a future in the provided scope. This task will automatically be canceled when the component's scope is dropped.
 ///
-fn spawn_in_scope(scope: ScopeId, fut: impl Future<Output = ()> + 'static) -> Option<Task> {
-    let rt = Runtime::current().ok()?;
-    Some(rt.spawn(scope, fut))
+fn spawn_in_scope(scope: ScopeId, fut: impl Future<Output = ()> + 'static) -> Task {
+    let rt = Runtime::current();
+    rt.spawn(scope, fut)
 }

@@ -20,7 +20,7 @@ use tokio_util::sync::PollSender;
 use tracing::{debug, error, trace, warn};
 
 use crate::core::OssaType;
-use crate::store::ecg::ECGHeader;
+use crate::store::dag::DAGHeader;
 use crate::{
     network::protocol::{MiniProtocol, ProtocolError},
     protocol::v0::MiniProtocols,
@@ -81,7 +81,14 @@ impl Multiplexer {
         mut self,
         mut stream: TcpStream,
         miniprotocols: Vec<
-            MiniProtocols<O::StoreId, O::Hash, <O::ECGHeader as ECGHeader>::HeaderId, O::ECGHeader>,
+            MiniProtocols<
+                O::StoreId,
+                O::Hash,
+                <O::SCGHeader as DAGHeader>::HeaderId,
+                O::SCGHeader,
+                <O::ECGHeader as DAGHeader>::HeaderId,
+                O::ECGHeader,
+            >,
         >,
     ) {
         debug!("run_with_miniprotocols: {:?}", self.party);

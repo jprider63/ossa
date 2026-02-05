@@ -9,7 +9,7 @@ use serde::{
 use std::{collections::BTreeSet, fmt::Debug, marker::PhantomData};
 
 use crate::{
-    store::ecg::{self, ECGBody, ECGHeader},
+    store::dag::{self, DAGBody, DAGHeader},
     time::{CausalTime, ConcretizeTime},
     util,
 };
@@ -122,7 +122,7 @@ where
 impl<
         Hash: Clone + Copy + Debug + Ord + util::Hash,
         // T : CRDT<Time = OperationId<HeaderId<Hash>>>,
-    > ECGHeader for Header<Hash>
+    > DAGHeader for Header<Hash>
 where
     // <T as CRDT>::Op: Serialize,
     Hash: Serialize, // TODO
@@ -187,7 +187,7 @@ where
 const MAX_OPERATION_COUNT: usize = 256;
 
 // impl<Hash, T> ECGBody<T::Op, <T::Op as ConcretizeTime<T::Time>>::Serialized> for Body<Hash, <T::Op as ConcretizeTime<T::Time>>::Serialized>
-impl<Hash, Op> ECGBody<Op, Op::Serialized> for Body<Hash, Op::Serialized>
+impl<Hash, Op> DAGBody<Op, Op::Serialized> for Body<Hash, Op::Serialized>
 where
     // T: CRDT<Time = OperationId<HeaderId<Hash>>>,
     Op: ConcretizeTime<HeaderId<Hash>>,
@@ -236,7 +236,7 @@ where
             .expect("Unreachable: Length is bound by MAX_OPERATION_COUNT.")
     }
 
-    fn new_header(&self, parents: BTreeSet<<Self::Header as ECGHeader>::HeaderId>) -> Self::Header {
+    fn new_header(&self, parents: BTreeSet<<Self::Header as DAGHeader>::HeaderId>) -> Self::Header {
         let mut rng = rand::thread_rng();
         let nonce = rng.gen();
 
@@ -248,7 +248,7 @@ where
         Header {
             parent_ids: parents,
             nonce,
-            operations_count: <Self as ECGBody<Op, Op::Serialized>>::operations_count(self),
+            operations_count: <Self as DAGBody<Op, Op::Serialized>>::operations_count(self),
             operations_hash: self.get_hash(),
             // phantom: PhantomData,
         }
@@ -274,6 +274,29 @@ where
     //         .collect()
     // }
 }
+
+// impl<Hash, Op> DAGBody<Op, Op> for Body<Hash, Op> {
+//     type Header = Header<Hash>;
+// 
+//     fn new_body(operations: Vec<Op>) -> Self {
+//         todo!()
+//     }
+// 
+//     fn operations(
+//         self,
+//         header_id: <Self::Header as DAGHeader>::HeaderId,
+//     ) -> impl Iterator<Item = Op> {
+//         todo!()
+//     }
+// 
+//     fn operations_count(&self) -> u8 {
+//         todo!()
+//     }
+// 
+//     fn new_header(&self, parents: BTreeSet<<Self::Header as DAGHeader>::HeaderId>) -> Self::Header {
+//         todo!()
+//     }
+// }
 
 impl<Hash: util::Hash, SerializedOp> Body<Hash, SerializedOp>
 where
@@ -324,7 +347,7 @@ impl<HeaderId> OperationId<HeaderId> {
     }
 }
 
-impl<Header: ECGHeader, T: CRDT> CausalState for ecg::State<Header, T> {
+impl<Header: DAGHeader, T: CRDT> CausalState for dag::State<Header, T> {
     type Time = OperationId<Header::HeaderId>;
 
     fn happens_before(&self, a: &Self::Time, b: &Self::Time) -> bool {
@@ -405,7 +428,7 @@ where
 */
 
 // For testing, just have the header store the parent ids.
-impl<A: CRDT> ECGHeader for TestHeader<A> {
+impl<A: CRDT> DAGHeader for TestHeader<A> {
     type HeaderId = u32;
     // type Body = TestBody<A>;
 

@@ -1,7 +1,13 @@
+//! Authentication and access control.
+
 use std::fmt::Display;
 
-use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
+
+pub mod group;
+pub mod identity;
+
+pub type Permissions = group::Group;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) struct DeviceId {
@@ -33,25 +39,4 @@ impl DeviceId {
     pub(crate) fn new(auth_key: ed25519_dalek::VerifyingKey) -> Self {
         Self { auth_key }
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct Identity {
-    // Authentication key.
-    auth_key: ed25519_dalek::SigningKey,
-    // Signing key.
-    // Encryption key.
-}
-
-impl Identity {
-    pub(crate) fn auth_key(&self) -> &ed25519_dalek::SigningKey {
-        &self.auth_key
-    }
-}
-
-pub fn generate_identity() -> Identity {
-    let mut rng = OsRng;
-    let auth_key = ed25519_dalek::SigningKey::generate(&mut rng);
-
-    Identity { auth_key }
 }

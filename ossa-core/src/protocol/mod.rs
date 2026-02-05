@@ -8,24 +8,30 @@ use crate::{
     auth::DeviceId,
     core::{OssaType, StoreStatuses},
     protocol::manager::v0::PeerManagerCommand,
-    store::ecg::ECGHeader,
+    store::dag::DAGHeader,
 };
 
 pub mod heartbeat;
 pub mod manager;
+pub mod store_bft_dag;
 pub mod store_peer;
 pub mod v0;
 
-pub(crate) struct MiniProtocolArgs<StoreId, Hash, HeaderId, Header> {
+pub(crate) struct MiniProtocolArgs<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader> {
     peer_id: DeviceId,
-    active_stores: watch::Receiver<StoreStatuses<StoreId, Hash, HeaderId, Header>>,
+    active_stores:
+        watch::Receiver<StoreStatuses<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>>,
     manager_channel: UnboundedReceiver<PeerManagerCommand<StoreId>>,
 }
 
-impl<StoreId, Hash, HeaderId, Header> MiniProtocolArgs<StoreId, Hash, HeaderId, Header> {
+impl<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>
+    MiniProtocolArgs<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>
+{
     pub(crate) fn new(
         peer_id: DeviceId,
-        active_stores: watch::Receiver<StoreStatuses<StoreId, Hash, HeaderId, Header>>,
+        active_stores: watch::Receiver<
+            StoreStatuses<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>,
+        >,
         manager_channel: UnboundedReceiver<PeerManagerCommand<StoreId>>,
     ) -> Self {
         Self {
@@ -53,7 +59,9 @@ impl Version {
         args: MiniProtocolArgs<
             O::StoreId,
             O::Hash,
-            <O::ECGHeader as ECGHeader>::HeaderId,
+            <O::SCGHeader as DAGHeader>::HeaderId,
+            O::SCGHeader,
+            <O::ECGHeader as DAGHeader>::HeaderId,
             O::ECGHeader,
         >,
     ) {
@@ -68,7 +76,9 @@ impl Version {
         args: MiniProtocolArgs<
             O::StoreId,
             O::Hash,
-            <O::ECGHeader as ECGHeader>::HeaderId,
+            <O::SCGHeader as DAGHeader>::HeaderId,
+            O::SCGHeader,
+            <O::ECGHeader as DAGHeader>::HeaderId,
             O::ECGHeader,
         >,
     ) {
