@@ -178,7 +178,8 @@ impl ThresholdSignatureId {
 pub(crate) enum BlockStreamElement {
     Block(Round, BlockId),
     BlockSignature(SignatureId),
-    End, // JP: Distinguish end of blocks and signatures? (currently signatures only)
+    SignaturesEnd,
+    BlocksEnd,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -343,18 +344,20 @@ impl<SHeaderId> BFTSyncInitiator<SHeaderId> {
             // If we're done, let them know we're done with this block.
             let is_done = {
                 if let Some(current_block) = sorted_blocks.get(current_block_pos) {
-                    if let Some(j) = current_signature_pos {
+                    let is_done = if let Some(j) = current_signature_pos {
                         current_block.2.get(j).is_none()
                     } else {
                         true
-                    }
+                    };
+
+                    if is_done { Some(BlockStreamElement::SignaturesEnd) } else { None }
                 } else {
-                    // Really, we're done with all blocks for this round.
-                    true
+                    // We're done with all blocks for this round.
+                    Some(BlockStreamElement::BlocksEnd)
                 }
             };
-            if is_done {
-                block_tips.push(BlockStreamElement::End);
+            if let Some(end) = is_done {
+                block_tips.push(end);
             }
 
             // Send round complete signatures.
@@ -400,7 +403,7 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
         bft_state: &mut watch::Receiver<BFTState<SHeaderId>>,
         their_round: Round,
         their_block_tips: Vec<BlockStreamElement>,
-        their_round_complete: Vec<SignatureId>,
+        their_round_complete: Vec<RoundCompleteStreamElement>,
     ) -> Self {
         let new = Self {
             _phantom: PhantomData,
@@ -464,7 +467,7 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
         bft_state: watch::Ref<'_, BFTState<SHeaderId>>,
         their_round: Round,
         their_block_tips: &[BlockStreamElement],
-        their_round_complete: &[SignatureId],
+        their_round_complete: &[RoundCompleteStreamElement],
     ) -> MsgBFTSyncResponse<SHeaderId> {
         self.handle_their_tips(&bft_state, their_round, their_block_tips, their_round_complete);
 
@@ -482,14 +485,7 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
 
     }
 
-    fn handle_their_tips(&mut self, bft_state: &watch::Ref<'_, BFTState<SHeaderId>>, their_round: u64, their_block_tips: &[BlockStreamElement], their_round_complete: &[SignatureId]) {
-        // If they don't have any blocks, share all root nodes.
-        // JP: Maybe we don't need this if we track BlockEnd too..
-        if their_block_tips.is_empty() && their_round == 0 {
-            let root_nodes = bft_state.get_root_blocks();
-            self.send_queue.extend(root_nodes);
-        }
-
+    fn handle_their_tips(&mut self, bft_state: &watch::Ref<'_, BFTState<SHeaderId>>, their_round: Round, their_block_tips: &[BlockStreamElement], their_round_complete: &[RoundCompleteStreamElement]) {
         // Handle blocks and signatures in their tips.
         let mut current_block = None;
         their_block_tips.iter().for_each(|elmt| {
@@ -543,9 +539,13 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
                         }
                     }
                 }
-                BlockStreamElement::End => {
-                    // That's all they know so send any remaining signatures for the current block.
+                BlockStreamElement::SignaturesEnd => {
+                    // That's all the signatures they know so send any remaining signatures for the current block.
                     self.process_remaining_signatures(&mut current_block);
+                }
+                BlockStreamElement::BlocksEnd => {
+                    // That's all the blocks they know so send all remaining blocks.
+                    todo!("Queue remaining blocks");
                 }
             }
         });
