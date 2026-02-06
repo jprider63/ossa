@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{cmp::Reverse, collections::{BTreeMap, BTreeSet}};
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
@@ -59,6 +59,22 @@ impl<SHeaderId> BFTState<SHeaderId> {
         // Get all active tips
         todo!()
     }
+
+    pub(crate) fn get_root_blocks(&self) -> impl Iterator<Item = (Reverse<u64>, BlockId)> {
+        todo!();
+        vec![].into_iter()
+    }
+
+    pub(crate) fn contains(&self, block: &(Round, BlockId)) -> bool {
+        // How will we look up the block efficiently?...
+        todo!()
+    }
+
+    pub(crate) fn contains_signature(&self, block: &(Round, BlockId), block_signature: SignatureId) -> bool {
+        // How will we look up the block efficiently?...
+        todo!()
+    }
+
 }
 
 impl<Header: dag::DAGHeader, S> State<Header, S> {

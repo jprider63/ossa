@@ -4,7 +4,7 @@
 //
 // Do we need to go back more than 1 round?
 
-use std::{future::Future, marker::PhantomData};
+use std::{cmp::Reverse, collections::{BTreeSet, BinaryHeap}, future::Future, iter::Peekable, marker::PhantomData, vec::IntoIter};
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc::{UnboundedReceiver, UnboundedSender}, watch};
@@ -177,8 +177,8 @@ impl ThresholdSignatureId {
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) enum BlockStreamElement {
     Block(Round, BlockId),
-    BlockSignatures(SignatureId),
-    End,
+    BlockSignature(SignatureId),
+    End, // JP: Distinguish end of blocks and signatures? (currently signatures only)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -268,12 +268,16 @@ pub struct BFTSyncInitiator<SHeaderId> {
 impl<SHeaderId> BFTSyncInitiator<SHeaderId> {
     /// Create a new ECGSyncInitiator and run the first round.
     async fn run_new<S: Stream<MsgStoreBFTSync<SHeaderId>>>(stream: &mut S, bft_state: &mut watch::Receiver<BFTState<SHeaderId>>) -> (Self, Vec<()>) {
+        let mut sent_blocks = BTreeSet::new();
+        let mut sent_signatures = BTreeSet::new();
+        let mut sent_round_signatures = BTreeSet::new();
+
         let req = {
             // Acquire read lock on state.
             let bft_state = bft_state.borrow_and_update();
             let round = bft_state.current_round();
 
-            // Get the current tips.
+            // Get the current block tips.
             let current_tips = bft_state.get_current_tips();
 
             // Sort by (Round, BlockId)
@@ -298,43 +302,76 @@ impl<SHeaderId> BFTSyncInitiator<SHeaderId> {
             let mut current_block_pos = 0;
             let mut current_signature_pos = None;
 
-            // Iterate over them, up to the limit:
-            while block_tips.len() < MAX_HAVE_HEADERS.into() {
+            // Iterate over them, up to the limit. Note, we save one slot in case we need to send End.
+            while block_tips.len() + 1 < MAX_HAVE_HEADERS.into() {
                 let Some(current_block) = sorted_blocks.get(current_block_pos) else {
-                    // We're done so end the stream and exit the loop.
-                    block_tips.push(BlockStreamElement::End);
+                    // We're done so exit the loop.
                     break;
                 };
 
                 match current_signature_pos {
                     Some(j) => {
+                        // Have more signatures to send.
                         if let Some(signature_id) = current_block.2.get(j) {
-                            //  Append signature
-                            let elmt = BlockStreamElement::BlockSignatures(*signature_id);
+                            // Append signature
+                            let elmt = BlockStreamElement::BlockSignature(*signature_id);
                             block_tips.push(elmt);
                             current_signature_pos = Some(j + 1);
+
+                            // Record signature as sent.
+                            sent_signatures.insert((current_block.1, signature_id));
+                        // No more signatures to send.
                         } else {
+                            // Record block as sent if it currently has no signatures.
+                            if j == 0 {
+                                sent_blocks.insert(current_block.1);
+                            }
+
                             // We're done with the signatures so go to the next block.
                             current_block_pos += 1;
                             current_signature_pos = None;
                         }
                     },
                     None => {
-                        //  Append block
+                        // Append block
                         let elmt = BlockStreamElement::Block(*current_block.0, current_block.1);
                         block_tips.push(elmt);
                         current_signature_pos = Some(0);
                     }
                 }
             }
+            // If we're done, let them know we're done with this block.
+            let is_done = {
+                if let Some(current_block) = sorted_blocks.get(current_block_pos) {
+                    if let Some(j) = current_signature_pos {
+                        current_block.2.get(j).is_none()
+                    } else {
+                        true
+                    }
+                } else {
+                    // Really, we're done with all blocks for this round.
+                    true
+                }
+            };
+            if is_done {
+                block_tips.push(BlockStreamElement::End);
+            }
 
             // Send round complete signatures.
             let current_round = &bft_state.round_states()[round as usize];
             let mut round_complete = current_round.commit_round().signature_ids().into_iter().map(RoundCompleteStreamElement::RoundSignatures).collect::<Vec<_>>();
-            round_complete.push(RoundCompleteStreamElement::End);
-            let remaining_round_complete = round_complete.split_off(MAX_HAVE_HEADERS.into());
+            if round_complete.len() + 1 < MAX_HAVE_HEADERS.into() {
+                round_complete.push(RoundCompleteStreamElement::End);
+            } else {
+                round_complete.truncate(MAX_HAVE_HEADERS as usize - 1);
+            }
 
-            // TODO: Store remaining_round_complete and other state.
+            // Store sent signatures.
+            round_complete.iter().for_each(|sig| {
+                if let RoundCompleteStreamElement::RoundSignatures(sig) = sig {
+                    sent_round_signatures.insert(sig);
+                }
+            });
 
             MsgBFTSyncRequest::BFTInitialSync {
                 round, 
@@ -344,14 +381,15 @@ impl<SHeaderId> BFTSyncInitiator<SHeaderId> {
         };
         send(stream, req).await.expect("TODO");
 
+        // TODO: Store remaining_round_complete and other state.
+
         todo!()
     }
 }
 
 pub struct BFTSyncResponder<SHeaderId> {
-    their_round: Round,
-    their_block_tips: Vec<BlockStreamElement>,
-    their_round_complete: Vec<RoundCompleteStreamElement>,
+    send_queue: BinaryHeap<(Reverse<Round>, BlockId)>,
+    our_unknown: BTreeSet<BlockId>,
     _phantom: PhantomData<SHeaderId>, // JP: Is SHeaderId needed?
 }
 
@@ -362,12 +400,9 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
         bft_state: &mut watch::Receiver<BFTState<SHeaderId>>,
         their_round: Round,
         their_block_tips: Vec<BlockStreamElement>,
-        their_round_complete: Vec<RoundCompleteStreamElement>,
+        their_round_complete: Vec<SignatureId>,
     ) -> Self {
         let new = Self {
-            their_round,
-            their_block_tips,
-            their_round_complete,
             _phantom: PhantomData,
         };
 
@@ -388,7 +423,7 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
             if round < their_round {
                 None // JP: Send previous tips that they don't have?
             } else {
-                let resp = new.build_response(bft_state);
+                let resp = new.build_response(bft_state, their_round, &their_block_tips, &their_round_complete);
                 Some(resp)
             }
         };
@@ -403,7 +438,7 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
                 // Acquire read lock on state once we've caught up.
                 let bft_state = bft_state.wait_for(|s| s.current_round() >= their_round).await.expect("TODO: channel closed");
 
-                let resp = new.build_response(bft_state);
+                let resp = new.build_response(bft_state, their_round, &their_block_tips, &their_round_complete);
                 send(stream, resp).await.expect("TODO");
             }
         }
@@ -427,8 +462,14 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
     fn build_response(
         &self,
         bft_state: watch::Ref<'_, BFTState<SHeaderId>>,
+        their_round: Round,
+        their_block_tips: &[BlockStreamElement],
+        their_round_complete: &[SignatureId],
     ) -> MsgBFTSyncResponse<SHeaderId> {
-         // Send all previous tips (sorted) less that the current round (that they don't have)?
+        self.handle_their_tips(&bft_state, their_round, their_block_tips, their_round_complete);
+
+        self.build_response_helper(store_peer, bft_state, their_round, their_block_tips, their_round_complete)
+        // Send all previous tips (sorted) less that the current round (that they don't have)?
         // Get and sort our tips. Along with everything starting from their_round???
         // Iterate over their tips
         // JP: With this approach, we'll miss nodes where we know a child that depends on it but they dont?
@@ -439,6 +480,107 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
         //
         // Mark th
 
+    }
+
+    fn handle_their_tips(&mut self, bft_state: &watch::Ref<'_, BFTState<SHeaderId>>, their_round: u64, their_block_tips: &[BlockStreamElement], their_round_complete: &[SignatureId]) {
+        // If they don't have any blocks, share all root nodes.
+        // JP: Maybe we don't need this if we track BlockEnd too..
+        if their_block_tips.is_empty() && their_round == 0 {
+            let root_nodes = bft_state.get_root_blocks();
+            self.send_queue.extend(root_nodes);
+        }
+
+        // Handle blocks and signatures in their tips.
+        let mut current_block = None;
+        their_block_tips.iter().for_each(|elmt| {
+            match elmt {
+                BlockStreamElement::Block(round, block_id) => {
+                    self.process_remaining_signatures(&mut current_block);
+
+                    let b = (*round, *block_id);
+
+                    // Check if we know the block.
+                    if bft_state.contains(&b) {
+                        // Mark block and its ancestors as known.
+                        self.mark_as_known(bft_state, &b);
+
+                        // Add children to send queue.
+                        self.send_children_blocks(bft_state, &b);
+
+                        // Remember block signatures.
+                        let block_signatures = self.block_signatures_iter(bft_state, &b).peekable();
+                        current_block = Some((b, block_signatures));
+                    } else {
+                        // Record block as known by them but not us.
+                        self.our_unknown.insert(b.1);
+
+                        // Remember block signatures.
+                        let block_signatures = vec![].into_iter().peekable();
+                        current_block = Some((b, block_signatures));
+                    }
+                }
+                BlockStreamElement::BlockSignature(signature_id) => {
+                    let Some((b, ref mut block_signatures)) = current_block else {
+                        todo!("Peer diverged from protocol. Must receive block before signatures on blocks.");
+                    };
+
+                    // Mark signature as known.
+                    // JP: Only do this if we know the signature, otherwise add to our_unknown??
+                    self.mark_signature_as_known(bft_state, &b, *signature_id);
+
+                    loop {
+                        // We receive signature IDs in order, so we know whether or not they have this signature.
+                        let Some(next) = block_signatures.peek() else {
+                            break;
+                        };
+                        if next <= signature_id {
+                            // Pop this next signature.
+                            let next = block_signatures.next().unwrap();
+
+                            if next < *signature_id {
+                                self.queue_signature(bft_state, &b, next);
+                            }
+                        }
+                    }
+                }
+                BlockStreamElement::End => {
+                    // That's all they know so send any remaining signatures for the current block.
+                    self.process_remaining_signatures(&mut current_block);
+                }
+            }
+        });
+
+        // Handle stream of their current round's signatures.
+        todo!("TODO: Handle stream of their current round's signatures.")
+    }
+
+    fn mark_as_known(&self, bft_state: &watch::Ref<'_, BFTState<SHeaderId>>, b: &(u64, BlockId)) {
+        todo!()
+    }
+
+    fn send_children_blocks(&self, bft_state: &watch::Ref<'_, BFTState<SHeaderId>>, b: &(u64, BlockId)) {
+        todo!()
+    }
+
+    // Iterator over a block's signatures, ordered by signature ID.
+    fn block_signatures_iter(&self, bft_state: &watch::Ref<'_, BFTState<SHeaderId>>, b: &(u64, BlockId)) -> std::vec::IntoIter<SignatureId> { // impl Iterator<Item = SignatureId> {
+        todo!();
+        vec![].into_iter()
+    }
+
+    fn mark_signature_as_known(&self, bft_state: &watch::Ref<'_, BFTState<SHeaderId>>, b: &(u64, BlockId), signature_id: Sha256Hash) {
+        todo!()
+    }
+
+    fn queue_signature(&self, bft_state: &watch::Ref<'_, BFTState<SHeaderId>>, b: &(u64, BlockId), signature_id: Sha256Hash) {
+        // TODO:
+        // Mark as known once it is sent?
+        // self.mark_signature_as_known(bft_state, &b, signature_id);
+
+        todo!()
+    }
+
+    fn process_remaining_signatures(&self, current_block: &mut Option<((u64, BlockId), Peekable<IntoIter<Sha256Hash>>)>) {
         todo!()
     }
 }
