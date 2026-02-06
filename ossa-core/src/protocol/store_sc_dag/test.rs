@@ -45,36 +45,18 @@ fn extract_header_ids(ops: &[(Header, Vec<u8>)]) -> Vec<u32> {
     ops.iter().map(|(h, _)| h.get_header_id()).collect()
 }
 
-/// A `DAGStateSubscriber` that panics if called.
+/// A `DAGStateSubscriber` that returns a pre-built "final" state.
 ///
-/// Use for tests where the responder should never reach the Wait path
-/// (i.e., the responder always has operations or haves to send).
-struct PanicSubscriber;
-
-impl DAGStateSubscriber<(), u32, Header> for PanicSubscriber {
-    async fn request_dag_state(
-        &self,
-        _responder: &mut DAGSyncResponder<(), u32, Header>,
-        _tips: Option<BTreeSet<u32>>,
-    ) -> dag::UntypedState<u32, Header> {
-        panic!("Unexpected: test should not reach the Wait/subscribe path");
-    }
-}
-
-/// A `DAGStateSubscriber` that immediately returns a pre-built state.
-///
-/// Use for tests where the responder hits the Wait path and needs an updated
-/// state to continue (e.g., when both DAGs are identical or the responder is
-/// behind the initiator).
+/// Used internally by `run_dag_sync`. When the responder hits the Wait path,
+/// this subscriber returns the final responder state (initial ops + all updates).
 struct MockSubscriber {
-    updated_state: dag::UntypedState<u32, Header>,
+    final_state: dag::UntypedState<u32, Header>,
 }
 
 impl MockSubscriber {
-    fn new(ops: &[(u32, &[u32])]) -> Self {
-        let st = build_state(ops);
+    fn from_state(state: &dag::State<Header, TestCRDT>) -> Self {
         MockSubscriber {
-            updated_state: st.state.clone(),
+            final_state: state.state.clone(),
         }
     }
 }
@@ -85,7 +67,7 @@ impl DAGStateSubscriber<(), u32, Header> for MockSubscriber {
         _responder: &mut DAGSyncResponder<(), u32, Header>,
         _tips: Option<BTreeSet<u32>>,
     ) -> dag::UntypedState<u32, Header> {
-        self.updated_state.clone()
+        self.final_state.clone()
     }
 }
 
@@ -104,18 +86,28 @@ impl DAGStateSubscriber<(), u32, Header> for MockSubscriber {
 /// - `i_ops` — Operations to build the initiator's DAG state (the peer requesting sync).
 /// - `r_ops` — Operations to build the responder's DAG state (the peer providing data).
 /// - `num_rounds` — Number of protocol rounds to execute (>= 1).
-/// - `subscriber` — `DAGStateSubscriber` for the responder. Use `PanicSubscriber` for
-///    tests that should never hit Wait, or `MockSubscriber` for tests that expect it.
+/// - `r_updates` — Updates that become available to the responder when Wait is hit.
+///   When the responder has nothing to send and calls the subscriber, the subscriber
+///   returns the final state (`r_ops` + all `r_updates` combined). This simulates
+///   the responder's store being updated while waiting.
 fn run_dag_sync(
     i_ops: &[(u32, &[u32])],
     r_ops: &[(u32, &[u32])],
     num_rounds: usize,
-    subscriber: impl DAGStateSubscriber<(), u32, Header>,
+    r_updates: &[&[(u32, &[u32])]],
 ) -> Vec<Vec<u32>> {
     assert!(num_rounds >= 1, "Must run at least 1 round");
 
     let mut i_state = build_state(i_ops);
     let r_state = build_state(r_ops);
+
+    // Build the final responder state (initial + all updates) for the subscriber.
+    // This is what gets returned if the responder hits Wait.
+    let mut final_r_state = build_state(r_ops);
+    for updates in r_updates {
+        add_ops(&mut final_r_state, updates);
+    }
+    let subscriber = MockSubscriber::from_state(&final_r_state);
 
     let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
     rt.block_on(async {
@@ -190,12 +182,22 @@ fn run_dag_sync(
         }
 
         // Assert that the initiator's final state includes all responder headers.
+        // Check both initial r_ops and all updates.
         for (header_id, _) in r_ops {
             assert!(
                 i_state.contains(header_id),
-                "Initiator is missing header {} from responder's state\n{results:?}",
+                "Initiator is missing header {} from responder's initial state\n{results:?}",
                 header_id
             );
+        }
+        for updates in r_updates {
+            for (header_id, _) in *updates {
+                assert!(
+                    i_state.contains(header_id),
+                    "Initiator is missing header {} from responder's updates\n{results:?}",
+                    header_id
+                );
+            }
         }
 
         results
@@ -218,7 +220,7 @@ fn example_1_linear_catchup() {
         &[(0, &[]), (1, &[0]), (2, &[1])],
         &[(0, &[]), (1, &[0]), (2, &[1]), (3, &[2]), (4, &[3])],
         1,
-        PanicSubscriber,
+        &[],
     );
     assert_eq!(results[0], vec![3, 4]);
 }
@@ -238,7 +240,7 @@ fn example_2_initiator_empty() {
         &[],
         &[(0, &[]), (1, &[0]), (2, &[1])],
         1,
-        PanicSubscriber,
+        &[],
     );
     assert_eq!(results[0], vec![0, 1, 2]);
 }
@@ -261,7 +263,7 @@ fn example_3_simple_fork() {
         &[(0, &[]), (10, &[0])],
         &[(0, &[]), (1, &[0]), (2, &[1]), (3, &[2])],
         2,
-        PanicSubscriber,
+        &[],
     );
     assert_eq!(results[0], vec![]);        // Round 1: haves only
     assert_eq!(results[1], vec![1, 2, 3]); // Round 2: A, B, C
@@ -299,7 +301,7 @@ fn example_4_deep_chain_exponential_backoff() {
             (12, &[11]), (13, &[12]), (14, &[13]), (15, &[14]),
         ],
         2,
-        PanicSubscriber,
+        &[],
     );
     assert_eq!(results[0], vec![]);
     assert_eq!(results[1], vec![8, 9, 10, 11, 12, 13, 14, 15]);
@@ -320,13 +322,13 @@ fn example_4_deep_chain_exponential_backoff() {
 #[test]
 fn example_5_already_synchronized_wait() {
     let common: &[(u32, &[u32])] = &[(0, &[]), (1, &[0]), (2, &[1])];
-    let subscriber_state: &[(u32, &[u32])] = &[(0, &[]), (1, &[0]), (2, &[1]), (3, &[2])];
 
     let results = run_dag_sync(
         common,
         common,
         1,
-        MockSubscriber::new(subscriber_state),
+        // When Wait is hit, subscriber returns state with node 3 added.
+        &[&[(3, &[2])]],
     );
     assert_eq!(results[0], vec![3]);
 }
@@ -349,15 +351,12 @@ fn example_5_already_synchronized_wait() {
 /// ```
 #[test]
 fn example_6_responder_behind() {
-    let subscriber_state: &[(u32, &[u32])] = &[
-        (0, &[]), (1, &[0]), (2, &[1]), (3, &[2]), (4, &[3]),
-    ];
-
     let results = run_dag_sync(
         &[(0, &[]), (1, &[0]), (2, &[1]), (3, &[2])],
         &[(0, &[]), (1, &[0])],
         2,
-        MockSubscriber::new(subscriber_state),
+        // When Wait is hit, subscriber returns state with B, C, D added.
+        &[&[(2, &[1]), (3, &[2]), (4, &[3])]],
     );
     assert_eq!(results[0], vec![]);  // Round 1: haves only
     assert_eq!(results[1], vec![4]); // Round 2: Wait → subscriber → D(4)
@@ -383,7 +382,7 @@ fn example_7_multiple_roots_missing_parent() {
         &[(0, &[])],
         &[(0, &[]), (1, &[]), (2, &[0, 1])],
         2,
-        PanicSubscriber,
+        &[],
     );
     // R2(1) is sent before A(2), so the initiator has all parents.
     assert_eq!(results[0], vec![]);
@@ -396,7 +395,7 @@ fn example_8_multiple_roots_missing_parent() {
         &[(0, &[]), (1, &[])],
         &[(0, &[]), (1, &[]), (2, &[0, 1])],
         1,
-        PanicSubscriber,
+        &[],
     );
     assert_eq!(results[0], vec![2]);
 }
@@ -419,7 +418,7 @@ fn example_9_diamond_single_root() {
         &[(0, &[])],
         &[(0, &[]), (1, &[0]), (2, &[0]), (3, &[1, 2])],
         1,
-        PanicSubscriber,
+        &[],
     );
     // Both siblings are children of the known tip, so all three arrive in one round.
     // Heap pops B(2) before A(1) at equal depth (higher HeaderId first), then C(3).
@@ -442,7 +441,7 @@ fn example_10_two_chains_merge() {
         &[(0, &[])],
         &[(0, &[]), (1, &[]), (2, &[0]), (3, &[1]), (4, &[2, 3])],
         2,
-        PanicSubscriber,
+        &[],
     );
     // Round 1: A(2) is sent (child of known R1). C(4) blocked on unknown B(3).
     assert_eq!(results[0], vec![2]);
@@ -467,7 +466,7 @@ fn example_11_three_roots_merge() {
         &[(0, &[])],
         &[(0, &[]), (1, &[]), (2, &[]), (3, &[0, 1, 2])],
         2,
-        PanicSubscriber,
+        &[],
     );
     // Round 1: D(3) blocked on unknown R2 and R3, nothing sent.
     assert_eq!(results[0], vec![]);
@@ -492,7 +491,7 @@ fn example_12_diamond_one_branch_known() {
         &[(0, &[]), (1, &[0])],
         &[(0, &[]), (1, &[0]), (2, &[0]), (3, &[1, 2])],
         2,
-        PanicSubscriber,
+        &[],
     );
     // Round 1: C(3) blocked on unknown B(2), nothing sent.
     assert_eq!(results[0], vec![]);
@@ -516,7 +515,7 @@ fn example_13_initiator_knows_different_root() {
         &[(1, &[])],
         &[(0, &[]), (2, &[0])],
         2,
-        PanicSubscriber,
+        &[],
     );
     // Round 1: C(2) blocked on unknown R1(0), nothing sent.
     assert_eq!(results[0], vec![]);
@@ -530,7 +529,7 @@ fn example_14_initiator_knows_different_root() {
         &[(1, &[])],
         &[(0, &[])],
         2,
-        PanicSubscriber,
+        &[],
     );
     // Round 1: C(2) blocked on unknown R1(0), nothing sent.
     assert_eq!(results[0], vec![]);
@@ -555,7 +554,7 @@ fn example_15_initiator_has_chain_from_different_root() {
         &[(1, &[]), (3, &[1])],
         &[(0, &[]), (1, &[]), (2, &[0]), (3, &[1]), (4, &[2, 3])],
         2,
-        PanicSubscriber,
+        &[],
     );
     // Round 1: D(4) blocked on unknown A(2), nothing sent.
     assert_eq!(results[0], vec![]);
@@ -599,7 +598,7 @@ fn example_16_more_than_max_tips() {
     let i_ref = to_borrowed(&i_ops);
     let r_ref = to_borrowed(&r_ops);
 
-    let results = run_dag_sync(&i_ref, &r_ref, 2, PanicSubscriber);
+    let results = run_dag_sync(&i_ref, &r_ref, 2, &[]);
 
     // Round 1: responder doesn't know initiator has root 39 → can't send 1000.
     assert!(!results[0].contains(&1000),
@@ -632,7 +631,7 @@ fn example_17_more_than_double_max_tips() {
     let i_ref = to_borrowed(&i_ops);
     let r_ref = to_borrowed(&r_ops);
 
-    let results = run_dag_sync(&i_ref, &r_ref, 3, PanicSubscriber);
+    let results = run_dag_sync(&i_ref, &r_ref, 3, &[]);
 
     // Rounds 1 and 2: responder doesn't know initiator has root 69.
     assert!(!results[0].contains(&2000),
