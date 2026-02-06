@@ -89,6 +89,7 @@ pub(crate) enum MsgDAGSyncResponse<HeaderId, Header> {
 // Has initiative
 pub(crate) struct DAGSyncInitiator<Hash, HeaderId, Header> {
     have: Vec<HeaderId>,
+    sent_tips: BTreeSet<HeaderId>,
     phantom: PhantomData<fn(Hash, HeaderId, Header)>,
 }
 
@@ -98,6 +99,33 @@ impl<
         Header: Debug + Send + Sync,
     > DAGSyncInitiator<Hash, HeaderId, Header>
 {
+    /// Select tips that haven't been sent yet, capped at `MAX_HAVE_HEADERS`.
+    ///
+    /// Prunes `sent_tips` of entries no longer in the frontier, then collects
+    /// unsent tips (up to the cap) and records them as sent.
+    fn select_new_tips(
+        dag_state: &dag::UntypedState<HeaderId, Header>,
+        sent_tips: &mut BTreeSet<HeaderId>,
+    ) -> Vec<HeaderId> {
+        let current_tips = dag_state.tips();
+
+        // Prune sent_tips: remove entries no longer in the frontier.
+        sent_tips.retain(|t| current_tips.contains(t));
+
+        // Collect unsent tips, capped at MAX_HAVE_HEADERS.
+        let new_tips: Vec<HeaderId> = current_tips
+            .iter()
+            .filter(|t| !sent_tips.contains(t))
+            .take(MAX_HAVE_HEADERS.into())
+            .cloned()
+            .collect();
+
+        // Record them as sent.
+        sent_tips.extend(new_tips.iter().cloned());
+
+        new_tips
+    }
+
     async fn receive_response_helper<S: Stream<Msg>, Msg>(
         stream: &mut S,
     ) -> (Vec<HeaderId>, Vec<(Header, RawDAGBody)>)
@@ -131,11 +159,10 @@ impl<
         MsgDAGSyncRequest<HeaderId>: Into<Msg>,
         Msg: TryInto<MsgDAGSyncResponse<HeaderId, Header>>,
     {
-        // TODO: Limit on tips (128? 64? 32? MAX_HAVE_HEADERS)
         warn!("TODO: Check request sizes.");
-        let req = MsgDAGSyncRequest::DAGInitialSync {
-            tips: dag_state.tips().iter().cloned().collect(),
-        };
+        let mut sent_tips = BTreeSet::new();
+        let tips = Self::select_new_tips(dag_state, &mut sent_tips);
+        let req = MsgDAGSyncRequest::DAGInitialSync { tips };
         send(stream, req).await.expect("TODO");
 
         // Receive response.
@@ -143,6 +170,7 @@ impl<
 
         let dag_sync = DAGSyncInitiator {
             have,
+            sent_tips,
             phantom: PhantomData,
         };
 
@@ -168,10 +196,9 @@ impl<
             }
         }
 
-        // TODO: Limit on tips (128? 64? 32? MAX_HAVE_HEADERS)
-        warn!("TODO: Check request sizes.");
+        let tips = Self::select_new_tips(dag_state, &mut self.sent_tips);
         let req = MsgDAGSyncRequest::DAGSync {
-            tips: dag_state.tips().iter().cloned().collect(), // JP: Why does this send all the tips again? TODO: Limit the tips... Maybe do this on the DAG construction side?
+            tips,
             known: known_bitmap,
         };
         send(stream, req).await.expect("TODO");
@@ -207,8 +234,8 @@ pub(crate) fn mark_as_known_helper<HeaderId, Header>(
     queue.push_back(header_id);
 
     while let Some(header_id) = queue.pop_front() {
-        let contains = their_known.insert(header_id);
-        if !contains {
+        let newly_inserted = their_known.insert(header_id);
+        if newly_inserted {
             if let Some(parents) = state.get_parents(&header_id) {
                 queue.extend(parents);
             } else {
@@ -356,6 +383,31 @@ impl<Hash, HeaderId, Header> DAGSyncResponder<Hash, HeaderId, Header> {
             .await;
     }
 
+    // Send children of a node as long as their parents are known.
+    fn send_children(
+        &mut self,
+        ecg_state: &dag::UntypedState<HeaderId, Header>,
+        header_id: &HeaderId,
+    )
+    where
+        HeaderId: Ord + Copy,
+    {
+        let children = ecg_state
+            .get_children_with_depth(header_id)
+            .expect("Unreachable since we have this header.")
+            .into_iter()
+            // Skip if any children are unknown.
+            .filter(|c_id|
+                !ecg_state
+                    .get_parents(&c_id.1)
+                    .expect("We know this header.")
+                    .iter()
+                    .any(|p| !self.they_know(p))
+            )
+            .collect::<Vec<_>>();
+        self.send_queue.extend(children);
+    }
+
     fn prepare_operations(
         &mut self,
         ecg_state: &dag::UntypedState<HeaderId, Header>,
@@ -366,9 +418,10 @@ impl<Hash, HeaderId, Header> DAGSyncResponder<Hash, HeaderId, Header> {
     {
         let mut operations = Vec::with_capacity(MAX_DELIVER_HEADERS as usize);
 
-        while let Some((_depth, header_id)) = self.send_queue.pop() {
+        while let Some((depth, header_id)) = self.send_queue.pop() {
             // Skip if they already know this header.
             let skip = self.they_know(&header_id);
+
             if !skip {
                 // Send header to peer.
                 if let Some(node) = ecg_state.get_node(&header_id) {
@@ -382,10 +435,7 @@ impl<Hash, HeaderId, Header> DAGSyncResponder<Hash, HeaderId, Header> {
             }
 
             // Add children to queue.
-            let children = ecg_state
-                .get_children_with_depth(&header_id)
-                .expect("Unreachable since we proposed this header.");
-            self.send_queue.extend(children);
+            self.send_children(ecg_state, &header_id);
 
             if operations.len() == MAX_DELIVER_HEADERS.into() {
                 return operations;
@@ -449,10 +499,7 @@ impl<Hash, HeaderId, Header> DAGSyncResponder<Hash, HeaderId, Header> {
                 self.mark_as_known(ecg_state, *header_id);
 
                 // Add children to send queue.
-                let children = ecg_state
-                    .get_children_with_depth(header_id)
-                    .expect("Unreachable since we have this header.");
-                self.send_queue.extend(children);
+                self.send_children(ecg_state, &header_id);
             } else {
                 // Record header as known by them but not us.
                 self.our_unknown.insert(*header_id);
@@ -488,20 +535,17 @@ impl<Hash, HeaderId, Header> DAGSyncResponder<Hash, HeaderId, Header> {
     ) where
         HeaderId: Copy + Ord,
     {
-        for (i, header_id) in self.sent_haves.iter().cloned().enumerate() {
+        for (i, header_id) in self.sent_haves.clone().iter().enumerate() {
             // Check if they claimed they know this header.
             let they_know = *their_known
                 .get(i)
                 .expect("Unreachable since we're iterating on the headers we sent.");
             if they_know {
                 // Mark header as known by them.
-                mark_as_known_helper(&mut self.their_known, ecg_state, header_id);
+                mark_as_known_helper(&mut self.their_known, ecg_state, *header_id);
 
                 // Send children if they know this node.
-                let children = ecg_state
-                    .get_children_with_depth(&header_id)
-                    .expect("Unreachable since we sent this header.");
-                self.send_queue.extend(children);
+                self.send_children(ecg_state, &header_id);
             } else {
                 let parents = ecg_state
                     .get_parents(&header_id)
@@ -513,7 +557,7 @@ impl<Hash, HeaderId, Header> DAGSyncResponder<Hash, HeaderId, Header> {
                     let depth = ecg_state
                         .get_header_depth(&header_id)
                         .expect("Unreachable since we sent this header.");
-                    self.send_queue.push((Reverse(depth), header_id));
+                    self.send_queue.push((Reverse(depth), *header_id));
                 }
             }
         }

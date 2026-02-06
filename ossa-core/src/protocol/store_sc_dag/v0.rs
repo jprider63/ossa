@@ -198,6 +198,7 @@ where
                 let request = receive(&mut stream).await.expect("TODO");
                 match request {
                     MsgDAGSyncRequest::DAGInitialSync { tips } => {
+                        warn!("TODO: Check request sizes.");
                         debug!("Received initial SCG sync request with tips: {tips:?}");
 
                         if dag_sync.is_some() {
@@ -214,6 +215,7 @@ where
                         dag_sync = Some(dag_sync_);
                     }
                     MsgDAGSyncRequest::DAGSync { tips, known } => {
+                        warn!("TODO: Check request sizes.");
                         let Some(ref mut dag_sync) = dag_sync else {
                             todo!("TODO: Error, SCG sync hasn't been initialized.");
                         };

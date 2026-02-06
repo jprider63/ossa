@@ -112,12 +112,12 @@ where
     }
 
     fn run_client<S: Stream<Self::Message>>(
-        self,
+        mut self,
         mut stream: S,
     ) -> impl Future<Output = ()> + Send {
         async move {
             debug!("StoreBFTSync client running!");
-            let mut bft_sync: Option<BFTSyncResponder> = None;
+            let mut bft_sync: Option<BFTSyncResponder<SHeaderId>> = None;
 
             // TODO: Check when done.
             loop {
