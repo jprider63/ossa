@@ -407,6 +407,8 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
     ) -> Self {
         let new = Self {
             _phantom: PhantomData,
+            send_queue: BinaryHeap::new(),
+            our_unknown: BTreeSet::new(),
         };
 
         // // TODO: Record everything they have
@@ -527,6 +529,7 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
                     loop {
                         // We receive signature IDs in order, so we know whether or not they have this signature.
                         let Some(next) = block_signatures.peek() else {
+                            // We don't have any more signatures for this block so we're done.
                             break;
                         };
                         if next <= signature_id {
@@ -536,6 +539,9 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
                             if next < *signature_id {
                                 self.queue_signature(bft_state, &b, next);
                             }
+                        } else {
+                            // Our next block exceeds their current block so move onto their next block.
+                            break;
                         }
                     }
                 }
@@ -544,8 +550,24 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
                     self.process_remaining_signatures(&mut current_block);
                 }
                 BlockStreamElement::BlocksEnd => {
-                    // That's all the blocks they know so send all remaining blocks.
-                    todo!("Queue remaining blocks");
+                    // That's all the blocks they know so send all remaining blocks for their round and our tips less than this round.
+                    let rounds = bft_state.round_states();
+                    let our_round = rounds.get(their_round as usize).expect("Invariant: We must have their round");
+                    our_round.blocks().values().for_each(|signed_block| {
+                        let block_id = signed_block.value().block_id();
+                        self.queue_block(bft_state, their_round, block_id);
+                    });
+
+                    bft_state.previous_tips().iter().for_each(|(round, device_id)| {
+                        // Only queue tips from older rounds.
+                        let round = *round;
+                        if round < their_round {
+                            let round_st = rounds.get(round as usize).unwrap();
+                            let signed_block = round_st.blocks().get(device_id).unwrap();
+                            let block_id = signed_block.value().block_id();
+                            self.queue_block(bft_state, round, block_id);
+                        }
+                    });
                 }
             }
         });
@@ -581,6 +603,10 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
     }
 
     fn process_remaining_signatures(&self, current_block: &mut Option<((u64, BlockId), Peekable<IntoIter<Sha256Hash>>)>) {
+        todo!()
+    }
+
+    fn queue_block(&self, bft_state: &watch::Ref<'_, BFTState<SHeaderId>>, round: Round, block_id: BlockId) {
         todo!()
     }
 }
