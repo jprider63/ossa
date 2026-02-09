@@ -573,7 +573,39 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
         });
 
         // Handle stream of their current round's signatures.
-        todo!("TODO: Handle stream of their current round's signatures.")
+        let mut round_signatures = self.round_complete_signatures_iter(bft_state, their_round);
+        their_round_complete.iter().for_each(|round_sig| {
+            match round_sig {
+                RoundCompleteStreamElement::RoundSignatures(signature_id) => {
+                    // Mark round signature as known by them.
+                    // JP: Do we need this?
+                    self.mark_round_signature_as_known(bft_state, their_round, round_sig);
+
+                    loop {
+                        // We receive signature IDs in order, so we know whether or not they have this signature.
+                        let Some(next) = round_signatures.peek() else {
+                            // We don't have any more signatures for this round so we're done.
+                            break;
+                        };
+
+                        if next <= signature_id {
+                            let next = round_signatures.next().unwrap();
+                            if next < *signature_id {
+                                self.queue_round_signature(bft_state, their_round, next);
+                            }
+                        } else {
+                            // Our next signature exceeds theirs so we move on to their next signature.
+                            break;
+                        }
+                    }
+                }
+                RoundCompleteStreamElement::End => {
+                    while let Some(sig) = round_signatures.next() {
+                        self.queue_round_signature(bft_state, their_round, sig);
+                    }
+                }
+            }
+        });
     }
 
     fn mark_as_known(&self, bft_state: &watch::Ref<'_, BFTState<SHeaderId>>, b: &(u64, BlockId)) {
@@ -607,6 +639,19 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
     }
 
     fn queue_block(&self, bft_state: &watch::Ref<'_, BFTState<SHeaderId>>, round: Round, block_id: BlockId) {
+        todo!()
+    }
+
+    fn round_complete_signatures_iter(&self, bft_state: &watch::Ref<'_, BFTState<SHeaderId>>, their_round: u64) -> Peekable<IntoIter<SignatureId>> {
+        // let round_st = bft_state.round_states().get(their_round as usize).expect("Invariant: We must have their round");
+        todo!()
+    }
+
+    fn mark_round_signature_as_known(&self, bft_state: &watch::Ref<'_, BFTState<SHeaderId>>, their_round: Round, round_sig: &RoundCompleteStreamElement) {
+        todo!()
+    }
+
+    fn queue_round_signature(&self, bft_state: &watch::Ref<'_, BFTState<SHeaderId>>, their_round: Round, next: SignatureId) {
         todo!()
     }
 }
