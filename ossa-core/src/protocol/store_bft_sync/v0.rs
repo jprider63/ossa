@@ -3,12 +3,14 @@
 // - We have rounds, so we can take advantage of that (ex, only send previous round blocks if it has a full threshold signature?)
 //
 // Do we need to go back more than 1 round?
+//
+// Goal: Only send a node when they have all the parents of that node.
 
-use std::{future::Future, marker::PhantomData};
+use std::{cmp::Reverse, collections::{BTreeSet, BinaryHeap}, future::Future, marker::PhantomData};
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc::{UnboundedReceiver, UnboundedSender}, watch};
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 
 use crate::{auth::DeviceId, network::protocol::{receive, send, MiniProtocol}, protocol::store_peer::dag_sync::MAX_HAVE_HEADERS, store::{bft::{BFTState, Block, BlockId, PartialSignature, Round, ThresholdSignature}, dag, UntypedStoreCommand}, util::{Sha256Hash, Stream}};
 
@@ -272,27 +274,10 @@ impl<SHeaderId> BFTSyncInitiator<SHeaderId> {
             // Acquire read lock on state.
             let bft_state = bft_state.borrow_and_update();
             let round = bft_state.current_round();
+            let current_round = &bft_state.round_states()[round as usize];
 
-            // Get the current tips.
-            let current_tips = bft_state.get_current_tips();
-
-            // Sort by (Round, BlockId)
-            let mut sorted_blocks = current_tips.iter().map(|(round, peer_id)| {
-                let round_state = &bft_state.round_states()[*round as usize];
-                let signed_block = round_state.blocks().get(peer_id).expect("Block not found even though it is a tip");
-                let block = signed_block.value();
-                let block_id = block.block_id();
-
-                // Return signatures on block, sorted.
-                let signatures = round_state.certificates().get(&block_id).map_or_else(|| vec![], |ts| {
-                    let mut sig_ids = ts.signature_ids();
-                    sig_ids.sort();
-                    sig_ids
-                });
-
-                (round, block_id, signatures)
-            }).collect::<Vec<_>>();
-            sorted_blocks.sort_by_key(|(round, peer_id, _)| (*round, *peer_id));
+            // Get the current block and signature tips (sorted).
+            let sorted_blocks = get_current_block_and_signature_tips(&bft_state, None);
 
             let mut block_tips = Vec::with_capacity(MAX_HAVE_HEADERS as usize);
             let mut current_block_pos = 0;
@@ -309,7 +294,7 @@ impl<SHeaderId> BFTSyncInitiator<SHeaderId> {
                 match current_signature_pos {
                     Some(j) => {
                         if let Some(signature_id) = current_block.2.get(j) {
-                            //  Append signature
+                            // Append signature
                             let elmt = BlockStreamElement::BlockSignatures(*signature_id);
                             block_tips.push(elmt);
                             current_signature_pos = Some(j + 1);
@@ -320,8 +305,8 @@ impl<SHeaderId> BFTSyncInitiator<SHeaderId> {
                         }
                     },
                     None => {
-                        //  Append block
-                        let elmt = BlockStreamElement::Block(*current_block.0, current_block.1);
+                        // Append block
+                        let elmt = BlockStreamElement::Block(current_block.0, current_block.1);
                         block_tips.push(elmt);
                         current_signature_pos = Some(0);
                     }
@@ -329,7 +314,6 @@ impl<SHeaderId> BFTSyncInitiator<SHeaderId> {
             }
 
             // Send round complete signatures.
-            let current_round = &bft_state.round_states()[round as usize];
             let mut round_complete = current_round.commit_round().signature_ids().into_iter().map(RoundCompleteStreamElement::RoundSignatures).collect::<Vec<_>>();
             round_complete.push(RoundCompleteStreamElement::End);
             let remaining_round_complete = round_complete.split_off(MAX_HAVE_HEADERS.into());
@@ -348,10 +332,62 @@ impl<SHeaderId> BFTSyncInitiator<SHeaderId> {
     }
 }
 
+/// Gets our current block and signature tips, sorted by (round, block_id).
+/// If a round is provided, only blocks less than the given round will be returned.
+fn get_current_block_and_signature_tips<SHeaderId>(bft_state: &watch::Ref<'_, BFTState<SHeaderId>>, up_to_round: Option<Round>) -> Vec<(u64, BlockId, Vec<Sha256Hash>)> {
+    // Get the current tips.
+    let current_tips = bft_state.get_current_tips();
+
+    // If upper bound on round is provided, filter rounds at this round or above.
+    let current_tips = current_tips.iter().filter(|(round, _)| { up_to_round.map_or(true, |up_to_round| *round < up_to_round) });
+
+    // Sort by (Round, BlockId)
+    let mut sorted_blocks = current_tips.map(|(round, peer_id)| {
+        let round_state = &bft_state.round_states()[*round as usize];
+        let signed_block = round_state.blocks().get(peer_id).expect("Block not found even though it is a tip");
+        let block = signed_block.value();
+        let block_id = block.block_id();
+
+        // Return signatures on block, sorted.
+        let signatures = round_state.certificates().get(&block_id).map_or_else(|| vec![], |ts| {
+            let mut sig_ids = ts.signature_ids();
+            sig_ids.sort();
+            sig_ids
+        });
+
+        (*round, block_id, signatures)
+    }).collect::<Vec<_>>();
+    sorted_blocks.sort_by_key(|(round, block_id, _)| (*round, *block_id));
+    sorted_blocks
+}
+
+
+/// Get the blocks and signatures for this round (sorted by block id).
+fn get_round_blocks_and_signatures<SHeaderId>(bft_state: &watch::Ref<'_, BFTState<SHeaderId>>, round: u64) -> Vec<(u64, BlockId, Vec<Sha256Hash>)> {
+    let round_state = &bft_state.round_states()[round as usize];
+    let mut blocks = round_state.blocks().values().map(|signed_block| {
+        let block_id = signed_block.value().block_id();
+
+        // Return signatures on block, sorted.
+        let signatures = round_state.certificates().get(&block_id).map_or_else(|| vec![], |ts| {
+            let mut sig_ids = ts.signature_ids();
+            sig_ids.sort();
+            sig_ids
+        });
+
+        (round, block_id, signatures)
+    }).collect::<Vec<_>>();
+    blocks.sort_by_key(|(round, block_id, _)| (*round, *block_id));
+    blocks
+}
+
 pub struct BFTSyncResponder<SHeaderId> {
-    their_round: Round,
-    their_block_tips: Vec<BlockStreamElement>,
-    their_round_complete: Vec<RoundCompleteStreamElement>,
+    // their_round: Round, // JP: Remove these from here?
+    // their_block_tips: Vec<BlockStreamElement>,
+    // their_round_complete: Vec<RoundCompleteStreamElement>,
+    their_known_blocks: BTreeSet<BlockId>,
+    send_queue_blocks: BinaryHeap<Reverse<(Round, BlockId)>>,
+    send_queue_signatures: BinaryHeap<Reverse<(Round, BlockId, Sha256Hash)>>,
     _phantom: PhantomData<SHeaderId>, // JP: Is SHeaderId needed?
 }
 
@@ -366,8 +402,8 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
     ) -> Self {
         let new = Self {
             their_round,
-            their_block_tips,
-            their_round_complete,
+            // their_block_tips,
+            // their_round_complete,
             _phantom: PhantomData,
         };
 
@@ -427,8 +463,44 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
     fn build_response(
         &self,
         bft_state: watch::Ref<'_, BFTState<SHeaderId>>,
+        mut their_round: Round,
+        their_block_tips: Vec<BlockStreamElement>,
+        their_round_complete: Vec<RoundCompleteStreamElement>,
     ) -> MsgBFTSyncResponse<SHeaderId> {
-         // Send all previous tips (sorted) less that the current round (that they don't have)?
+        // Get all previous tips (sorted) less than the current round (that they don't have)?
+        let our_previous_tips = get_current_block_and_signature_tips(&bft_state, Some(their_round));
+
+        // Process their tips with our previous tips.
+        let mut their_block_tips = their_block_tips.into_iter();
+        let mut full = self.process_their_tips(&mut their_block_tips, our_previous_tips);
+
+        // Keep processing rounds until we're done (or we've filled the buffer).
+        while !full {
+            let round_blocks = get_round_blocks_and_signatures(&bft_state, their_round);
+            full = self.process_their_tips(round_blocks);
+
+            // The buffer isn't full so we've shared everything for this round.
+            if !full {
+                // Process the round complete signatures if there are any.
+                let complete_full = self.process_their_round_completes(their_round);
+                if complete_full {
+                    break;
+                } else {
+                    // They're caught up to this round.
+
+                    if their_round < bft_state.current_round() {
+                        // They're still behind so bump their_round and continue.
+                        // self.bump_their_round(self.their_round + 1);
+                        their_round += 1;
+                    } else {
+                        // They're caught up to us, so stop.
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Send all previous tips (sorted) less than the current round (that they don't have)?
         // Get and sort our tips. Along with everything starting from their_round???
         // Iterate over their tips
         // JP: With this approach, we'll miss nodes where we know a child that depends on it but they dont?
@@ -439,6 +511,71 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
         //
         // Mark th
 
+        todo!()
+    }
+
+    // fn bump_their_round(&mut self, latest_round: Round) {
+    //     self.their_round = latest_round;
+    // }
+
+    /// Return true if  ????? - the output buffer is full so we're done this round. - Or when done?
+    fn process_their_tips<I:Iterator<Item = BlockStreamElement>>(&mut self, their_block_tips: &mut I, blocks_and_sigs: Vec<(Round, BlockId, Vec<Sha256Hash>)>) { // -> bool {
+        let Some(their_element) = their_block_tips.next() else {
+            // TODO: Do we need to do anything here???
+            return;
+        };
+
+        let mut their_current_block = match their_element {
+            BlockStreamElement::Block(round, block_id) => (round, block_id),
+            BlockStreamElement::BlockSignatures(sha256_hash) => {
+                error!("TODO: Peer deviated from protocol");
+                todo!("TODO: Peer deviated from protocol. Gracefully handle this");
+            }
+            BlockStreamElement::End => return,
+        }
+        self.their_known_blocks.insert(their_current_block.1);
+
+        let mut blocks_and_sigs = blocks_and_sigs.into_iter();
+
+        while let Some(our_current_element) = blocks_and_sigs.next() {
+            let their_round = their_current_block.0;
+            let their_block_id = their_current_block.1;
+            let our_round = our_current_element.0;
+            let our_block_id = our_current_element.1;
+
+            if our_round < their_round || (our_round == their_round && our_block_id < their_block_id) {
+                // They don't have our block so send it to them.
+                self.send_queue_blocks.push(Reverse((our_round, our_block_id)));
+
+                // Send all of the corresponding signatures.
+                let sigs = our_current_element.2.into_iter().map(|sig_id| Reverse((our_round, our_block_id, sig_id))).collect::<Vec<_>>();
+                self.send_queue_signatures.extend(sigs);
+
+            } else {
+                // If we have their block, send any signatures we have that they don't have.
+                let sigs_m = bft_state.get_block_signatures(their_round, their_block_id);
+
+                loop {
+                    match their_block_tips.next() {
+                        Some(BlockStreamElement::End) => todo!(),
+                        Some(BlockStreamElement::Block(round, block_id)) => todo!(),
+                        Some(BlockStreamElement::BlockSignatures(sha256_hash)) => todo!(),
+                        None => todo!(),
+                    }
+                }
+
+
+
+                if our_round == their_round && our_block_id == their_block_id {
+                } else {
+                }
+            }
+        }
+
+
+        
+
+        // MAX_DELIVER_HEADERS
         todo!()
     }
 }

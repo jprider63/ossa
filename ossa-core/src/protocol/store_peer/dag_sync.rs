@@ -487,6 +487,7 @@ impl<Hash, HeaderId, Header> DAGSyncResponder<Hash, HeaderId, Header> {
         HeaderId: Ord + Copy,
     {
         // If they don't have any operations, share all root nodes.
+        // TODO(JP): We should only do this on the first round? Pull this out to `run_initial???
         if their_tips.is_empty() {
             let root_nodes = ecg_state.get_root_nodes_with_depth();
             self.send_queue.extend(root_nodes);
@@ -499,7 +500,7 @@ impl<Hash, HeaderId, Header> DAGSyncResponder<Hash, HeaderId, Header> {
                 self.mark_as_known(ecg_state, *header_id);
 
                 // Add children to send queue.
-                self.send_children(ecg_state, &header_id);
+                self.send_children(ecg_state, header_id);
             } else {
                 // Record header as known by them but not us.
                 self.our_unknown.insert(*header_id);
