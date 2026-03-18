@@ -519,10 +519,10 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
     // }
 
     /// Return true if  ????? - the output buffer is full so we're done this round. - Or when done?
-    fn process_their_tips<I:Iterator<Item = BlockStreamElement>>(&mut self, their_block_tips: &mut I, blocks_and_sigs: Vec<(Round, BlockId, Vec<Sha256Hash>)>) { // -> bool {
+    fn process_their_tips<I:Iterator<Item = BlockStreamElement>>(&mut self, their_block_tips: &mut I, blocks_and_sigs: Vec<(Round, BlockId, Vec<Sha256Hash>)>) -> StreamProcessing {
         let Some(their_element) = their_block_tips.next() else {
             // TODO: Do we need to do anything here???
-            return;
+            return StreamProcessing::Done;
         };
 
         let mut their_current_block = match their_element {
@@ -531,7 +531,11 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
                 error!("TODO: Peer deviated from protocol");
                 todo!("TODO: Peer deviated from protocol. Gracefully handle this");
             }
-            BlockStreamElement::End => return,
+            BlockStreamElement::End => {
+                // TODO: Send everything from and *after* blocks_and_sigs.
+                todo!();
+                return StreamProcessing::ReachedEnd;
+            }
         }
         self.their_known_blocks.insert(their_current_block.1);
 
@@ -553,29 +557,55 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
 
             } else {
                 // If we have their block, send any signatures we have that they don't have.
-                let sigs_m = bft_state.get_block_signatures(their_round, their_block_id);
+                let sigs_m = bft_state.get_block_signatures(their_round, their_block_id); // TODO: Get rid of third tuple element in arg?
 
                 loop {
                     match their_block_tips.next() {
-                        Some(BlockStreamElement::End) => todo!(),
-                        Some(BlockStreamElement::Block(round, block_id)) => todo!(),
-                        Some(BlockStreamElement::BlockSignatures(sha256_hash)) => todo!(),
-                        None => todo!(),
+                        Some(BlockStreamElement::BlockSignatures(sig_id)) => {
+                            self.their_known_block_sigs.insert((block_id, sig_id));
+
+                            // TODO: Queue sigs from sigs_m that are less than sig_id (or that they
+                            // don't know?).
+                            todo!();
+                        }
+                        Some(BlockStreamElement::Block(round, block_id)) => {
+                            self.their_known_blocks.insert(block_id);
+                            their_current_block = (round, block_id);
+
+                            // TODO: Queue remaining sigs in sigs_m.
+                            todo!();
+                            break;
+                        }
+                        Some(BlockStreamElement::End) => {
+                            // TODO: Queue remaining sigs in sigs_m.
+                            // TODO: Send everything from and *after* blocks_and_sigs.
+                            todo!();
+                            return StreamProcessing::ReachedEnd;
+                        }
+                        None => {
+                            // TODO: We've reached the end of their stream. What do we do here?
+                            // Exit?
+                            return StreamProcessing::Done;
+                        }
                     }
-                }
-
-
-
-                if our_round == their_round && our_block_id == their_block_id {
-                } else {
                 }
             }
         }
+
+        // TODO: Process the remaining items they've sent until they get to the next round.
+        todo!();
 
 
         
 
         // MAX_DELIVER_HEADERS
-        todo!()
+        StreamProcessing::Continue
     }
+}
+
+enum StreamProcessing {
+    Done, // Processed the entire stream, but they did not send "END" so they have more in their tips.
+    ReachedEnd, // They sent "END", so they don't have more tips and we can send them everything remaining.
+    Continue, // We're still processing the stream.
+
 }
