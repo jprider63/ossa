@@ -17,7 +17,7 @@ use tokio::sync::{
 };
 use tracing::{debug, error, warn};
 
-use crate::protocol::store_bft_sync::v0::StoreBFTSync;
+use crate::protocol::store_bft_sync::v0::{StoreBFTSync, StoreBFTSyncCommand};
 use crate::store::bft::{BFTState, SCDT};
 use crate::store::v0::BLOCK_SIZE;
 use crate::time::ConcretizeTime;
@@ -168,6 +168,7 @@ struct PeerInfo<SHeaderId, SHeader, THeaderId, THeader> {
     ecg_status: PeerProtocolStatus<StoreSyncCommand<THeaderId, THeader>>, // ECGHeader?
     scg_status: PeerProtocolStatus<StoreSCGSyncCommand<SHeaderId, SHeader>>, // SCGHeader?
                                                                           // TODO: sc_status: PeerProtocolStatus<HeaderId, Header>,
+    bft_status: PeerProtocolStatus<StoreBFTSyncCommand>,
 }
 
 #[derive(Debug)]
@@ -210,7 +211,7 @@ impl<SHeaderId, SHeader, THeaderId, THeader> PeerInfo<SHeaderId, SHeader, THeade
 /// Outgoing information about a syncing peer.
 struct OutgoingPeerStatus<CommandType> {
     /// Sender channel for requests to the outgoing peer store.
-    sender_peer: UnboundedSender<CommandType>, // StoreSyncCommand<HeaderId, Header>>,
+    sender_peer: UnboundedSender<CommandType>,
     /// Whether we have an outgoing peer request that is outstanding.
     is_outstanding: bool,
 }
@@ -351,6 +352,10 @@ impl<
                     incoming_status: PeerStatus::Known,
                     outgoing_status: PeerStatus::Known,
                 },
+                bft_status: PeerProtocolStatus {
+                    incoming_status: PeerStatus::Known,
+                    outgoing_status: PeerStatus::Known,
+                }
             }); // , ecg_status});
     }
 
@@ -380,20 +385,18 @@ impl<
         }
     }
 
-    /// Update a known peer's outgoing (ECG + SCG) status to initializing.
+    /// Update a known peer's outgoing (ECG + SCG + BFT) status to initializing.
     fn update_peer_to_initializing_outgoing(&mut self, peer: &DeviceId) {
         self.update_peer_to_initializing(peer, |info| &mut info.ecg_status.outgoing_status);
         self.update_peer_to_initializing(peer, |info| &mut info.scg_status.outgoing_status);
+        self.update_peer_to_initializing(peer, |info| &mut info.bft_status.outgoing_status);
     }
 
-    /// Update a known peer's incoming ECG status to initializing.
-    fn update_peer_ecg_to_initializing_incoming(&mut self, peer: &DeviceId) {
+    /// Update a known peer's incoming (ECG + SCG + BFT) status to initializing.
+    fn update_peer_to_initializing_incoming(&mut self, peer: &DeviceId) {
         self.update_peer_to_initializing(peer, |info| &mut info.ecg_status.incoming_status);
-    }
-
-    /// Update a known peer's incoming SCG status to initializing.
-    fn update_peer_scg_to_initializing_incoming(&mut self, peer: &DeviceId) {
         self.update_peer_to_initializing(peer, |info| &mut info.scg_status.incoming_status);
+        self.update_peer_to_initializing(peer, |info| &mut info.bft_status.incoming_status);
     }
 
     /// Helper to update a known peer to syncing.
@@ -458,6 +461,14 @@ impl<
         sender: OutgoingPeerStatus<StoreSCGSyncCommand<SHeader::HeaderId, SHeader>>,
     ) {
         self.update_peer_to_syncing(peer, |info| &mut info.scg_status.outgoing_status, sender);
+    }
+
+    fn update_peer_bft_to_syncing_outgoing(
+        &mut self,
+        peer: &DeviceId,
+        sender: OutgoingPeerStatus<StoreBFTSyncCommand>,
+    ) {
+        self.update_peer_to_syncing(peer, |info| &mut info.bft_status.outgoing_status, sender);
     }
 
     fn update_outgoing_peer_to_ready_helper<CommandType>(
@@ -635,7 +646,9 @@ impl<
                     debug!("Sending SCG sync request to peer ({})", p.0);
                     send_command(&mut p.1.scg_status, message);
 
-                    todo!("Send BFT sync requests");
+                    let message = StoreBFTSyncCommand::BFTSyncRequest;
+                    debug!("Sending BFT sync request to peer ({})", p.0);
+                    send_command(&mut p.1.bft_status, message);
                 });
             }
             _ => {}
@@ -1375,7 +1388,7 @@ async fn manage_peers<OT: OssaType, S: Clone, T: CRDT<Time = OT::Time> + Clone +
             })
         });
 
-        let send_commands = send_commands.clone();
+        let send_commands_ = send_commands.clone();
         let spawn_task_sc = Box::new(move |_party, stream_id, sender, receiver| {
             tokio::spawn(async move {
                 // Tell store we're running and send it our channel.
@@ -1384,13 +1397,13 @@ async fn manage_peers<OT: OssaType, S: Clone, T: CRDT<Time = OT::Time> + Clone +
                     peer: peer_id,
                     send_peer,
                 };
-                send_commands.send(register_cmd).expect("TODO");
+                send_commands_.send(register_cmd).expect("TODO");
 
                 // Run SC miniprotocol as server
                 let mp = StoreDAGSync::<OT::Hash, _, _, _, _>::new_server(
                     peer_id,
                     recv_peer,
-                    send_commands,
+                    send_commands_,
                 );
                 run_miniprotocol_async(mp, false, stream_id, sender, receiver).await;
 
@@ -1398,9 +1411,23 @@ async fn manage_peers<OT: OssaType, S: Clone, T: CRDT<Time = OT::Time> + Clone +
             })
         });
 
+        let send_commands_ = send_commands.clone();
+        let bft_state = store.bft_state.subscribe();
         let spawn_task_bft = Box::new(move |_party, stream_id, sender, receiver| {
             tokio::spawn(async move {
-                unimplemented!();
+                // Tell store we're running and send it our channel.
+                let (send_peer, recv_peer) = tokio::sync::mpsc::unbounded_channel();
+                let register_cmd = UntypedStoreCommand::RegisterOutgoingPeerBFTSyncing {
+                    peer: peer_id,
+                    send_peer,
+                };
+                send_commands_.send(register_cmd).expect("TODO");
+
+                // Start miniprotocol as server.
+                let mp = StoreBFTSync::new_server(peer_id, recv_peer, send_commands_, bft_state);
+                run_miniprotocol_async(mp, false, stream_id, sender, receiver).await;
+
+                debug!("Store BFT sync with peer (with initiative) exited.")
             })
         });
 
@@ -1641,8 +1668,7 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
                             if let Some(status) = store.peers.get(&peer) {
                                 if status.ecg_status.incoming_status.is_known() {
                                     // Mark task as initializing.
-                                    store.update_peer_ecg_to_initializing_incoming(&peer);
-                                    store.update_peer_scg_to_initializing_incoming(&peer);
+                                    store.update_peer_to_initializing_incoming(&peer);
 
                                     // Create closure that spawns task to sync store with peer.
                                     let send_commands_untyped_ = send_commands_untyped.clone();
@@ -1777,6 +1803,17 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
                             is_outstanding: false,
                         };
                         store.update_peer_scg_to_syncing_outgoing(&peer, outgoing_status);
+
+                        // Sync with peer(s). Do this for all commands??
+                        store.send_sync_requests();
+                    }
+                    UntypedStoreCommand::RegisterOutgoingPeerBFTSyncing { peer, send_peer } => {
+                        // Update peer's state to syncing and register channel.
+                        let outgoing_status = OutgoingPeerStatus {
+                            sender_peer: send_peer,
+                            is_outstanding: false,
+                        };
+                        store.update_peer_bft_to_syncing_outgoing(&peer, outgoing_status);
 
                         // Sync with peer(s). Do this for all commands??
                         store.send_sync_requests();
@@ -1932,6 +1969,10 @@ pub(crate) enum UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader
     },
     RegisterIncomingPeerSCGSyncing {
         peer: DeviceId,
+    },
+    RegisterOutgoingPeerBFTSyncing {
+        peer: DeviceId,
+        send_peer: UnboundedSender<StoreBFTSyncCommand>,
     },
 }
 
