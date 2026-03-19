@@ -6,7 +6,7 @@
 //
 // Goal: Only send a node when they have all the parents of that node.
 
-use std::{cmp::Reverse, collections::{BTreeSet, BinaryHeap}, future::Future, marker::PhantomData};
+use std::{cmp::Reverse, collections::{BTreeSet, BinaryHeap}, future::Future, iter::Peekable, marker::PhantomData, vec::IntoIter};
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc::{UnboundedReceiver, UnboundedSender}, watch};
@@ -176,10 +176,11 @@ impl ThresholdSignatureId {
 }
 
 // For use in a Vec of block tips, ordered by (Round, BlockId). Block signatures ordered by SignatureId.
+// TODO: Check that they are in order when parsed XXX
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) enum BlockStreamElement {
     Block(Round, BlockId),
-    BlockSignatures(SignatureId),
+    BlockSignature(SignatureId),
     End,
 }
 
@@ -295,7 +296,7 @@ impl<SHeaderId> BFTSyncInitiator<SHeaderId> {
                     Some(j) => {
                         if let Some(signature_id) = current_block.2.get(j) {
                             // Append signature
-                            let elmt = BlockStreamElement::BlockSignatures(*signature_id);
+                            let elmt = BlockStreamElement::BlockSignature(*signature_id);
                             block_tips.push(elmt);
                             current_signature_pos = Some(j + 1);
                         } else {
@@ -386,6 +387,7 @@ pub struct BFTSyncResponder<SHeaderId> {
     // their_block_tips: Vec<BlockStreamElement>,
     // their_round_complete: Vec<RoundCompleteStreamElement>,
     their_known_blocks: BTreeSet<BlockId>,
+    their_known_block_sigs: BTreeSet<(BlockId, Sha256Hash)>,
     send_queue_blocks: BinaryHeap<Reverse<(Round, BlockId)>>,
     send_queue_signatures: BinaryHeap<Reverse<(Round, BlockId, Sha256Hash)>>,
     _phantom: PhantomData<SHeaderId>, // JP: Is SHeaderId needed?
@@ -519,7 +521,7 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
     // }
 
     /// Return true if  ????? - the output buffer is full so we're done this round. - Or when done?
-    fn process_their_tips<I:Iterator<Item = BlockStreamElement>>(&mut self, their_block_tips: &mut I, blocks_and_sigs: Vec<(Round, BlockId, Vec<Sha256Hash>)>) -> StreamProcessing {
+    fn process_their_tips<I:Iterator<Item = BlockStreamElement>>(&mut self, their_round: Round, their_block_tips: &mut Peekable<I>, blocks_and_sigs: Vec<(Round, BlockId, Vec<Sha256Hash>)>) -> StreamProcessing {
         let Some(their_element) = their_block_tips.next() else {
             // TODO: Do we need to do anything here???
             return StreamProcessing::Done;
@@ -527,17 +529,18 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
 
         let mut their_current_block = match their_element {
             BlockStreamElement::Block(round, block_id) => (round, block_id),
-            BlockStreamElement::BlockSignatures(sha256_hash) => {
-                error!("TODO: Peer deviated from protocol");
+            BlockStreamElement::BlockSignature(sha256_hash) => {
+                error!("TODO: Peer deviated from protocol. Started with block signature id: {sha256_hash}");
                 todo!("TODO: Peer deviated from protocol. Gracefully handle this");
             }
             BlockStreamElement::End => {
                 // TODO: Send everything from and *after* blocks_and_sigs.
                 todo!();
+                XXX
                 return StreamProcessing::ReachedEnd;
             }
-        }
-        self.their_known_blocks.insert(their_current_block.1);
+        };
+        self.mark_block_as_known(their_current_block.1);
 
         let mut blocks_and_sigs = blocks_and_sigs.into_iter();
 
@@ -555,36 +558,40 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
                 let sigs = our_current_element.2.into_iter().map(|sig_id| Reverse((our_round, our_block_id, sig_id))).collect::<Vec<_>>();
                 self.send_queue_signatures.extend(sigs);
 
-            } else {
-                // If we have their block, send any signatures we have that they don't have.
-                let sigs_m = bft_state.get_block_signatures(their_round, their_block_id); // TODO: Get rid of third tuple element in arg?
+            } else { 
+                // Send any signatures we have that they don't have for their current block.
+                let mut sigs_m = if our_round == their_round && our_block_id == their_block_id {
+                    Some(our_current_element.2.into_iter().peekable())
+                } else {
+                    None
+                };
 
                 loop {
                     match their_block_tips.next() {
-                        Some(BlockStreamElement::BlockSignatures(sig_id)) => {
-                            self.their_known_block_sigs.insert((block_id, sig_id));
+                        Some(BlockStreamElement::BlockSignature(sig_id)) => {
+                            self.mark_block_sig_as_known(their_block_id, sig_id);
 
-                            // TODO: Queue sigs from sigs_m that are less than sig_id (or that they
-                            // don't know?).
-                            todo!();
+                            // Queue sigs from sigs_m that are less than sig_id.
+                            self.queue_block_sigs(our_block_id, &mut sigs_m, Some(sig_id));
                         }
                         Some(BlockStreamElement::Block(round, block_id)) => {
-                            self.their_known_blocks.insert(block_id);
+                            self.mark_block_as_known(block_id);
                             their_current_block = (round, block_id);
 
-                            // TODO: Queue remaining sigs in sigs_m.
-                            todo!();
+                            // Queue remaining sigs in sigs_m.
+                            self.queue_block_sigs(our_block_id, &mut sigs_m, None);
                             break;
                         }
                         Some(BlockStreamElement::End) => {
-                            // TODO: Queue remaining sigs in sigs_m.
+                            // Queue remaining sigs in sigs_m.
+                            self.queue_block_sigs(our_block_id, &mut sigs_m, None);
                             // TODO: Send everything from and *after* blocks_and_sigs.
                             todo!();
+
                             return StreamProcessing::ReachedEnd;
                         }
                         None => {
-                            // TODO: We've reached the end of their stream. What do we do here?
-                            // Exit?
+                            // We've reached the end of their stream.
                             return StreamProcessing::Done;
                         }
                     }
@@ -592,14 +599,58 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
             }
         }
 
-        // TODO: Process the remaining items they've sent until they get to the next round.
-        todo!();
+        // Process the remaining items they've sent until they get to the next round.
+        while let Some(element) = their_block_tips.peek() {
 
+            // Stop if we get to the next round.
+            match element {
+                BlockStreamElement::Block(round, _) if *round > their_round => {
+                    return StreamProcessing::Continue;
+                }
+                _ => {}
+            }
+            
+            let element = their_block_tips.next().expect("We already peeked");
+            match element {
+                BlockStreamElement::Block(round, block_id) => {
+                    self.mark_block_as_known(block_id);
+                    their_current_block = (round, block_id);
+                }
+                BlockStreamElement::BlockSignature(sig_id) => {
+                    self.mark_block_sig_as_known(their_current_block.1, sig_id);
+                }
+                BlockStreamElement::End => {
+                    return StreamProcessing::ReachedEnd;
+                }
+            }
+        }
 
-        
-
+        StreamProcessing::Done
+    }
         // MAX_DELIVER_HEADERS
-        StreamProcessing::Continue
+
+    // Mark block as known by them.
+    fn mark_block_as_known(&mut self, block_id: BlockId) {
+        self.their_known_blocks.insert(block_id);
+    }
+
+    // Mark block signature as known by them.
+    fn mark_block_sig_as_known(&mut self, block_id: BlockId, sig_id: Sha256Hash) {
+        self.their_known_block_sigs.insert((block_id, sig_id));
+    }
+
+    // Queue sigs from sigs_m that are less than sig_id (if provided). Otherwise, queue them all.
+    fn queue_block_sigs(&mut self, block_id: BlockId, sigs_m: &mut Option<Peekable<IntoIter<Sha256Hash>>>, upper_sig_id: Option<Sha256Hash>) {
+        if let Some(sigs) = sigs_m {
+            while let Some(sig_id) = sigs.next_if( |sig_id|
+                upper_sig_id.map_or(true, |upper_sig_id| *sig_id < upper_sig_id)
+            ) {
+                self.their_known_block_sigs.insert((block_id, sig_id));
+            }
+
+            // Drop our next sig if it equals their sig.
+            let _ = sigs.next_if(|sig_id| Some(*sig_id) == upper_sig_id);
+        }
     }
 }
 
