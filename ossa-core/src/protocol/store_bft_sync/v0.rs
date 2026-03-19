@@ -475,6 +475,7 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
         // Process their tips with our previous tips.
         let mut their_block_tips = their_block_tips.into_iter();
         let mut full = self.process_their_tips(&mut their_block_tips, our_previous_tips);
+        // TODO: If End, queue following rounds... Lazily?
 
         // Keep processing rounds until we're done (or we've filled the buffer).
         while !full {
@@ -527,6 +528,10 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
             return StreamProcessing::Done;
         };
 
+        warn!("TODO: For subsequent rounds, only queue if they don't already know it? Or check this when sending?");
+
+        let mut blocks_and_sigs = blocks_and_sigs.into_iter();
+
         let mut their_current_block = match their_element {
             BlockStreamElement::Block(round, block_id) => (round, block_id),
             BlockStreamElement::BlockSignature(sha256_hash) => {
@@ -534,15 +539,13 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
                 todo!("TODO: Peer deviated from protocol. Gracefully handle this");
             }
             BlockStreamElement::End => {
-                // TODO: Send everything from and *after* blocks_and_sigs.
-                todo!();
-                XXX
+                // Send everything from blocks_and_sigs.
+                self.queue_blocks(blocks_and_sigs);
+
                 return StreamProcessing::ReachedEnd;
             }
         };
         self.mark_block_as_known(their_current_block.1);
-
-        let mut blocks_and_sigs = blocks_and_sigs.into_iter();
 
         while let Some(our_current_element) = blocks_and_sigs.next() {
             let their_round = their_current_block.0;
@@ -552,12 +555,7 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
 
             if our_round < their_round || (our_round == their_round && our_block_id < their_block_id) {
                 // They don't have our block so send it to them.
-                self.send_queue_blocks.push(Reverse((our_round, our_block_id)));
-
-                // Send all of the corresponding signatures.
-                let sigs = our_current_element.2.into_iter().map(|sig_id| Reverse((our_round, our_block_id, sig_id))).collect::<Vec<_>>();
-                self.send_queue_signatures.extend(sigs);
-
+                self.queue_block_and_sigs(our_current_element);
             } else { 
                 // Send any signatures we have that they don't have for their current block.
                 let mut sigs_m = if our_round == their_round && our_block_id == their_block_id {
@@ -585,8 +583,9 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
                         Some(BlockStreamElement::End) => {
                             // Queue remaining sigs in sigs_m.
                             self.queue_block_sigs(our_block_id, &mut sigs_m, None);
-                            // TODO: Send everything from and *after* blocks_and_sigs.
-                            todo!();
+
+                            // Send everything remaining in blocks_and_sigs.
+                            self.queue_blocks(blocks_and_sigs);
 
                             return StreamProcessing::ReachedEnd;
                         }
@@ -650,6 +649,21 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
 
             // Drop our next sig if it equals their sig.
             let _ = sigs.next_if(|sig_id| Some(*sig_id) == upper_sig_id);
+        }
+    }
+
+    /// Queue a block and its signatures.
+    fn queue_block_and_sigs(&mut self, (our_round, our_block_id, our_sigs): (u64, BlockId, Vec<Sha256Hash>)) {
+            self.send_queue_blocks.push(Reverse((our_round, our_block_id)));
+
+            // Send all of the corresponding signatures.
+            let sigs = our_sigs.into_iter().map(|sig_id| Reverse((our_round, our_block_id, sig_id))).collect::<Vec<_>>();
+            self.send_queue_signatures.extend(sigs);
+    }
+
+    fn queue_blocks(&mut self, blocks_and_sigs: IntoIter<(u64, BlockId, Vec<Sha256Hash>)>) {
+        for block_and_sigs in blocks_and_sigs {
+            self.queue_block_and_sigs(block_and_sigs);
         }
     }
 }
