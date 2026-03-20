@@ -474,9 +474,7 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
         let our_previous_tips = get_current_block_and_signature_tips(&bft_state, Some(their_round));
 
         // Process their tips with our previous tips.
-        let mut their_block_tips = their_block_tips.into_iter().peekable();
-        let mut status = self.process_their_tips(their_round, &mut their_block_tips, our_previous_tips);
-        // TODO: If End, queue following rounds...
+        let status = self.process_their_tips(their_round, their_block_tips, our_previous_tips);
 
         // Process their round complete signatures.
         let round_complete_signatures = get_round_complete_signatures(&bft_state, their_round);
@@ -527,15 +525,16 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
     //     self.their_round = latest_round;
     // }
 
-    fn process_their_tips<I:Iterator<Item = BlockStreamElement>>(&mut self, their_round: Round, their_block_tips: &mut Peekable<I>, blocks_and_sigs: Vec<(Round, BlockId, Vec<Sha256Hash>)>) -> StreamProcessing {
+    fn process_their_tips(&mut self, their_round: Round, their_block_tips: Vec<BlockStreamElement>, blocks_and_sigs: Vec<(Round, BlockId, Vec<Sha256Hash>)>) -> StreamProcessing {
+        let mut their_block_tips = their_block_tips.into_iter();
+        let mut blocks_and_sigs = blocks_and_sigs.into_iter().peekable();
+
         let Some(their_element) = their_block_tips.next() else {
             // TODO: Do we need to do anything here???
             return StreamProcessing::Done;
         };
 
         warn!("TODO: For subsequent rounds, only queue if they don't already know it? Or check this when sending?");
-
-        let mut blocks_and_sigs = blocks_and_sigs.into_iter();
 
         let mut their_current_block = match their_element {
             BlockStreamElement::Block(round, block_id) => (round, block_id),
@@ -551,6 +550,36 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
             }
         };
         self.mark_block_as_known(their_current_block.1);
+
+        TODO: Queue everything we have that's before their_current_block...
+        self.queue_block_sigs(&mut blocks_and_sigs, their_current_block);
+
+        while let Some(their_current_element) = their_block_tips.next() {
+            let their_round = their_current_block.0;
+            let their_block_id = their_current_block.1;
+
+            match their_current_element {
+                BlockStreamElement::BlockSignature(sig_id) => todo!(),
+                BlockStreamElement::Block(round, block_id) => {
+                    self.mark_block_as_known(block_id);
+                    their_current_block = (round, block_id);
+
+                    todo!("...");
+                }
+                BlockStreamElement::End => {
+                    // Queue remaining sigs in sigs_m.
+                    self.queue_block_sigs(our_block_id, &mut sigs_m, None);
+
+                    // Send everything remaining in blocks_and_sigs.
+                    self.queue_blocks(blocks_and_sigs);
+
+                    return true;
+                }
+            }
+        }
+
+        false
+
 
         while let Some(our_current_element) = blocks_and_sigs.next() {
             let their_round = their_current_block.0;
@@ -670,7 +699,7 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
             self.send_queue_signatures.extend(sigs);
     }
 
-    fn queue_blocks(&mut self, blocks_and_sigs: IntoIter<(u64, BlockId, Vec<Sha256Hash>)>) {
+    fn queue_blocks(&mut self, blocks_and_sigs: Peekable<IntoIter<(u64, BlockId, Vec<Sha256Hash>)>>) {
         for block_and_sigs in blocks_and_sigs {
             self.queue_block_and_sigs(block_and_sigs);
         }
@@ -691,7 +720,7 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
             match their_element {
                 RoundCompleteStreamElement::RoundSignatures(their_sig_id) => {
                     self.mark_round_sig_as_known(round, their_sig_id);
-                    if let Some(our_sig_id) = our_round_complete_signatures.next_if(|our_sig_id| *our_sig_id <= their_sig_id) {
+                    while let Some(our_sig_id) = our_round_complete_signatures.next_if(|our_sig_id| *our_sig_id <= their_sig_id) {
                         // Queue if they don't have our sig.
                         if our_sig_id < their_sig_id {
                             self.queue_round_completes(round, &[our_sig_id]);
