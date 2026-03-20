@@ -334,13 +334,13 @@ impl<SHeaderId> BFTSyncInitiator<SHeaderId> {
 }
 
 /// Gets our current block and signature tips, sorted by (round, block_id).
-/// If a round is provided, only blocks less than the given round will be returned.
+/// If a round is provided, only blocks less than or equal to the given round will be returned.
 fn get_current_block_and_signature_tips<SHeaderId>(bft_state: &watch::Ref<'_, BFTState<SHeaderId>>, up_to_round: Option<Round>) -> Vec<(u64, BlockId, Vec<Sha256Hash>)> {
     // Get the current tips.
     let current_tips = bft_state.get_current_tips();
 
     // If upper bound on round is provided, filter rounds at this round or above.
-    let current_tips = current_tips.iter().filter(|(round, _)| { up_to_round.map_or(true, |up_to_round| *round < up_to_round) });
+    let current_tips = current_tips.iter().filter(|(round, _)| { up_to_round.map_or(true, |up_to_round| *round <= up_to_round) });
 
     // Sort by (Round, BlockId)
     let mut sorted_blocks = current_tips.map(|(round, peer_id)| {
@@ -470,43 +470,43 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
         their_block_tips: Vec<BlockStreamElement>,
         their_round_complete: Vec<RoundCompleteStreamElement>,
     ) -> MsgBFTSyncResponse<SHeaderId> {
-        // Get all previous tips (sorted) less than the current round?
+        // Get all previous tips (sorted) less than or equal to their current round?
         let our_previous_tips = get_current_block_and_signature_tips(&bft_state, Some(their_round));
 
         // Process their tips with our previous tips.
         let mut their_block_tips = their_block_tips.into_iter().peekable();
         let mut status = self.process_their_tips(their_round, &mut their_block_tips, our_previous_tips);
-        // TODO: If End, queue following rounds... Lazily?
+        // TODO: If End, queue following rounds...
 
+        // Process their round complete signatures.
+        let round_complete_signatures = get_round_complete_signatures(&bft_state, their_round);
         let our_round = bft_state.current_round();
-        let mut their_round_complete = their_round_complete.into_iter().peekable();
+        // Optimization: If their_round < our_round, we can just queue our aggregate round signature.
+        let is_complete_done = if their_round < our_round {
+            self.queue_round_completes(their_round, &round_complete_signatures);
+            true
+        } else {
+            self.process_their_round_completes(their_round, their_round_complete, round_complete_signatures)
+        };
 
-        // Keep processing rounds until we're done (or we've filled the buffer).
-        while status != StreamProcessing::Done && their_round <= our_round && !self.buffers_full() {
+        // They don't know everything for the current round so we can't move onto next round.
+        if status == StreamProcessing::Done || !is_complete_done {
+            // TODO: Pull all this into a separate function `handle_their_tips`?.
+            return;
+        }
+
+        // Move onto next round.
+        their_round += 1;
+
+        // Keep processing rounds until they've caught up (or we've filled the buffer).
+        while their_round <= our_round && !self.are_buffers_full() {
             let round_blocks = get_round_blocks_and_signatures(&bft_state, their_round);
-            status = self.process_their_tips(their_round, &mut their_block_tips, round_blocks);
+            self.queue_blocks(round_blocks.into_iter());
 
-            // Send round signatures if we've shared everything for this round.
-            if status != StreamProcessing::Done {
-                // Process the round complete signatures if there are any.
-                let round_complete_signatures = get_round_complete_signatures(&bft_state, their_round);
-                let complete_status = self.process_their_round_completes(their_round, &mut their_round_complete, round_complete_signatures);
-                todo!("...");
-                if complete_full {
-                    break;
-                } else {
-                    // They're caught up to this round.
+            let round_complete_signatures = get_round_complete_signatures(&bft_state, their_round);
+            self.queue_round_completes(their_round, &round_complete_signatures);
 
-                    if their_round < our_round {
-                        // They're still behind so bump their_round and continue.
-                        // self.bump_their_round(self.their_round + 1);
-                        their_round += 1;
-                    } else {
-                        // They're caught up to us, so stop.
-                        break;
-                    }
-                }
-            }
+            their_round += 1;
         }
 
         // Send all previous tips (sorted) less than the current round (that they don't have)?
@@ -647,13 +647,17 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
     fn queue_block_sigs(&mut self, block_id: BlockId, sigs_m: &mut Option<Peekable<IntoIter<Sha256Hash>>>, upper_sig_id: Option<Sha256Hash>) {
         if let Some(sigs) = sigs_m {
             while let Some(sig_id) = sigs.next_if( |sig_id|
-                upper_sig_id.map_or(true, |upper_sig_id| *sig_id < upper_sig_id)
+                upper_sig_id.map_or(true, |upper_sig_id| *sig_id <= upper_sig_id)
             ) {
-                self.their_known_block_sigs.insert((block_id, sig_id));
+                // Skip our next sig if it equals their sig.
+                if Some(sig_id) != upper_sig_id {
+                    self.their_known_block_sigs.insert((block_id, sig_id));
+                }
             }
 
-            // Drop our next sig if it equals their sig.
-            let _ = sigs.next_if(|sig_id| Some(*sig_id) == upper_sig_id);
+            // TODO: DELETEME, moved to `if` above
+            // // Drop our next sig if it equals their sig.
+            // let _ = sigs.next_if(|sig_id| Some(*sig_id) == upper_sig_id);
         }
     }
 
@@ -672,13 +676,40 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
         }
     }
 
-    fn buffers_full(&self) -> bool {
+    /// Checks whether any of our queue buffers are full.
+    fn are_buffers_full(&self) -> bool {
         self.send_queue_blocks.len() >= MAX_DELIVER_HEADERS.into()
             || self.send_queue_signatures.len() >= MAX_DELIVER_HEADERS.into()
             || self.send_queue_round_signatures.len() >= MAX_DELIVER_HEADERS.into()
     }
 
-    fn process_their_round_completes(&self, their_round: u64, their_round_complete: &mut Peekable<IntoIter<RoundCompleteStreamElement>>, round_complete_signatures: Vec<Sha256Hash>) -> _ {
+    /// Returns true if we've queued everything to complete the round.
+    fn process_their_round_completes(&self, round: u64, their_round_complete: Vec<RoundCompleteStreamElement>, our_round_complete_signatures: Vec<Sha256Hash>) -> bool {
+        let mut their_round_complete = their_round_complete.into_iter();
+        let mut our_round_complete_signatures = our_round_complete_signatures.into_iter().peekable();
+        while let Some(their_element) = their_round_complete.next() {
+            match their_element {
+                RoundCompleteStreamElement::RoundSignatures(their_sig_id) => {
+                    self.mark_round_sig_as_known(round, their_sig_id);
+                    if let Some(our_sig_id) = our_round_complete_signatures.next_if(|our_sig_id| *our_sig_id <= their_sig_id) {
+                        // Queue if they don't have our sig.
+                        if our_sig_id < their_sig_id {
+                            self.queue_round_completes(round, &[our_sig_id]);
+                        }
+                    }
+                }
+                RoundCompleteStreamElement::End => {
+                    // Queue everything else.
+                    self.queue_round_completes(round, &our_round_complete_signatures.collect::<Vec<_>>());
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
+    fn queue_round_completes(&self, round: u64, our_sig_id: &[Sha256Hash]) {
         todo!()
     }
 }
