@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc::{UnboundedReceiver, UnboundedSender}, watch};
 use tracing::{debug, error, warn};
 
-use crate::{auth::DeviceId, network::protocol::{receive, send, MiniProtocol}, protocol::store_peer::dag_sync::MAX_HAVE_HEADERS, store::{bft::{BFTState, Block, BlockId, PartialSignature, Round, ThresholdSignature}, dag, UntypedStoreCommand}, util::{Sha256Hash, Stream}};
+use crate::{auth::DeviceId, network::protocol::{receive, send, MiniProtocol}, protocol::store_peer::dag_sync::{MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS}, store::{bft::{BFTState, Block, BlockId, PartialSignature, Round, ThresholdSignature}, dag, UntypedStoreCommand}, util::{Sha256Hash, Stream}};
 
 pub(crate) struct StoreBFTSync<Hash, SHeaderId, SHeader, THeaderId, THeader> {
     peer: DeviceId,
@@ -390,6 +390,7 @@ pub struct BFTSyncResponder<SHeaderId> {
     their_known_block_sigs: BTreeSet<(BlockId, Sha256Hash)>,
     send_queue_blocks: BinaryHeap<Reverse<(Round, BlockId)>>,
     send_queue_signatures: BinaryHeap<Reverse<(Round, BlockId, Sha256Hash)>>,
+    send_queue_round_signatures: BinaryHeap<Reverse<(Round, Sha256Hash)>>,
     _phantom: PhantomData<SHeaderId>, // JP: Is SHeaderId needed?
 }
 
@@ -403,7 +404,7 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
         their_round_complete: Vec<RoundCompleteStreamElement>,
     ) -> Self {
         let new = Self {
-            their_round,
+            // their_round,
             // their_block_tips,
             // their_round_complete,
             _phantom: PhantomData,
@@ -469,29 +470,34 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
         their_block_tips: Vec<BlockStreamElement>,
         their_round_complete: Vec<RoundCompleteStreamElement>,
     ) -> MsgBFTSyncResponse<SHeaderId> {
-        // Get all previous tips (sorted) less than the current round (that they don't have)?
+        // Get all previous tips (sorted) less than the current round?
         let our_previous_tips = get_current_block_and_signature_tips(&bft_state, Some(their_round));
 
         // Process their tips with our previous tips.
-        let mut their_block_tips = their_block_tips.into_iter();
-        let mut full = self.process_their_tips(&mut their_block_tips, our_previous_tips);
+        let mut their_block_tips = their_block_tips.into_iter().peekable();
+        let mut status = self.process_their_tips(their_round, &mut their_block_tips, our_previous_tips);
         // TODO: If End, queue following rounds... Lazily?
 
-        // Keep processing rounds until we're done (or we've filled the buffer).
-        while !full {
-            let round_blocks = get_round_blocks_and_signatures(&bft_state, their_round);
-            full = self.process_their_tips(round_blocks);
+        let our_round = bft_state.current_round();
+        let mut their_round_complete = their_round_complete.into_iter().peekable();
 
-            // The buffer isn't full so we've shared everything for this round.
-            if !full {
+        // Keep processing rounds until we're done (or we've filled the buffer).
+        while status != StreamProcessing::Done && their_round <= our_round && !self.buffers_full() {
+            let round_blocks = get_round_blocks_and_signatures(&bft_state, their_round);
+            status = self.process_their_tips(their_round, &mut their_block_tips, round_blocks);
+
+            // Send round signatures if we've shared everything for this round.
+            if status != StreamProcessing::Done {
                 // Process the round complete signatures if there are any.
-                let complete_full = self.process_their_round_completes(their_round);
+                let round_complete_signatures = get_round_complete_signatures(&bft_state, their_round);
+                let complete_status = self.process_their_round_completes(their_round, &mut their_round_complete, round_complete_signatures);
+                todo!("...");
                 if complete_full {
                     break;
                 } else {
                     // They're caught up to this round.
 
-                    if their_round < bft_state.current_round() {
+                    if their_round < our_round {
                         // They're still behind so bump their_round and continue.
                         // self.bump_their_round(self.their_round + 1);
                         their_round += 1;
@@ -521,7 +527,6 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
     //     self.their_round = latest_round;
     // }
 
-    /// Return true if  ????? - the output buffer is full so we're done this round. - Or when done?
     fn process_their_tips<I:Iterator<Item = BlockStreamElement>>(&mut self, their_round: Round, their_block_tips: &mut Peekable<I>, blocks_and_sigs: Vec<(Round, BlockId, Vec<Sha256Hash>)>) -> StreamProcessing {
         let Some(their_element) = their_block_tips.next() else {
             // TODO: Do we need to do anything here???
@@ -666,11 +671,29 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
             self.queue_block_and_sigs(block_and_sigs);
         }
     }
+
+    fn buffers_full(&self) -> bool {
+        self.send_queue_blocks.len() >= MAX_DELIVER_HEADERS.into()
+            || self.send_queue_signatures.len() >= MAX_DELIVER_HEADERS.into()
+            || self.send_queue_round_signatures.len() >= MAX_DELIVER_HEADERS.into()
+    }
+
+    fn process_their_round_completes(&self, their_round: u64, their_round_complete: &mut Peekable<IntoIter<RoundCompleteStreamElement>>, round_complete_signatures: Vec<Sha256Hash>) -> _ {
+        todo!()
+    }
 }
 
+/// Retrieve round complete signatures for this round.
+fn get_round_complete_signatures<SHeaderId>(bft_state: &watch::Ref<'_, BFTState<SHeaderId>>, round: u64) -> Vec<Sha256Hash> {
+    let round_state = &bft_state.round_states()[round as usize];
+    let mut sig_ids = round_state.commit_round().signature_ids();
+    sig_ids.sort();
+    sig_ids
+}
+
+#[derive(PartialEq, Eq)]
 enum StreamProcessing {
     Done, // Processed the entire stream, but they did not send "END" so they have more in their tips.
     ReachedEnd, // They sent "END", so they don't have more tips and we can send them everything remaining.
     Continue, // We're still processing the stream.
-
 }
