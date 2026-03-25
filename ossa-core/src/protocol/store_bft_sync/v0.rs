@@ -119,7 +119,7 @@ where
     ) -> impl Future<Output = ()> + Send {
         async move {
             debug!("StoreBFTSync client running!");
-            let mut bft_sync: Option<BFTSyncResponder<SHeaderId>> = None;
+            let mut bft_sync: Option<BFTSyncResponder> = None;
 
             // TODO: Check when done.
             loop {
@@ -393,43 +393,40 @@ fn get_round_blocks_and_signatures<SHeaderId>(bft_state: &watch::Ref<'_, BFTStat
     blocks
 }
 
-pub struct BFTSyncResponder<SHeaderId> {
+#[derive(PartialEq, PartialOrd, Eq, Ord)]
+pub enum BFTSyncResponseType {
+    Block(BlockId),
+    BlockSignature(BlockId, Sha256Hash), // TODO: SignatureId..
+    RoundSignature(Sha256Hash), // TODO: SignatureId..
+}
+
+pub struct BFTSyncResponder {
     // their_round: Round, // JP: Remove these from here?
     // their_block_tips: Vec<BlockStreamElement>,
     // their_round_complete: Vec<RoundCompleteStreamElement>,
     their_known_blocks: BTreeSet<BlockId>,
     their_known_block_sigs: BTreeSet<(BlockId, Sha256Hash)>,
-    send_queue_blocks: BinaryHeap<Reverse<(Round, BlockId)>>,
-    send_queue_signatures: BinaryHeap<Reverse<(Round, BlockId, Sha256Hash)>>,
-    send_queue_round_signatures: BinaryHeap<Reverse<(Round, Sha256Hash)>>,
-    _phantom: PhantomData<SHeaderId>, // JP: Is SHeaderId needed?
+    their_known_round_sigs: BTreeSet<(Round, Sha256Hash)>,
+    send_queue: BinaryHeap<Reverse<(Round, BFTSyncResponseType)>>,
 }
 
-impl<SHeaderId> BFTSyncResponder<SHeaderId> {
+impl BFTSyncResponder {
 
-    async fn run_initial<S: Stream<MsgStoreBFTSync<SHeaderId>>>(
+    async fn run_initial<S: Stream<MsgStoreBFTSync<SHeaderId>>, SHeaderId>(
         stream: &mut S,
         bft_state: &mut watch::Receiver<BFTState<SHeaderId>>,
         their_round: Round,
         their_block_tips: Vec<BlockStreamElement>,
         their_round_complete: Vec<RoundCompleteStreamElement>,
     ) -> Self {
-        let new = Self {
-            // their_round,
-            // their_block_tips,
-            // their_round_complete,
-            _phantom: PhantomData,
+        let mut new = Self {
+            their_known_blocks: BTreeSet::new(),
+            their_known_block_sigs: BTreeSet::new(),
+            their_known_round_sigs: BTreeSet::new(),
+            send_queue: BinaryHeap::new(),
         };
 
-        // // TODO: Record everything they have
-        // //
-        // // For each block_tips:
-        // //   If round is less than our round and we have the block, respond with all children of that block recursively (signatures should be aggregate for these blocks)
-        // //   
-        // // If their round matches our round, send everything they don't have from the current round.
-        // // If round is less than our round, respond with round_complete signatures for rounds greater than or equal to round (and less than the rounds that we fully responded with).
-
-        let resp_m = {
+        let mut resp_m = {
             // Acquire read lock on state.
             let bft_state = bft_state.borrow_and_update();
             let round = bft_state.current_round();
@@ -452,7 +449,7 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
                 None => {
                     if is_first_run {
                         is_first_run = false;
-                        send(stream, MsgBFTSyncResponse::Wait).await.expect("TODO");
+                        send(stream, MsgBFTSyncResponse::Wait::<SHeaderId>).await.expect("TODO");
                     }
 
                     // Acquire read lock on state once we've caught up.
@@ -479,7 +476,7 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
     }
 
     // Precondition: our_round >= their_round
-    fn handle_their_tips(
+    fn handle_their_tips<SHeaderId>(
         &mut self,
         bft_state: watch::Ref<'_, BFTState<SHeaderId>>,
         mut their_round: Round,
@@ -524,7 +521,7 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
     }
 
     // Precondition: our_round >= their_round
-    fn build_response(
+    fn build_response<SHeaderId>(
         &mut self,
         bft_state: watch::Ref<'_, BFTState<SHeaderId>>,
         their_round: Round,
@@ -626,6 +623,11 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
         self.their_known_block_sigs.insert((block_id, sig_id));
     }
 
+    // Mark round signature as known by them.
+    fn mark_round_sig_as_known(&mut self, round: Round, their_sig_id: Sha256Hash) {
+        self.their_known_round_sigs.insert((round, their_sig_id));
+    }
+
     // Queue sigs for blocks less than or equal to their current block.
     // If an upper limit sig is provided, only queue up to that limit.
     // Otherwise, queue all the signatures that're remaining.
@@ -672,11 +674,11 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
 
     /// Queue a block and its signatures.
     fn queue_block_and_sigs(&mut self, (our_round, our_block_id, our_sigs): (u64, BlockId, Vec<Sha256Hash>)) {
-            self.send_queue_blocks.push(Reverse((our_round, our_block_id)));
+            self.send_queue.push(Reverse((our_round, BFTSyncResponseType::Block(our_block_id))));
 
             // Send all of the corresponding signatures.
-            let sigs = our_sigs.into_iter().map(|sig_id| Reverse((our_round, our_block_id, sig_id))).collect::<Vec<_>>();
-            self.send_queue_signatures.extend(sigs);
+            let sigs = our_sigs.into_iter().map(|sig_id| Reverse((our_round, BFTSyncResponseType::BlockSignature(our_block_id, sig_id)))).collect::<Vec<_>>();
+            self.send_queue.extend(sigs);
     }
 
     // Queue blocks and their sigs less than the given block ID (if provided). Otherwise sends them all.
@@ -690,13 +692,11 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
 
     /// Checks whether any of our queue buffers are full.
     fn are_buffers_full(&self) -> bool {
-        self.send_queue_blocks.len() >= MAX_DELIVER_HEADERS.into()
-            || self.send_queue_signatures.len() >= MAX_DELIVER_HEADERS.into()
-            || self.send_queue_round_signatures.len() >= MAX_DELIVER_HEADERS.into()
+        self.send_queue.len() >= MAX_DELIVER_HEADERS.into()
     }
 
     /// Returns true if we've queued everything to complete the round.
-    fn process_their_round_completes(&self, round: u64, their_round_complete: Vec<RoundCompleteStreamElement>, our_round_complete_signatures: Vec<Sha256Hash>) -> bool {
+    fn process_their_round_completes(&mut self, round: u64, their_round_complete: Vec<RoundCompleteStreamElement>, our_round_complete_signatures: Vec<Sha256Hash>) -> bool {
         let mut their_round_complete = their_round_complete.into_iter();
         let mut our_round_complete_signatures = our_round_complete_signatures.into_iter().peekable();
         while let Some(their_element) = their_round_complete.next() {
@@ -725,7 +725,7 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
         todo!()
     }
 
-    fn prepare_response(&self) -> Vec<BFTSyncResponse<SHeaderId>> {
+    fn prepare_response<SHeaderId>(&self) -> Vec<BFTSyncResponse<SHeaderId>> {
         todo!()
     }
 }
