@@ -426,27 +426,28 @@ impl BFTSyncResponder {
             send_queue: BinaryHeap::new(),
         };
 
-        let mut resp_m = {
+        let mut resp_e = {
             // Acquire read lock on state.
             let bft_state = bft_state.borrow_and_update();
             let round = bft_state.current_round();
 
             // If our round is behind theirs, tell them to wait.
             if round < their_round {
-                None // JP: Send previous tips that they don't have?
+                Err((their_block_tips, their_round_complete)) // JP: Send previous tips that they don't have?
             } else {
                 new.build_response(bft_state, their_round, their_block_tips, their_round_complete)
+                    .ok_or_else(|| (vec![BlockStreamElement::End], vec![RoundCompleteStreamElement::End]))
             }
         };
 
         let mut is_first_run = true;
         loop {
-            match resp_m {
-                Some(resp) => {
+            match resp_e {
+                Ok(resp) => {
                     send(stream, resp).await.expect("TODO");
                     return new;
                 }
-                None => {
+                Err((their_block_tips, their_round_complete)) => {
                     if is_first_run {
                         is_first_run = false;
                         send(stream, MsgBFTSyncResponse::Wait::<SHeaderId>).await.expect("TODO");
@@ -455,7 +456,8 @@ impl BFTSyncResponder {
                     // Acquire read lock on state once we've caught up.
                     let bft_state = bft_state.wait_for(|s| s.current_round() >= their_round).await.expect("TODO: channel closed");
 
-                    resp_m = new.build_response(bft_state, their_round, their_block_tips, their_round_complete);
+                    resp_e = new.build_response(bft_state, their_round, their_block_tips, their_round_complete)
+                        .ok_or_else(|| (vec![BlockStreamElement::End], vec![RoundCompleteStreamElement::End]));
                 }
             }
         }
@@ -475,14 +477,15 @@ impl BFTSyncResponder {
         // new
     }
 
-    // Precondition: our_round >= their_round
+    /// Processes their request. Returns true if they've sent everything they have currently.
+    /// Precondition: our_round >= their_round
     fn handle_their_tips<SHeaderId>(
         &mut self,
         bft_state: watch::Ref<'_, BFTState<SHeaderId>>,
         mut their_round: Round,
         their_block_tips: Vec<BlockStreamElement>,
         their_round_complete: Vec<RoundCompleteStreamElement>,
-    ) {
+    ) -> bool {
         // Get all previous tips (sorted) less than or equal to their current round?
         let our_previous_tips = get_current_block_and_signature_tips(&bft_state, Some(their_round));
 
@@ -502,7 +505,7 @@ impl BFTSyncResponder {
 
         // They don't know everything for the current round so we can't move onto next round.
         if !are_blocks_done || !is_complete_done {
-            return;
+            return false;
         }
 
         // Move onto next round.
@@ -518,9 +521,12 @@ impl BFTSyncResponder {
 
             their_round += 1;
         }
+
+        true
     }
 
-    // Precondition: our_round >= their_round
+    /// Returns None if we don't have anything to share so they should wait.
+    /// Precondition: our_round >= their_round
     fn build_response<SHeaderId>(
         &mut self,
         bft_state: watch::Ref<'_, BFTState<SHeaderId>>,
@@ -528,11 +534,19 @@ impl BFTSyncResponder {
         their_block_tips: Vec<BlockStreamElement>,
         their_round_complete: Vec<RoundCompleteStreamElement>,
     ) -> Option<MsgBFTSyncResponse<SHeaderId>> {
-        self.handle_their_tips(bft_state, their_round, their_block_tips, their_round_complete);
+        let done = self.handle_their_tips(bft_state, their_round, their_block_tips, their_round_complete);
 
         let response = self.prepare_response();
         if response.is_empty() {
-            None
+            if done {
+                // If they've sent us everything, we don't have anything to share so we'll tell them to wait.
+                None
+            } else {
+                // Otherwise, send them back an empty response so they can send what else they have.
+                Some(MsgBFTSyncResponse::Response {
+                    response: vec![],
+                })
+            }
         } else {
             Some(MsgBFTSyncResponse::Response {
                 response,
