@@ -222,15 +222,26 @@ impl<SHeaderId> TryInto<MsgBFTSyncRequest> for MsgStoreBFTSync<SHeaderId> {
     }
 }
 
+
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) enum BFTSyncResponse<SHeaderId> {
+    Block(Block<SHeaderId>),
+    CertificateSignature(BlockId, ThresholdSignature),
+    CertificatePartialSignature(BlockId, PartialSignature),
+    RoundCompleteSignature(Round, ThresholdSignature),
+    RoundCompletePartialSignature(Round, PartialSignature),
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) enum MsgBFTSyncResponse<SHeaderId> {
     Response {
-        blocks: Vec<Block<SHeaderId>>,
-        certificate_signatures: Vec<(BlockId, ThresholdSignature)>,
-        certificate_partial_signatures: Vec<(BlockId, PartialSignature)>,
+        response: Vec<BFTSyncResponse<SHeaderId>>,
+        // blocks: Vec<Block<SHeaderId>>,
+        // certificate_signatures: Vec<(BlockId, ThresholdSignature)>,
+        // certificate_partial_signatures: Vec<(BlockId, PartialSignature)>,
 
-        round_complete_signatures: Vec<(Round, ThresholdSignature)>,
-        round_complete_partial_signatures: Vec<(Round, DeviceId, PartialSignature)>,
+        // round_complete_signatures: Vec<(Round, ThresholdSignature)>,
+        // round_complete_partial_signatures: Vec<(Round, DeviceId, PartialSignature)>,
 
         // TODO: Share what we have too? Still need to find the meet of our dags?
         // For old rounds, we only need to send blocks that are fully certified?? Or maybe that's not enough if 1 malicious node saw the aggregate signature?
@@ -427,23 +438,28 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
             if round < their_round {
                 None // JP: Send previous tips that they don't have?
             } else {
-                let resp = new.build_response(bft_state);
-                Some(resp)
+                new.build_response(bft_state, their_round, their_block_tips, their_round_complete)
             }
         };
 
-        match resp_m {
-            Some(resp) => {
-                send(stream, resp).await.expect("TODO");
-            }
-            None => {
-                send(stream, MsgBFTSyncResponse::Wait).await.expect("TODO");
+        let mut is_first_run = true;
+        loop {
+            match resp_m {
+                Some(resp) => {
+                    send(stream, resp).await.expect("TODO");
+                    return new;
+                }
+                None => {
+                    if is_first_run {
+                        is_first_run = false;
+                        send(stream, MsgBFTSyncResponse::Wait).await.expect("TODO");
+                    }
 
-                // Acquire read lock on state once we've caught up.
-                let bft_state = bft_state.wait_for(|s| s.current_round() >= their_round).await.expect("TODO: channel closed");
+                    // Acquire read lock on state once we've caught up.
+                    let bft_state = bft_state.wait_for(|s| s.current_round() >= their_round).await.expect("TODO: channel closed");
 
-                let resp = new.build_response(bft_state);
-                send(stream, resp).await.expect("TODO");
+                    resp_m = new.build_response(bft_state, their_round, their_block_tips, their_round_complete);
+                }
             }
         }
 
@@ -459,17 +475,17 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
         //             - a descendent of what we know (round is later than our current round?)
         //             - in a fork/sibling of our view (round is <= our current round)
 
-        new
+        // new
     }
 
     // Precondition: our_round >= their_round
-    fn build_response(
-        &self,
+    fn handle_their_tips(
+        &mut self,
         bft_state: watch::Ref<'_, BFTState<SHeaderId>>,
         mut their_round: Round,
         their_block_tips: Vec<BlockStreamElement>,
         their_round_complete: Vec<RoundCompleteStreamElement>,
-    ) -> MsgBFTSyncResponse<SHeaderId> {
+    ) {
         // Get all previous tips (sorted) less than or equal to their current round?
         let our_previous_tips = get_current_block_and_signature_tips(&bft_state, Some(their_round));
 
@@ -489,7 +505,6 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
 
         // They don't know everything for the current round so we can't move onto next round.
         if !are_blocks_done || !is_complete_done {
-            // TODO: Pull all this into a separate function `handle_their_tips`?.
             return;
         }
 
@@ -506,19 +521,26 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
 
             their_round += 1;
         }
+    }
 
-        // Send all previous tips (sorted) less than the current round (that they don't have)?
-        // Get and sort our tips. Along with everything starting from their_round???
-        // Iterate over their tips
-        // JP: With this approach, we'll miss nodes where we know a child that depends on it but they dont?
-        //  Or they know a child that depends on it but we do? But in this case, it's ok, we'll just send it even though they don't need it.
+    // Precondition: our_round >= their_round
+    fn build_response(
+        &mut self,
+        bft_state: watch::Ref<'_, BFTState<SHeaderId>>,
+        their_round: Round,
+        their_block_tips: Vec<BlockStreamElement>,
+        their_round_complete: Vec<RoundCompleteStreamElement>,
+    ) -> Option<MsgBFTSyncResponse<SHeaderId>> {
+        self.handle_their_tips(bft_state, their_round, their_block_tips, their_round_complete);
 
-
-        // Alternative:
-        //
-        // Mark th
-
-        todo!()
+        let response = self.prepare_response();
+        if response.is_empty() {
+            None
+        } else {
+            Some(MsgBFTSyncResponse::Response {
+                response,
+            })
+        }
     }
 
     // fn bump_their_round(&mut self, latest_round: Round) {
@@ -700,6 +722,10 @@ impl<SHeaderId> BFTSyncResponder<SHeaderId> {
     }
 
     fn queue_round_completes(&self, round: u64, our_sig_id: &[Sha256Hash]) {
+        todo!()
+    }
+
+    fn prepare_response(&self) -> Vec<BFTSyncResponse<SHeaderId>> {
         todo!()
     }
 }
