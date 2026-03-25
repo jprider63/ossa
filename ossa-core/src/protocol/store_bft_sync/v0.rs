@@ -432,6 +432,7 @@ impl BFTSyncResponder {
             let round = bft_state.current_round();
 
             // If our round is behind theirs, tell them to wait.
+            // JP: Maybe this isn't necessary? It's possible we might have state even if we're behind them? It probably is...
             if round < their_round {
                 Err((their_block_tips, their_round_complete)) // JP: Send previous tips that they don't have?
             } else {
@@ -536,7 +537,7 @@ impl BFTSyncResponder {
     ) -> Option<MsgBFTSyncResponse<SHeaderId>> {
         let done = self.handle_their_tips(bft_state, their_round, their_block_tips, their_round_complete);
 
-        let response = self.prepare_response();
+        let response = self.prepare_response(bft_state);
         if response.is_empty() {
             if done {
                 // If they've sent us everything, we don't have anything to share so we'll tell them to wait.
@@ -739,8 +740,55 @@ impl BFTSyncResponder {
         todo!()
     }
 
-    fn prepare_response<SHeaderId>(&self) -> Vec<BFTSyncResponse<SHeaderId>> {
-        todo!()
+    fn prepare_response<SHeaderId>(
+        &mut self,
+        bft_state: watch::Ref<'_, BFTState<SHeaderId>>,
+    ) -> Vec<BFTSyncResponse<SHeaderId>> {
+        let mut operations = Vec::with_capacity(MAX_DELIVER_HEADERS as usize);
+
+        while let Some(Reverse((round, response))) = self.send_queue.pop() {
+            // Skip if they already know this header.
+            let skip = self.they_know(round, &response);
+
+            if !skip {
+                let response = match response {
+                    BFTSyncResponseType::Block(block_id) => {
+                        let block = bft_state.get_block(round, block_id).expect("Block not found even though we added it");
+                        BFTSyncResponse::Block(block)
+                    }
+                    BFTSyncResponseType::BlockSignature(block_id, sig_id) => {
+                        let sig = bft_state.get_block_signature(round, block_id, sig_id).expect("Block signature not found even though we added it.");
+                        match sig {
+                            Ok(aggregate) => BFTSyncResponse::CertificateSignature(block_id, aggregate),
+                            Err(partial) => BFTSyncResponse::CertificatePartialSignature(block_id, partial),
+                        }
+                    }
+                    BFTSyncResponseType::RoundSignature(sig_id) => {
+                        let sig = bft_state.get_round_signature(round, sig_id).expect("Round signature not found even though we added it.");
+                        match sig {
+                            Ok(aggregate) => BFTSyncResponse::RoundCompleteSignature(round, aggregate),
+                            Err(partial) => BFTSyncResponse::RoundCompletePartialSignature(round, partial),
+                        }
+                    }
+                };
+
+                operations.push(response);
+            }
+
+            if operations.len() >= MAX_DELIVER_HEADERS.into() {
+                break;
+            }
+        }
+
+        operations
+    }
+
+    fn they_know(&self, round: Round, response: &BFTSyncResponseType) -> bool {
+        match response {
+            BFTSyncResponseType::Block(block_id) => self.their_known_blocks.contains(block_id),
+            BFTSyncResponseType::BlockSignature(block_id, sig_id) => self.their_known_block_sigs.contains(&(*block_id, *sig_id))
+            BFTSyncResponseType::RoundSignature(sig_id) => self.their_known_round_sigs.contains(&(round, *sig_id)),
+        }
     }
 }
 

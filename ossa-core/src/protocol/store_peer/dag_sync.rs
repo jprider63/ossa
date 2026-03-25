@@ -437,7 +437,7 @@ impl<Hash, HeaderId, Header> DAGSyncResponder<Hash, HeaderId, Header> {
             // Add children to queue.
             self.send_children(ecg_state, &header_id);
 
-            if operations.len() == MAX_DELIVER_HEADERS.into() {
+            if operations.len() >= MAX_DELIVER_HEADERS.into() {
                 return operations;
             }
         }

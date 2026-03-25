@@ -59,6 +59,18 @@ impl<SHeaderId> BFTState<SHeaderId> {
         // Get all active tips
         todo!()
     }
+
+    pub(crate) fn get_block(&self, round: Round, block_id: BlockId) -> Option<Block<SHeaderId>> {
+        todo!()
+    }
+
+    pub(crate) fn get_block_signature(&self, round: Round, block_id: BlockId, sig_id: Sha256Hash) -> Option<Result<ThresholdSignature, PartialSignature>> {
+        todo!()
+    }
+
+    pub(crate) fn get_round_signature(&self, round: Round, sig_id: Sha256Hash) -> Option<Result<ThresholdSignature, PartialSignature>> {
+        todo!()
+    }
 }
 
 impl<Header: dag::DAGHeader, S> State<Header, S> {
