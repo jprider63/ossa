@@ -482,19 +482,19 @@ impl BFTSyncResponder {
     /// Precondition: our_round >= their_round
     fn handle_their_tips<SHeaderId>(
         &mut self,
-        bft_state: watch::Ref<'_, BFTState<SHeaderId>>,
+        bft_state: &watch::Ref<'_, BFTState<SHeaderId>>,
         mut their_round: Round,
         their_block_tips: Vec<BlockStreamElement>,
         their_round_complete: Vec<RoundCompleteStreamElement>,
     ) -> bool {
         // Get all previous tips (sorted) less than or equal to their current round?
-        let our_previous_tips = get_current_block_and_signature_tips(&bft_state, Some(their_round));
+        let our_previous_tips = get_current_block_and_signature_tips(bft_state, Some(their_round));
 
         // Process their tips with our previous tips.
         let are_blocks_done = self.process_their_tips(their_block_tips, our_previous_tips);
 
         // Process their round complete signatures.
-        let round_complete_signatures = get_round_complete_signatures(&bft_state, their_round);
+        let round_complete_signatures = get_round_complete_signatures(bft_state, their_round);
         let our_round = bft_state.current_round();
         // Optimization: If their_round < our_round, we can just queue our aggregate round signature.
         let is_complete_done = if their_round < our_round {
@@ -514,10 +514,10 @@ impl BFTSyncResponder {
 
         // Keep processing rounds until they've caught up (or we've filled the buffer).
         while their_round <= our_round && !self.are_buffers_full() {
-            let round_blocks = get_round_blocks_and_signatures(&bft_state, their_round);
+            let round_blocks = get_round_blocks_and_signatures(bft_state, their_round);
             self.queue_blocks(&mut round_blocks.into_iter().peekable(), None);
 
-            let round_complete_signatures = get_round_complete_signatures(&bft_state, their_round);
+            let round_complete_signatures = get_round_complete_signatures(bft_state, their_round);
             self.queue_round_completes(their_round, &round_complete_signatures);
 
             their_round += 1;
@@ -535,9 +535,9 @@ impl BFTSyncResponder {
         their_block_tips: Vec<BlockStreamElement>,
         their_round_complete: Vec<RoundCompleteStreamElement>,
     ) -> Option<MsgBFTSyncResponse<SHeaderId>> {
-        let done = self.handle_their_tips(bft_state, their_round, their_block_tips, their_round_complete);
+        let done = self.handle_their_tips(&bft_state, their_round, their_block_tips, their_round_complete);
 
-        let response = self.prepare_response(bft_state);
+        let response = self.prepare_response(&bft_state);
         if response.is_empty() {
             if done {
                 // If they've sent us everything, we don't have anything to share so we'll tell them to wait.
@@ -742,7 +742,7 @@ impl BFTSyncResponder {
 
     fn prepare_response<SHeaderId>(
         &mut self,
-        bft_state: watch::Ref<'_, BFTState<SHeaderId>>,
+        bft_state: &watch::Ref<'_, BFTState<SHeaderId>>,
     ) -> Vec<BFTSyncResponse<SHeaderId>> {
         let mut operations = Vec::with_capacity(MAX_DELIVER_HEADERS as usize);
 
@@ -786,7 +786,7 @@ impl BFTSyncResponder {
     fn they_know(&self, round: Round, response: &BFTSyncResponseType) -> bool {
         match response {
             BFTSyncResponseType::Block(block_id) => self.their_known_blocks.contains(block_id),
-            BFTSyncResponseType::BlockSignature(block_id, sig_id) => self.their_known_block_sigs.contains(&(*block_id, *sig_id))
+            BFTSyncResponseType::BlockSignature(block_id, sig_id) => self.their_known_block_sigs.contains(&(*block_id, *sig_id)),
             BFTSyncResponseType::RoundSignature(sig_id) => self.their_known_round_sigs.contains(&(round, *sig_id)),
         }
     }
