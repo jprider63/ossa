@@ -289,7 +289,7 @@ impl<SHeaderId> BFTSyncInitiator<SHeaderId> {
             let current_round = &bft_state.round_states()[round as usize];
 
             // Get the current block and signature tips (sorted).
-            let sorted_blocks = get_current_block_and_signature_tips(&bft_state, None);
+            let sorted_blocks = get_latest_block_and_signature_tips(&bft_state, None);
 
             let mut block_tips = Vec::with_capacity(MAX_HAVE_HEADERS as usize);
             let mut current_block_pos = 0;
@@ -346,7 +346,7 @@ impl<SHeaderId> BFTSyncInitiator<SHeaderId> {
 
 /// Gets our current block and signature tips, sorted by (round, block_id).
 /// If a round is provided, only blocks less than or equal to the given round will be returned.
-fn get_current_block_and_signature_tips<SHeaderId>(bft_state: &watch::Ref<'_, BFTState<SHeaderId>>, up_to_round: Option<Round>) -> Vec<(u64, BlockId, Vec<Sha256Hash>)> {
+fn get_latest_block_and_signature_tips<SHeaderId>(bft_state: &watch::Ref<'_, BFTState<SHeaderId>>, up_to_round: Option<Round>) -> Vec<(u64, BlockId, Vec<Sha256Hash>)> {
     // Get the current tips.
     let current_tips = bft_state.get_current_tips();
 
@@ -488,10 +488,10 @@ impl BFTSyncResponder {
         their_round_complete: Vec<RoundCompleteStreamElement>,
     ) -> bool {
         // Get all previous tips (sorted) less than or equal to their current round?
-        let our_previous_tips = get_current_block_and_signature_tips(bft_state, Some(their_round));
+        let our_previous_tips = get_latest_block_and_signature_tips(bft_state, Some(their_round));
 
         // Process their tips with our previous tips.
-        let are_blocks_done = self.process_their_tips(their_block_tips, our_previous_tips);
+        let are_blocks_done = self.process_their_latest(their_block_tips, our_previous_tips);
 
         // Process their round complete signatures.
         let round_complete_signatures = get_round_complete_signatures(bft_state, their_round);
@@ -561,7 +561,7 @@ impl BFTSyncResponder {
 
     // Process the block and signature tips they sent. Returns true if we're done and they don't
     // have any more to send.
-    fn process_their_tips(&mut self, their_block_tips: Vec<BlockStreamElement>, blocks_and_sigs: Vec<(Round, BlockId, Vec<Sha256Hash>)>) -> bool {
+    fn process_their_latest(&mut self, their_block_tips: Vec<BlockStreamElement>, blocks_and_sigs: Vec<(Round, BlockId, Vec<Sha256Hash>)>) -> bool {
         let mut their_block_tips = their_block_tips.into_iter();
         let mut blocks_and_sigs = blocks_and_sigs.into_iter().peekable();
 
@@ -626,7 +626,6 @@ impl BFTSyncResponder {
 
         false
     }
-        // MAX_DELIVER_HEADERS
 
     // Mark block as known by them.
     fn mark_block_as_known(&mut self, block_id: BlockId) {
@@ -646,7 +645,7 @@ impl BFTSyncResponder {
     // Queue sigs for blocks less than or equal to their current block.
     // If an upper limit sig is provided, only queue up to that limit.
     // Otherwise, queue all the signatures that're remaining.
-    fn queue_block_sigs(&self, blocks_and_sigs: &mut StreamableBlocks, their_round: u64, their_block_id: BlockId, sig_id: Option<Sha256Hash>) {
+    fn queue_block_sigs(&mut self, blocks_and_sigs: &mut StreamableBlocks, their_round: u64, their_block_id: BlockId, upper_sig_id: Option<Sha256Hash>) {
         let Some(ref our_current_element) = blocks_and_sigs.current_element else {
             // We don't have any more to share.
             return;
@@ -656,12 +655,40 @@ impl BFTSyncResponder {
 
         if (our_round, our_block_id) < (their_round, their_block_id) {
             warn!("Invariant violated. It's possible they're misbehaving.");
-            panic!("Invariant violated. It's possible they're misbehaving."); // TODO: Temp. DELETEME
+            todo!("Invariant violated. It's possible they're misbehaving. Gracefully handle this."); // TODO: Temp. DELETEME
+        }
+
+        // If we don't have their current block, we don't have anything to share.
+        if (our_round, our_block_id) > (their_round, their_block_id) {
+            return;
         }
 
         // Send any signatures we have that they don't have for their current block.
+        while let Some(sig_id) = our_current_element.2.get(blocks_and_sigs.current_sig_pos) {
+            let done = match upper_sig_id {
+                Some(upper_sig_id) => {
+                    if *sig_id <= upper_sig_id {
+                        false
+                    } else {
+                        true
+                    }
+                }
+                None => {
+                    false
+                }
+            };
 
-        todo!()
+            if done {
+                return;
+            } else {
+                self.queue_block_sig(their_round, their_block_id, *sig_id);
+                blocks_and_sigs.current_sig_pos += 1;
+            }
+        }
+
+        // We're done with our current block so increment current element.
+        blocks_and_sigs.current_element = blocks_and_sigs.stream.next();
+        blocks_and_sigs.current_sig_pos = 0;
     }
 
     // // Queue blocks and their sigs less than the given block ID.
@@ -788,6 +815,12 @@ impl BFTSyncResponder {
             BFTSyncResponseType::Block(block_id) => self.their_known_blocks.contains(block_id),
             BFTSyncResponseType::BlockSignature(block_id, sig_id) => self.their_known_block_sigs.contains(&(*block_id, *sig_id)),
             BFTSyncResponseType::RoundSignature(sig_id) => self.their_known_round_sigs.contains(&(round, *sig_id)),
+        }
+    }
+
+    fn queue_block_sig(&mut self, their_round: Round, their_block_id: BlockId, sig_id: Sha256Hash) {
+        if !self.their_known_block_sigs.contains(&(their_block_id, sig_id)) {
+            self.send_queue.push(Reverse((their_round, BFTSyncResponseType::BlockSignature(their_block_id, sig_id))));
         }
     }
 }
