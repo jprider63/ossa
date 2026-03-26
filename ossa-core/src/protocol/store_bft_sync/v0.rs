@@ -716,17 +716,20 @@ impl BFTSyncResponder {
 
     /// Queue a block and its signatures.
     fn queue_block_and_sigs(&mut self, (our_round, our_block_id, our_sigs): (u64, BlockId, Vec<Sha256Hash>)) {
-            self.send_queue.push(Reverse((our_round, BFTSyncResponseType::Block(our_block_id))));
+            let block = BFTSyncResponseType::Block(our_block_id);
+            if !self.they_know(our_round, &block) {
+                self.send_queue.push(Reverse((our_round, block)));
+            }
 
-            // Send all of the corresponding signatures.
-            let sigs = our_sigs.into_iter().map(|sig_id| Reverse((our_round, BFTSyncResponseType::BlockSignature(our_block_id, sig_id)))).collect::<Vec<_>>();
+            // Send all of the corresponding signatures (that they don't know).
+            let sigs = our_sigs.into_iter().map(|sig_id| Reverse((our_round, BFTSyncResponseType::BlockSignature(our_block_id, sig_id)))).filter(|s| !self.they_know(s.0.0, &s.0.1)).collect::<Vec<_>>();
             self.send_queue.extend(sigs);
     }
 
     // Queue blocks and their sigs less than the given block ID (if provided). Otherwise sends them all.
     fn queue_blocks(&mut self, blocks_and_sigs: &mut Peekable<IntoIter<(u64, BlockId, Vec<Sha256Hash>)>>, upper_block_m: Option<(Round, BlockId)>) {
         while let Some(block_and_sigs) = blocks_and_sigs.next_if( |our_block|
-            upper_block_m.map_or(true, |upper_block| (our_block.0, our_block.1) < upper_block)
+            upper_block_m.is_none_or(|upper_block| (our_block.0, our_block.1) < upper_block)
         ) {
             self.queue_block_and_sigs(block_and_sigs);
         }
@@ -819,8 +822,9 @@ impl BFTSyncResponder {
     }
 
     fn queue_block_sig(&mut self, their_round: Round, their_block_id: BlockId, sig_id: Sha256Hash) {
-        if !self.their_known_block_sigs.contains(&(their_block_id, sig_id)) {
-            self.send_queue.push(Reverse((their_round, BFTSyncResponseType::BlockSignature(their_block_id, sig_id))));
+        let sig = BFTSyncResponseType::BlockSignature(their_block_id, sig_id);
+        if !self.they_know(their_round, &sig) {
+            self.send_queue.push(Reverse((their_round, sig)));
         }
     }
 }
