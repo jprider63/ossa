@@ -480,7 +480,7 @@ impl BFTSyncResponder {
 
     /// Processes their request. Returns true if they've sent everything they have currently.
     /// Precondition: our_round >= their_round
-    fn handle_their_tips<SHeaderId>(
+    fn handle_their_latest<SHeaderId>(
         &mut self,
         bft_state: &watch::Ref<'_, BFTState<SHeaderId>>,
         mut their_round: Round,
@@ -535,7 +535,7 @@ impl BFTSyncResponder {
         their_block_tips: Vec<BlockStreamElement>,
         their_round_complete: Vec<RoundCompleteStreamElement>,
     ) -> Option<MsgBFTSyncResponse<SHeaderId>> {
-        let done = self.handle_their_tips(&bft_state, their_round, their_block_tips, their_round_complete);
+        let done = self.handle_their_latest(&bft_state, their_round, their_block_tips, their_round_complete);
 
         let response = self.prepare_response(&bft_state);
         if response.is_empty() {
@@ -766,8 +766,9 @@ impl BFTSyncResponder {
         false
     }
 
-    fn queue_round_completes(&self, round: u64, our_sig_id: &[Sha256Hash]) {
-        todo!()
+    fn queue_round_completes(&mut self, round: u64, our_sig_ids: &[Sha256Hash]) {
+        let sigs = our_sig_ids.iter().map(|sig_id| Reverse((round, BFTSyncResponseType::RoundSignature(*sig_id)))).filter(|s| !self.they_know(s.0.0, &s.0.1)).collect::<Vec<_>>();
+        self.send_queue.extend(sigs);
     }
 
     fn prepare_response<SHeaderId>(
