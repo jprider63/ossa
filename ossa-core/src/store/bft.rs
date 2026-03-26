@@ -43,7 +43,7 @@ impl<SHeaderId> BFTState<SHeaderId> {
         }
     }
 
-    pub(crate) fn current_round(&self) -> u64 {
+    pub(crate) fn current_round(&self) -> Round {
         self.current_round
     }
 
@@ -51,11 +51,11 @@ impl<SHeaderId> BFTState<SHeaderId> {
         &self.round_states
     }
 
-    pub(crate) fn previous_tips(&self) -> &[(Round, DeviceId)] {
-        &self.previous_tips
-    }
+    // pub(crate) fn previous_tips(&self) -> &[(Round, DeviceId)] {
+    //     &self.previous_tips
+    // }
 
-    pub(crate) fn get_current_tips(&self) -> &[(Round, DeviceId)] {
+    pub(crate) fn get_latest(&self) -> &[(Round, DeviceId)] {
         // Get all active tips
         todo!()
     }
@@ -64,11 +64,11 @@ impl<SHeaderId> BFTState<SHeaderId> {
         todo!()
     }
 
-    pub(crate) fn get_block_signature(&self, round: Round, block_id: BlockId, sig_id: Sha256Hash) -> Option<Result<ThresholdSignature, PartialSignature>> {
+    pub(crate) fn get_block_signature(&self, round: Round, block_id: BlockId, sig_id: SignatureId) -> Option<Result<ThresholdSignature, PartialSignature>> {
         todo!()
     }
 
-    pub(crate) fn get_round_signature(&self, round: Round, sig_id: Sha256Hash) -> Option<Result<ThresholdSignature, PartialSignature>> {
+    pub(crate) fn get_round_signature(&self, round: Round, sig_id: SignatureId) -> Option<Result<ThresholdSignature, PartialSignature>> {
         todo!()
     }
 }

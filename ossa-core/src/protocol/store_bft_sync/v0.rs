@@ -344,17 +344,17 @@ impl<SHeaderId> BFTSyncInitiator<SHeaderId> {
     }
 }
 
-/// Gets our current block and signature tips, sorted by (round, block_id).
+/// Gets our latest blocks and signatures, sorted by (round, block_id).
 /// If a round is provided, only blocks less than or equal to the given round will be returned.
 fn get_latest_block_and_signature_tips<SHeaderId>(bft_state: &watch::Ref<'_, BFTState<SHeaderId>>, up_to_round: Option<Round>) -> Vec<(u64, BlockId, Vec<Sha256Hash>)> {
     // Get the current tips.
-    let current_tips = bft_state.get_current_tips();
+    let latest = bft_state.get_latest();
 
     // If upper bound on round is provided, filter rounds at this round or above.
-    let current_tips = current_tips.iter().filter(|(round, _)| { up_to_round.map_or(true, |up_to_round| *round <= up_to_round) });
+    let latest = latest.iter().filter(|(round, _)| { up_to_round.is_none_or(|up_to_round| *round <= up_to_round) });
 
     // Sort by (Round, BlockId)
-    let mut sorted_blocks = current_tips.map(|(round, peer_id)| {
+    let mut sorted_blocks = latest.map(|(round, peer_id)| {
         let round_state = &bft_state.round_states()[*round as usize];
         let signed_block = round_state.blocks().get(peer_id).expect("Block not found even though it is a tip");
         let block = signed_block.value();
