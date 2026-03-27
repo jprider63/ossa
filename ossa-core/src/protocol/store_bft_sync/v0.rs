@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc::{UnboundedReceiver, UnboundedSender}, watch};
 use tracing::{debug, error, warn};
 
-use crate::{auth::DeviceId, network::protocol::{receive, send, MiniProtocol}, protocol::store_peer::dag_sync::{MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS}, store::{bft::{BFTState, Block, BlockId, PartialSignature, Round, ThresholdSignature}, dag, UntypedStoreCommand}, util::{Sha256Hash, Stream}};
+use crate::{auth::DeviceId, network::protocol::{receive, send, MiniProtocol}, protocol::store_peer::dag_sync::{MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS}, store::{bft::{BFTState, Block, BlockId, PartialSignature, Round, Signed, ThresholdSignature}, dag, UntypedStoreCommand}, util::{Sha256Hash, Stream}};
 
 pub(crate) struct StoreBFTSync<Hash, SHeaderId, SHeader, THeaderId, THeader> {
     peer: DeviceId,
@@ -61,7 +61,7 @@ impl<Hash, SHeaderId, SHeader, THeaderId, THeader> StoreBFTSync<Hash, SHeaderId,
 impl<Hash, SHeaderId, SHeader, THeaderId, THeader> MiniProtocol for StoreBFTSync<Hash, SHeaderId, SHeader, THeaderId, THeader>
 where
     Hash: Send,
-    SHeaderId: for<'a> Deserialize<'a> + Serialize + Send + Sync,
+    SHeaderId: Clone + for<'a> Deserialize<'a> + Serialize + Send + Sync,
     SHeader: Send,
     THeaderId: Send,
     THeader: Send,
@@ -225,7 +225,7 @@ impl<SHeaderId> TryInto<MsgBFTSyncRequest> for MsgStoreBFTSync<SHeaderId> {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) enum BFTSyncResponse<SHeaderId> {
-    Block(Block<SHeaderId>),
+    Block(Signed<Block<SHeaderId>>),
     CertificateSignature(BlockId, ThresholdSignature),
     CertificatePartialSignature(BlockId, PartialSignature),
     RoundCompleteSignature(Round, ThresholdSignature),
@@ -346,7 +346,7 @@ impl<SHeaderId> BFTSyncInitiator<SHeaderId> {
 
 /// Gets our latest blocks and signatures, sorted by (round, block_id).
 /// If a round is provided, only blocks less than or equal to the given round will be returned.
-fn get_latest_block_and_signature_tips<SHeaderId>(bft_state: &watch::Ref<'_, BFTState<SHeaderId>>, up_to_round: Option<Round>) -> Vec<(u64, BlockId, Vec<Sha256Hash>)> {
+fn get_latest_block_and_signature_tips<SHeaderId>(bft_state: &watch::Ref<'_, BFTState<SHeaderId>>, up_to_round: Option<Round>) -> Vec<(Round, BlockId, Vec<Sha256Hash>)> {
     // Get the current tips.
     let latest = bft_state.get_latest();
 
@@ -354,11 +354,8 @@ fn get_latest_block_and_signature_tips<SHeaderId>(bft_state: &watch::Ref<'_, BFT
     let latest = latest.iter().filter(|(round, _)| { up_to_round.is_none_or(|up_to_round| *round <= up_to_round) });
 
     // Sort by (Round, BlockId)
-    let mut sorted_blocks = latest.map(|(round, peer_id)| {
+    let mut sorted_blocks = latest.map(|(round, block_id)| {
         let round_state = &bft_state.round_states()[*round as usize];
-        let signed_block = round_state.blocks().get(peer_id).expect("Block not found even though it is a tip");
-        let block = signed_block.value();
-        let block_id = block.block_id();
 
         // Return signatures on block, sorted.
         let signatures = round_state.certificates().get(&block_id).map_or_else(|| vec![], |ts| {
@@ -367,7 +364,7 @@ fn get_latest_block_and_signature_tips<SHeaderId>(bft_state: &watch::Ref<'_, BFT
             sig_ids
         });
 
-        (*round, block_id, signatures)
+        (*round, *block_id, signatures)
     }).collect::<Vec<_>>();
     sorted_blocks.sort_by_key(|(round, block_id, _)| (*round, *block_id));
     sorted_blocks
@@ -412,7 +409,7 @@ pub struct BFTSyncResponder {
 
 impl BFTSyncResponder {
 
-    async fn run_initial<S: Stream<MsgStoreBFTSync<SHeaderId>>, SHeaderId>(
+    async fn run_initial<S: Stream<MsgStoreBFTSync<SHeaderId>>, SHeaderId: Clone>(
         stream: &mut S,
         bft_state: &mut watch::Receiver<BFTState<SHeaderId>>,
         their_round: Round,
@@ -528,7 +525,7 @@ impl BFTSyncResponder {
 
     /// Returns None if we don't have anything to share so they should wait.
     /// Precondition: our_round >= their_round
-    fn build_response<SHeaderId>(
+    fn build_response<SHeaderId: Clone>(
         &mut self,
         bft_state: watch::Ref<'_, BFTState<SHeaderId>>,
         their_round: Round,
@@ -771,7 +768,7 @@ impl BFTSyncResponder {
         self.send_queue.extend(sigs);
     }
 
-    fn prepare_response<SHeaderId>(
+    fn prepare_response<SHeaderId: Clone>(
         &mut self,
         bft_state: &watch::Ref<'_, BFTState<SHeaderId>>,
     ) -> Vec<BFTSyncResponse<SHeaderId>> {
@@ -784,8 +781,8 @@ impl BFTSyncResponder {
             if !skip {
                 let response = match response {
                     BFTSyncResponseType::Block(block_id) => {
-                        let block = bft_state.get_block(round, block_id).expect("Block not found even though we added it");
-                        BFTSyncResponse::Block(block)
+                        let block = bft_state.get_block(round, &block_id).expect("Block not found even though we added it");
+                        BFTSyncResponse::Block(block.clone()) // TODO: Can we get rid of this clone?
                     }
                     BFTSyncResponseType::BlockSignature(block_id, sig_id) => {
                         let sig = bft_state.get_block_signature(round, block_id, sig_id).expect("Block signature not found even though we added it.");

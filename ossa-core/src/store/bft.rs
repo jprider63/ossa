@@ -29,9 +29,10 @@ pub(crate) struct BFTState<SHeaderId> {
     current_round: Round,
     /// Round states of BFT sync.
     round_states: Vec<RoundState<SHeaderId>>,
-    /// Tips that are blocks (signed by the given peer) from previous rounds. These should all have fully aggregated signatures.
+    /// Tips that are blocks from old rounds (more than 2 old?).
+    /// These should all have fully aggregated signatures?
     // JP: Are they all from the previous round?
-    previous_tips: Vec<(Round, DeviceId)>,
+    previous_tips: Vec<(Round, BlockId)>,
 }
 
 impl<SHeaderId> BFTState<SHeaderId> {
@@ -51,17 +52,27 @@ impl<SHeaderId> BFTState<SHeaderId> {
         &self.round_states
     }
 
-    // pub(crate) fn previous_tips(&self) -> &[(Round, DeviceId)] {
-    //     &self.previous_tips
-    // }
+    /// Get the blocks from the last two rounds and any tips from before that.
+    pub(crate) fn get_latest(&self) -> Vec<(Round, BlockId)> {
+        let mut latest = self.previous_tips.clone();
+        
+        if self.current_round >= 1 {
+            let prev_round = self.current_round - 1;
+            let round_state = &self.round_states[prev_round as usize];
+            let blocks = round_state.blocks.keys().map(|block_id| (prev_round, *block_id));
+            latest.extend(blocks);
+        }
 
-    pub(crate) fn get_latest(&self) -> &[(Round, DeviceId)] {
-        // Get all active tips
-        todo!()
+        let round_state = &self.round_states[self.current_round as usize];
+        let blocks = round_state.blocks.keys().map(|block_id| (self.current_round, *block_id));
+        latest.extend(blocks);
+
+        latest
     }
 
-    pub(crate) fn get_block(&self, round: Round, block_id: BlockId) -> Option<Block<SHeaderId>> {
-        todo!()
+    pub(crate) fn get_block(&self, round: Round, block_id: &BlockId) -> Option<&Signed<Block<SHeaderId>>> {
+        let round_state = self.round_states().get(round as usize)?;
+        round_state.blocks.get(block_id)
     }
 
     pub(crate) fn get_block_signature(&self, round: Round, block_id: BlockId, sig_id: SignatureId) -> Option<Result<ThresholdSignature, PartialSignature>> {
@@ -84,6 +95,7 @@ impl<Header: dag::DAGHeader, S> State<Header, S> {
 }
 
 // A signed value.
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Signed<A> {
     value: A,
     // JP: Generalize this eventually.
@@ -99,7 +111,10 @@ impl<A> Signed<A> {
 pub(crate) struct RoundState<SHeaderId> {
     // Blocks in this round for each validator.
     // A validator can only sign a single block in each round (otherwise, they are detected to be malicious).
-    blocks: BTreeMap<DeviceId, Signed<Block<SHeaderId>>>,
+    blocks: BTreeMap<BlockId, Signed<Block<SHeaderId>>>,
+    // Used to quickly check if a peer already signed a block. 
+    // JP: Maybe this should be transient?
+    block_for_validator: BTreeMap<DeviceId, BlockId>,
     // 2/3 (?) of (weighted) validators promise to make the block available and validated/approve of operations.
     certificates: BTreeMap<BlockId, ThresholdSigned<Certificate>>,
     // 2/3 (1/3?) of (weighted) validators have seen 2/3 (?) of the certificates.
@@ -111,7 +126,7 @@ impl<SHeaderId> RoundState<SHeaderId> {
         &self.commit_round
     }
 
-    pub(crate) fn blocks(&self) -> &BTreeMap<DeviceId, Signed<Block<SHeaderId>>> {
+    pub(crate) fn blocks(&self) -> &BTreeMap<BlockId, Signed<Block<SHeaderId>>> {
         &self.blocks
     }
 
@@ -124,7 +139,7 @@ impl<SHeaderId> RoundState<SHeaderId> {
 pub(crate) struct BlockId(Sha256Hash);
 
 // A BFT block points to the tips of the DAG and the previous round's certificates.
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub(crate) struct Block<SHeaderId> {
     round: Round,
     // Tips of SC DAG operations
@@ -154,7 +169,7 @@ pub(crate) struct ThresholdSignature(); // TODO
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct PartialSignature(); // TODO
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(crate) struct CertificateId(Sha256Hash);
 
 // JP: Do we need this type? Just use the block id?
