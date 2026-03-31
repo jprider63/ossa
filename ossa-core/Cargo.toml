@@ -19,6 +19,7 @@ ed25519-dalek = { workspace = true }
 daggy = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }
+hints-bls12381 = { workspace = true }
 itertools = { workspace = true }
 ossa-crdt = { workspace = true }
 rand = { workspace = true }

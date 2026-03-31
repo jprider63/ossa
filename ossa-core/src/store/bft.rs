@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
+use hints_bls12381;
 
 use crate::{auth::DeviceId, protocol::store_bft_sync::v0::{SignatureId, ThresholdSignatureId}, store::dag::{self, Frontier}, util::Sha256Hash};
 
@@ -164,10 +165,42 @@ impl<'de, SHeaderId> Deserialize<'de> for Block<SHeaderId> {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub(crate) struct ThresholdSignature(); // TODO
-#[derive(Debug, Serialize, Deserialize)]
-pub(crate) struct PartialSignature(); // TODO
+#[derive(Debug)]
+pub(crate) struct ThresholdSignature(hints_bls12381::hints::ThresholdSignature); // TODO
+#[derive(Debug)]
+pub(crate) struct PartialSignature(hints_bls12381::hints::PartialSignature); // TODO
+
+impl<'de> Deserialize<'de> for ThresholdSignature {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de> {
+        todo!("TODO: Implement this. Arkworks provides CanonicalDeserialize.")
+    }
+}
+
+impl Serialize for PartialSignature {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer {
+        todo!("TODO: Implement this. Arkworks provides CanonicalSerialize.")
+    }
+}
+
+impl<'de> Deserialize<'de> for PartialSignature {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de> {
+        todo!("TODO: Implement this. Arkworks provides CanonicalDeserialize.")
+    }
+}
+
+impl Serialize for ThresholdSignature {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer {
+        todo!("TODO: Implement this. Arkworks provides CanonicalSerialize.")
+    }
+}
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(crate) struct CertificateId(Sha256Hash);
