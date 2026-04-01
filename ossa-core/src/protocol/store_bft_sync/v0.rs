@@ -491,8 +491,7 @@ impl BFTSyncResponder {
                     }
 
                     // Acquire read lock on state once we've caught up.
-                    // TODO: We only want to run this when state has changed.
-                    let bft_state = bft_state.wait_for(|s| s.current_round() >= their_round).await.expect("TODO: channel closed");
+                    let bft_state = bft_state.wait_for_changed(|s| s.current_round() >= their_round).await.expect("TODO: channel closed");
 
                     resp_e = new.build_response(bft_state, their_round, their_block_tips, their_round_complete)
                         .ok_or_else(|| (vec![BlockStreamElement::End], vec![RoundCompleteStreamElement::End]));
@@ -900,3 +899,19 @@ impl StreamableBlocks {
     }
 }
 
+trait WatchExt<T: 'static> {
+    async fn wait_for_changed(
+        &mut self,
+        f: impl FnMut(&T) -> bool,
+    ) -> Result<watch::Ref<'_, T>, watch::error::RecvError>;
+}
+
+impl<T: 'static> WatchExt<T> for watch::Receiver<T> {
+    async fn wait_for_changed(
+        &mut self,
+        f: impl FnMut(&T) -> bool,
+    ) -> Result<watch::Ref<'_, T>, watch::error::RecvError> {
+        self.changed().await?;
+        self.wait_for(f).await
+    }
+}
