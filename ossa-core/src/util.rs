@@ -72,16 +72,6 @@ impl AsRef<[u8]> for Sha256Hash {
     }
 }
 
-impl Write for Sha256Hash {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        todo!()
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        todo!()
-    }
-}
-
 impl PartialEq for Sha256Hash {
     fn eq(&self, other: &Self) -> bool {
         self.0 == other.0

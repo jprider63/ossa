@@ -187,9 +187,15 @@ impl<'de, SHeaderId> Deserialize<'de> for Block<SHeaderId> {
 pub(crate) struct ThresholdSignature(hints_bls12381::hints::ThresholdSignature);
 impl ThresholdSignature {
     fn signature_id(&self) -> SignatureId {
-        todo!()
+        type H = Sha256Hash;
+
+        let mut h = H::new();
+        // JP: Should we use HashMarshaller here (CanonicalSerializeHashExt)?
+        self.0.serialize_compressed(&mut h).expect("Failed to hash threshold signature");
+        SignatureId(H::finalize(h))
     }
-} // TODO
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct PartialSignature(hints_bls12381::hints::PartialSignature);
 impl PartialSignature {
