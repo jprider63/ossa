@@ -8,6 +8,7 @@
 
 use std::{cmp::Reverse, collections::{BTreeSet, BinaryHeap}, fmt::Display, future::Future, iter::Peekable, marker::PhantomData, vec::IntoIter};
 
+use polonius_the_crab::{prelude::*, PoloniusResult};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc::{UnboundedReceiver, UnboundedSender}, watch};
 use tracing::{debug, error, warn};
@@ -906,12 +907,53 @@ trait WatchExt<T: 'static> {
     ) -> Result<watch::Ref<'_, T>, watch::error::RecvError>;
 }
 
+// impl<T: 'static> WatchExt<T> for watch::Receiver<T> {
+//     async fn wait_for_changed(
+//         &mut self,
+//         f: impl FnMut(&T) -> bool,
+//     ) -> Result<watch::Ref<'_, T>, watch::error::RecvError> {
+//         self.changed().await?;
+//         self.wait_for(f).await
+//     }
+// }
 impl<T: 'static> WatchExt<T> for watch::Receiver<T> {
     async fn wait_for_changed(
         &mut self,
-        f: impl FnMut(&T) -> bool,
+        mut f: impl FnMut(&T) -> bool,
     ) -> Result<watch::Ref<'_, T>, watch::error::RecvError> {
         self.changed().await?;
-        self.wait_for(f).await
+        
+        type WatchRef<T> = polonius_the_crab::ForLt!(watch::Ref<'_, T>);
+        let p = polonius::<_, _, WatchRef<T>>(self, |rx| {
+            let v = rx.borrow_and_update();
+            if f(&v) {
+                PoloniusResult::Borrowing(v)
+            } else {
+                PoloniusResult::Owned(())
+            }
+        });
+
+        match p {
+            PoloniusResult::Borrowing(v) => Ok(v),
+            PoloniusResult::Owned { value: _, input_borrow } => input_borrow.wait_for_changed(f).await,
+        }
     }
 }
+
+// // https://stackoverflow.com/questions/79446511/how-do-i-encapsulate-waiting-for-a-tokiosyncwatchreceiver-to-be-some
+// impl<T: 'static> WatchExt<T> for watch::Receiver<T> {
+//     async fn wait_for_changed(
+//         &mut self,
+//         f: impl FnMut(&T) -> bool,
+//     ) -> Result<watch::Ref<'_, T>, watch::error::RecvError> {
+//         loop {
+//             polonius!(|self| -> Result<watch::Ref<'polonius, T>, watch::error::RecvError> {
+//             self.changed().await?;
+//             let v = self.borrow_and_update();
+//             if f(&v) {
+//                 return Ok(v);
+//             }
+//             })
+//         }
+//     }
+// }

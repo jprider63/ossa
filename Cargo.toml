@@ -33,6 +33,7 @@ ossa-crdt = {path = "ossa-crdt"}
 ossa-core = {path = "ossa-core"}
 ossa-typeable = {path = "ossa-typeable"}
 ossa-typeable-derive = {path = "ossa-typeable-derive"}
+polonius-the-crab = "0.5.0"
 proc-macro2 = "1.0.95"
 quote = "1.0.40"
 rand = "0.9.2"
