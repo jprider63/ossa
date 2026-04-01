@@ -62,8 +62,8 @@ impl<Hash, StoreId, SHeaderId, SHeader, THeaderId, THeader> StoreBFTSync<Hash, S
 impl<Hash, StoreId, SHeaderId, SHeader, THeaderId, THeader> MiniProtocol for StoreBFTSync<Hash, StoreId, SHeaderId, SHeader, THeaderId, THeader>
 where
     Hash: Send,
-    StoreId: Clone + Send + Sync,
-    SHeaderId: Clone + std::fmt::Debug + for<'a> Deserialize<'a> + Serialize + Send + Sync,
+    StoreId: Clone + Send + Sync + 'static,
+    SHeaderId: Clone + std::fmt::Debug + for<'a> Deserialize<'a> + Serialize + Send + Sync + 'static,
     SHeader: Send,
     THeaderId: Send,
     THeader: Send,
@@ -449,7 +449,7 @@ pub struct BFTSyncResponder {
 
 impl BFTSyncResponder {
 
-    async fn run_initial<S: Stream<MsgStoreBFTSync<SHeaderId>>, StoreId: Clone, SHeaderId: Clone>(
+    async fn run_initial<S: Stream<MsgStoreBFTSync<SHeaderId>>, StoreId: Clone + 'static, SHeaderId: Clone + 'static>(
         stream: &mut S,
         bft_state: &mut watch::Receiver<BFTState<StoreId, SHeaderId>>,
         their_round: Round,
