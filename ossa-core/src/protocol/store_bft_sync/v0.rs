@@ -101,11 +101,12 @@ where
                                 todo!();
                             }
                         };
-                        // let msg = UntypedStoreCommand::ReceivedBFTOperations {
-                        //     peer: self.peer,
-                        //     updates,
-                        // };
-                        // self.send_chan.send(msg).expect("TODO");
+
+                        let msg = UntypedStoreCommand::ReceivedBFTOperations {
+                            peer: self.peer,
+                            updates,
+                        };
+                        self.send_chan.send(msg).expect("TODO");
                         todo!();
                     }
                 }

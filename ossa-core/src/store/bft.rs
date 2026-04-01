@@ -4,8 +4,9 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 use hints_bls12381;
 use ark_serialize::CanonicalSerialize;
+use tracing::{info, warn};
 
-use crate::{auth::DeviceId, protocol::store_bft_sync::v0::SignatureId, store::dag::{self, Frontier}, util::{Hash as _, Sha256Hash}};
+use crate::{auth::DeviceId, protocol::store_bft_sync::v0::{BFTSyncResponse, SignatureId}, store::dag::{self, Frontier}, util::{Hash as _, Sha256Hash}};
 
 /// A round in the BFT strong consistency protocol.
 pub type Round = u64;
@@ -37,7 +38,7 @@ pub(crate) struct BFTState<StoreId, SHeaderId> {
     previous_tips: Vec<(Round, BlockId)>,
 }
 
-impl<StoreId, SHeaderId> BFTState<StoreId, SHeaderId> {
+impl<StoreId, SHeaderId: std::fmt::Debug> BFTState<StoreId, SHeaderId> {
     pub(crate) fn new(store_id: StoreId) -> Self {
         let round0 = RoundState::new(store_id, 0);
         Self {
@@ -83,6 +84,99 @@ impl<StoreId, SHeaderId> BFTState<StoreId, SHeaderId> {
     }
 
     pub(crate) fn get_round_signature(&self, round: Round, sig_id: SignatureId) -> Option<Result<ThresholdSignature, (DeviceId, PartialSignature)>> {
+        todo!()
+    }
+
+    pub(crate) fn handle_update<S>(&mut self, our_peer_id: &DeviceId, update: BFTSyncResponse<SHeaderId>) -> bool {
+        match update {
+            BFTSyncResponse::Block(signed) => {
+                let frontier = signed.value.dag_frontier;
+                // TODO: Check if we know everything in the frontier. Otherwise cache everything remaining.
+                warn!("TODO: Check if we know everything in the frontier. Otherwise cache everything remaining.");
+
+                let round = signed.value.round;
+                let Some(state) = self.round_states.get_mut(round as usize) else {
+                    info!("They sent us a block for a round ({}) that we don't have: {:?}", round, signed);
+                    return false;
+                };
+
+                // Check if we already know this block.
+                let block_id = signed.value.block_id();
+                if state.blocks.contains_key(&block_id) {
+                    info!("They sent us a block (for round {}) that we already have: {:?}", round, signed);
+                    return true;
+                }
+
+                // Get the active state for this round.
+                let active_state = self.get_active_state_for_round::<S>(round);
+
+                // Validate signer.
+                let is_valid_signer = active_state.is_peer_validator(&signed.value.proposer);
+                if !is_valid_signer {
+                    info!("Proposer cannot sign blocks in round ({}): {:?}", round, signed);
+                    return false;
+                }
+
+                // Validate signature for signer.
+                let signer_key = active_state.get_signing_key(&signed.value.proposer);
+                let is_valid_signature = signed.verify(&signer_key);
+                if !is_valid_signature {
+                    info!("Invalid signed block: {:?}", signed);
+                    return false;
+                }
+
+                // Check if the peer has already signed a block this round.
+                if let Some(other_block_id) = state.block_for_validator.get(&signed.value.proposer) {
+                    warn!("TODO: Malicious behavior detected. Peer signed two different blocks this round.\n{:?}\n{:?}", other_block_id, signed);
+                    todo!("TODO: Properly handle this.");
+                }
+
+                // TODO:
+                // Validate block.
+                let is_valid_block = self.validate_block(&signed.value); // Likely check that we have all parents (if not the first round)?
+                if !is_valid_block {
+                    info!("Invalid block: {:?}", signed.value);
+                    return false;
+                }
+
+                // Add block to state.
+                let res = state.blocks.insert(block_id, signed);
+                assert!(res.is_none(), "Already checked that we didn't know this block");
+                let res = state.block_for_validator.insert(signed.value.proposer, block_id);
+                assert!(res.is_none(), "Already checked that the proposer hasn't signed another block");
+
+                // If we're authorized:
+                if active_state.is_peer_validator(&our_peer_id) {
+                    // Sign block.
+                    let certificate = Certificate {
+                        store_id,
+                        block_id,
+                        // block: todo!(),
+                        // round,
+                        // proposer: todo!(),
+                    };
+                    let mut signed_block = ThresholdSigned::new(certificate);
+                    let is_aggregated = signed_block.sign(&our_threshold_secret_key); // TODO: If certificate is now complete (and it wasn't before), aggregate signature
+
+                    let res = state.certificates.insert(block_id, signed_block);
+                    assert!(res.is_none(), "We haven't received any other certificate sigs yet.");
+
+                    // If round is now complete (and it wasn't before), sign round complete.
+                    if state.is_round_complete() {
+                        state.commit_round.sign(&our_threshold_secret_key)
+                    }
+                }
+            }
+            BFTSyncResponse::CertificateSignature(block_id, threshold_signature) => todo!(),
+            BFTSyncResponse::CertificatePartialSignature(block_id, device_id, partial_signature) => todo!(),
+            BFTSyncResponse::RoundCompleteSignature(round, threshold_signature) => todo!(),
+            BFTSyncResponse::RoundCompletePartialSignature(round, device_id, partial_signature) => todo!(),
+        }
+
+        true
+    }
+
+    fn get_active_state_for_round<S>(&self, round: Round) -> S {
         todo!()
     }
 }
@@ -247,7 +341,7 @@ pub(crate) struct CertificateId(Sha256Hash);
 // JP: Do we need this type? Just use the block id?
 pub(crate) struct Certificate {
     /// The block's id (hash).
-    block: BlockId,
+    block_id: BlockId,
     /// The block's round.
     // JP: Is this needed?
     round: Round,

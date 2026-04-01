@@ -17,7 +17,7 @@ use tokio::sync::{
 };
 use tracing::{debug, error, warn};
 
-use crate::protocol::store_bft_sync::v0::{StoreBFTSync, StoreBFTSyncCommand};
+use crate::protocol::store_bft_sync::v0::{BFTSyncResponse, StoreBFTSync, StoreBFTSyncCommand};
 use crate::store::bft::{BFTState, SCDT};
 use crate::store::v0::BLOCK_SIZE;
 use crate::time::ConcretizeTime;
@@ -513,6 +513,10 @@ impl<
 
     fn update_outgoing_peer_scg_to_ready(&mut self, peer: &DeviceId) {
         self.update_outgoing_peer_to_ready_helper(peer, |info| &mut info.scg_status)
+    }
+
+    fn update_outgoing_peer_bft_to_ready(&mut self, peer: &DeviceId) {
+        self.update_outgoing_peer_to_ready_helper(peer, |info| &mut info.bft_status)
     }
 
     /// Send sync requests to peers.
@@ -1016,6 +1020,33 @@ impl<
             &sc_state.dag_state,
             Some(peer),
         );
+    }
+
+    fn handle_received_bft_operations<OT>(
+        &mut self,
+        peer: DeviceId,
+        updates: Vec<BFTSyncResponse<SHeader::HeaderId>>,
+        // listeners: &[UnboundedSender<StateUpdate<SHeader, S, THeader, T>>],
+    )
+    {
+        // Mark peer as ready.
+        self.update_outgoing_peer_bft_to_ready(&peer);
+
+        if updates.is_empty() {
+            return;
+        }
+
+        warn!("TODO: Validate operations from peer");
+
+        self.bft_state.send_modify(|bft_state| {
+            for update in updates {
+                let _success = bft_state.handle_update(update);
+
+                warn!("TODO: record whether successful or not for peer.");
+            }
+        });
+
+        warn!("TODO: Do we need to update listeners?");
     }
 
     fn handle_received_ecg_operations<OT>(
@@ -1794,6 +1825,10 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
                         store.handle_received_scg_operations::<OT>(peer, operations, &listeners);
                         store.send_sync_requests();
                     }
+                    UntypedStoreCommand::ReceivedBFTOperations { peer, updates } => {
+                        store.handle_received_bft_operations::<OT>(peer, updates); // , &listeners);
+                        store.send_sync_requests();
+                    }
                     UntypedStoreCommand::SubscribeSCG { peer, tips, response_chan } => {
                         store.handle_scg_subscribe(peer, tips, response_chan);
                     }
@@ -1958,6 +1993,10 @@ pub(crate) enum UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader
     ReceivedSCGOperations {
         peer: DeviceId,
         operations: Vec<(SHeader, RawDAGBody)>,
+    },
+    ReceivedBFTOperations {
+        peer: DeviceId,
+        updates: Vec<BFTSyncResponse<SHeaderId>>,
     },
     SubscribeSCG {
         peer: DeviceId,
