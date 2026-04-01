@@ -6,7 +6,7 @@
 //
 // Goal: Only send a node when they have all the parents of that node.
 
-use std::{cmp::Reverse, collections::{BTreeSet, BinaryHeap}, future::Future, iter::Peekable, marker::PhantomData, vec::IntoIter};
+use std::{cmp::Reverse, collections::{BTreeSet, BinaryHeap}, fmt::Display, future::Future, iter::Peekable, marker::PhantomData, vec::IntoIter};
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc::{UnboundedReceiver, UnboundedSender}, watch};
@@ -14,24 +14,24 @@ use tracing::{debug, error, warn};
 
 use crate::{auth::DeviceId, network::protocol::{receive, send, MiniProtocol}, protocol::store_peer::dag_sync::{MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS}, store::{bft::{BFTState, Block, BlockId, PartialSignature, Round, Signed, ThresholdSignature}, dag, UntypedStoreCommand}, util::{Sha256Hash, Stream}};
 
-pub(crate) struct StoreBFTSync<Hash, SHeaderId, SHeader, THeaderId, THeader> {
+pub(crate) struct StoreBFTSync<Hash, StoreId, SHeaderId, SHeader, THeaderId, THeader> {
     peer: DeviceId,
     // Receive commands from store if we have initiative or send commands to store if we're the responder.
     recv_chan: Option<UnboundedReceiver<StoreBFTSyncCommand>>,
     // Send commands to store if we're the responder and send results back to store if we're the initiator.
     send_chan: UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>, // JP: Make this a stream?
     // BFT state
-    bft_state: watch::Receiver<BFTState<SHeaderId>>,
+    bft_state: watch::Receiver<BFTState<StoreId, SHeaderId>>,
 }
 
-impl<Hash, SHeaderId, SHeader, THeaderId, THeader> StoreBFTSync<Hash, SHeaderId, SHeader, THeaderId, THeader> {
+impl<Hash, StoreId, SHeaderId, SHeader, THeaderId, THeader> StoreBFTSync<Hash, StoreId, SHeaderId, SHeader, THeaderId, THeader> {
     pub(crate) fn new_server(
         peer: DeviceId,
         recv_chan: UnboundedReceiver<StoreBFTSyncCommand>,
         send_chan: UnboundedSender<
             UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>,
         >,
-        bft_state: watch::Receiver<BFTState<SHeaderId>>,
+        bft_state: watch::Receiver<BFTState<StoreId, SHeaderId>>,
     ) -> Self {
         let recv_chan = Some(recv_chan);
         StoreBFTSync {
@@ -47,7 +47,7 @@ impl<Hash, SHeaderId, SHeader, THeaderId, THeader> StoreBFTSync<Hash, SHeaderId,
         send_chan: UnboundedSender<
             UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>,
         >,
-        bft_state: watch::Receiver<BFTState<SHeaderId>>,
+        bft_state: watch::Receiver<BFTState<StoreId, SHeaderId>>,
     ) -> Self {
         StoreBFTSync {
             peer,
@@ -58,9 +58,10 @@ impl<Hash, SHeaderId, SHeader, THeaderId, THeader> StoreBFTSync<Hash, SHeaderId,
     }
 }
 
-impl<Hash, SHeaderId, SHeader, THeaderId, THeader> MiniProtocol for StoreBFTSync<Hash, SHeaderId, SHeader, THeaderId, THeader>
+impl<Hash, StoreId, SHeaderId, SHeader, THeaderId, THeader> MiniProtocol for StoreBFTSync<Hash, StoreId, SHeaderId, SHeader, THeaderId, THeader>
 where
     Hash: Send,
+    StoreId: Clone + Send + Sync,
     SHeaderId: Clone + for<'a> Deserialize<'a> + Serialize + Send + Sync,
     SHeader: Send,
     THeaderId: Send,
@@ -159,21 +160,29 @@ pub(crate) enum MsgStoreBFTSync<SHeaderId> {
     BFTResponse(MsgBFTSyncResponse<SHeaderId>),
 }
 
-pub(crate) type SignatureId = Sha256Hash;
+/// Identifier of either a partial or aggregate threshold signature.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Serialize, Deserialize)]
+pub(crate) struct SignatureId(pub(crate) Sha256Hash);
 
-// Either the ID of the aggregate signature or IDs of the partial signatures.
-// JP: Or just send the signatures?
-#[derive(Debug, Serialize, Deserialize)]
-pub(crate) enum ThresholdSignatureId {
-    Threshold(SignatureId),
-    Partial(Vec<SignatureId>),
-}
-
-impl ThresholdSignatureId {
-    pub fn new() -> Self {
-        ThresholdSignatureId::Partial(vec![])
+impl Display for SignatureId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
     }
 }
+
+// // Either the ID of the aggregate signature or IDs of the partial signatures.
+// // JP: Or just send the signatures?
+// #[derive(Debug, Serialize, Deserialize)]
+// pub(crate) enum ThresholdSignatureId {
+//     Threshold(SignatureId),
+//     Partial(Vec<SignatureId>),
+// }
+// 
+// impl ThresholdSignatureId {
+//     pub fn new() -> Self {
+//         ThresholdSignatureId::Partial(vec![])
+//     }
+// }
 
 // For use in a Vec of block tips, ordered by (Round, BlockId). Block signatures ordered by SignatureId.
 // TODO: Check that they are in order when parsed XXX
@@ -227,9 +236,9 @@ impl<SHeaderId> TryInto<MsgBFTSyncRequest> for MsgStoreBFTSync<SHeaderId> {
 pub(crate) enum BFTSyncResponse<SHeaderId> {
     Block(Signed<Block<SHeaderId>>),
     CertificateSignature(BlockId, ThresholdSignature),
-    CertificatePartialSignature(BlockId, PartialSignature),
+    CertificatePartialSignature(BlockId, DeviceId, PartialSignature),
     RoundCompleteSignature(Round, ThresholdSignature),
-    RoundCompletePartialSignature(Round, PartialSignature),
+    RoundCompletePartialSignature(Round, DeviceId, PartialSignature),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -276,12 +285,13 @@ pub(crate) enum StoreBFTSyncCommand {
 }
 
 pub struct BFTSyncInitiator<SHeaderId> {
+    // _phantom: PhantomData<fn(StoreId)>,
     todo: PhantomData<SHeaderId>, // JP: Is SHeaderId needed?
 }
 
 impl<SHeaderId> BFTSyncInitiator<SHeaderId> {
     /// Create a new ECGSyncInitiator and run the first round.
-    async fn run_new<S: Stream<MsgStoreBFTSync<SHeaderId>>>(stream: &mut S, bft_state: &mut watch::Receiver<BFTState<SHeaderId>>) -> (Self, Vec<()>) {
+    async fn run_new<S: Stream<MsgStoreBFTSync<SHeaderId>>, StoreId>(stream: &mut S, bft_state: &mut watch::Receiver<BFTState<StoreId, SHeaderId>>) -> (Self, Vec<()>) {
         let req = {
             // Acquire read lock on state.
             let bft_state = bft_state.borrow_and_update();
@@ -346,7 +356,7 @@ impl<SHeaderId> BFTSyncInitiator<SHeaderId> {
 
 /// Gets our latest blocks and signatures, sorted by (round, block_id).
 /// If a round is provided, only blocks less than or equal to the given round will be returned.
-fn get_latest_block_and_signature_tips<SHeaderId>(bft_state: &watch::Ref<'_, BFTState<SHeaderId>>, up_to_round: Option<Round>) -> Vec<(Round, BlockId, Vec<Sha256Hash>)> {
+fn get_latest_block_and_signature_tips<StoreId, SHeaderId>(bft_state: &watch::Ref<'_, BFTState<StoreId, SHeaderId>>, up_to_round: Option<Round>) -> Vec<(Round, BlockId, Vec<SignatureId>)> {
     // Get the current tips.
     let latest = bft_state.get_latest();
 
@@ -372,7 +382,7 @@ fn get_latest_block_and_signature_tips<SHeaderId>(bft_state: &watch::Ref<'_, BFT
 
 
 /// Get the blocks and signatures for this round (sorted by block id).
-fn get_round_blocks_and_signatures<SHeaderId>(bft_state: &watch::Ref<'_, BFTState<SHeaderId>>, round: u64) -> Vec<(u64, BlockId, Vec<Sha256Hash>)> {
+fn get_round_blocks_and_signatures<StoreId, SHeaderId>(bft_state: &watch::Ref<'_, BFTState<StoreId, SHeaderId>>, round: u64) -> Vec<(u64, BlockId, Vec<SignatureId>)> {
     let round_state = &bft_state.round_states()[round as usize];
     let mut blocks = round_state.blocks().values().map(|signed_block| {
         let block_id = signed_block.value().block_id();
@@ -393,8 +403,8 @@ fn get_round_blocks_and_signatures<SHeaderId>(bft_state: &watch::Ref<'_, BFTStat
 #[derive(PartialEq, PartialOrd, Eq, Ord)]
 pub enum BFTSyncResponseType {
     Block(BlockId),
-    BlockSignature(BlockId, Sha256Hash), // TODO: SignatureId..
-    RoundSignature(Sha256Hash), // TODO: SignatureId..
+    BlockSignature(BlockId, SignatureId),
+    RoundSignature(SignatureId),
 }
 
 pub struct BFTSyncResponder {
@@ -402,16 +412,16 @@ pub struct BFTSyncResponder {
     // their_block_tips: Vec<BlockStreamElement>,
     // their_round_complete: Vec<RoundCompleteStreamElement>,
     their_known_blocks: BTreeSet<BlockId>,
-    their_known_block_sigs: BTreeSet<(BlockId, Sha256Hash)>,
-    their_known_round_sigs: BTreeSet<(Round, Sha256Hash)>,
+    their_known_block_sigs: BTreeSet<(BlockId, SignatureId)>,
+    their_known_round_sigs: BTreeSet<(Round, SignatureId)>,
     send_queue: BinaryHeap<Reverse<(Round, BFTSyncResponseType)>>,
 }
 
 impl BFTSyncResponder {
 
-    async fn run_initial<S: Stream<MsgStoreBFTSync<SHeaderId>>, SHeaderId: Clone>(
+    async fn run_initial<S: Stream<MsgStoreBFTSync<SHeaderId>>, StoreId: Clone, SHeaderId: Clone>(
         stream: &mut S,
-        bft_state: &mut watch::Receiver<BFTState<SHeaderId>>,
+        bft_state: &mut watch::Receiver<BFTState<StoreId, SHeaderId>>,
         their_round: Round,
         their_block_tips: Vec<BlockStreamElement>,
         their_round_complete: Vec<RoundCompleteStreamElement>,
@@ -477,9 +487,9 @@ impl BFTSyncResponder {
 
     /// Processes their request. Returns true if they've sent everything they have currently.
     /// Precondition: our_round >= their_round
-    fn handle_their_latest<SHeaderId>(
+    fn handle_their_latest<StoreId, SHeaderId>(
         &mut self,
-        bft_state: &watch::Ref<'_, BFTState<SHeaderId>>,
+        bft_state: &watch::Ref<'_, BFTState<StoreId, SHeaderId>>,
         mut their_round: Round,
         their_block_tips: Vec<BlockStreamElement>,
         their_round_complete: Vec<RoundCompleteStreamElement>,
@@ -525,9 +535,9 @@ impl BFTSyncResponder {
 
     /// Returns None if we don't have anything to share so they should wait.
     /// Precondition: our_round >= their_round
-    fn build_response<SHeaderId: Clone>(
+    fn build_response<StoreId, SHeaderId: Clone>(
         &mut self,
-        bft_state: watch::Ref<'_, BFTState<SHeaderId>>,
+        bft_state: watch::Ref<'_, BFTState<StoreId, SHeaderId>>,
         their_round: Round,
         their_block_tips: Vec<BlockStreamElement>,
         their_round_complete: Vec<RoundCompleteStreamElement>,
@@ -558,7 +568,7 @@ impl BFTSyncResponder {
 
     // Process the block and signature tips they sent. Returns true if we're done and they don't
     // have any more to send.
-    fn process_their_latest(&mut self, their_block_tips: Vec<BlockStreamElement>, blocks_and_sigs: Vec<(Round, BlockId, Vec<Sha256Hash>)>) -> bool {
+    fn process_their_latest(&mut self, their_block_tips: Vec<BlockStreamElement>, blocks_and_sigs: Vec<(Round, BlockId, Vec<SignatureId>)>) -> bool {
         let mut their_block_tips = their_block_tips.into_iter();
         let mut blocks_and_sigs = blocks_and_sigs.into_iter().peekable();
 
@@ -630,19 +640,19 @@ impl BFTSyncResponder {
     }
 
     // Mark block signature as known by them.
-    fn mark_block_sig_as_known(&mut self, block_id: BlockId, sig_id: Sha256Hash) {
+    fn mark_block_sig_as_known(&mut self, block_id: BlockId, sig_id: SignatureId) {
         self.their_known_block_sigs.insert((block_id, sig_id));
     }
 
     // Mark round signature as known by them.
-    fn mark_round_sig_as_known(&mut self, round: Round, their_sig_id: Sha256Hash) {
+    fn mark_round_sig_as_known(&mut self, round: Round, their_sig_id: SignatureId) {
         self.their_known_round_sigs.insert((round, their_sig_id));
     }
 
     // Queue sigs for blocks less than or equal to their current block.
     // If an upper limit sig is provided, only queue up to that limit.
     // Otherwise, queue all the signatures that're remaining.
-    fn queue_block_sigs(&mut self, blocks_and_sigs: &mut StreamableBlocks, their_round: u64, their_block_id: BlockId, upper_sig_id: Option<Sha256Hash>) {
+    fn queue_block_sigs(&mut self, blocks_and_sigs: &mut StreamableBlocks, their_round: Round, their_block_id: BlockId, upper_sig_id: Option<SignatureId>) {
         let Some(ref our_current_element) = blocks_and_sigs.current_element else {
             // We don't have any more to share.
             return;
@@ -712,7 +722,7 @@ impl BFTSyncResponder {
     // }
 
     /// Queue a block and its signatures.
-    fn queue_block_and_sigs(&mut self, (our_round, our_block_id, our_sigs): (u64, BlockId, Vec<Sha256Hash>)) {
+    fn queue_block_and_sigs(&mut self, (our_round, our_block_id, our_sigs): (u64, BlockId, Vec<SignatureId>)) {
             let block = BFTSyncResponseType::Block(our_block_id);
             if !self.they_know(our_round, &block) {
                 self.send_queue.push(Reverse((our_round, block)));
@@ -724,7 +734,7 @@ impl BFTSyncResponder {
     }
 
     // Queue blocks and their sigs less than the given block ID (if provided). Otherwise sends them all.
-    fn queue_blocks(&mut self, blocks_and_sigs: &mut Peekable<IntoIter<(u64, BlockId, Vec<Sha256Hash>)>>, upper_block_m: Option<(Round, BlockId)>) {
+    fn queue_blocks(&mut self, blocks_and_sigs: &mut Peekable<IntoIter<(u64, BlockId, Vec<SignatureId>)>>, upper_block_m: Option<(Round, BlockId)>) {
         while let Some(block_and_sigs) = blocks_and_sigs.next_if( |our_block|
             upper_block_m.is_none_or(|upper_block| (our_block.0, our_block.1) < upper_block)
         ) {
@@ -738,7 +748,7 @@ impl BFTSyncResponder {
     }
 
     /// Returns true if we've queued everything to complete the round.
-    fn process_their_round_completes(&mut self, round: u64, their_round_complete: Vec<RoundCompleteStreamElement>, our_round_complete_signatures: Vec<Sha256Hash>) -> bool {
+    fn process_their_round_completes(&mut self, round: u64, their_round_complete: Vec<RoundCompleteStreamElement>, our_round_complete_signatures: Vec<SignatureId>) -> bool {
         let mut their_round_complete = their_round_complete.into_iter();
         let mut our_round_complete_signatures = our_round_complete_signatures.into_iter().peekable();
         while let Some(their_element) = their_round_complete.next() {
@@ -763,14 +773,14 @@ impl BFTSyncResponder {
         false
     }
 
-    fn queue_round_completes(&mut self, round: u64, our_sig_ids: &[Sha256Hash]) {
+    fn queue_round_completes(&mut self, round: u64, our_sig_ids: &[SignatureId]) {
         let sigs = our_sig_ids.iter().map(|sig_id| Reverse((round, BFTSyncResponseType::RoundSignature(*sig_id)))).filter(|s| !self.they_know(s.0.0, &s.0.1)).collect::<Vec<_>>();
         self.send_queue.extend(sigs);
     }
 
-    fn prepare_response<SHeaderId: Clone>(
+    fn prepare_response<StoreId, SHeaderId: Clone>(
         &mut self,
-        bft_state: &watch::Ref<'_, BFTState<SHeaderId>>,
+        bft_state: &watch::Ref<'_, BFTState<StoreId, SHeaderId>>,
     ) -> Vec<BFTSyncResponse<SHeaderId>> {
         let mut operations = Vec::with_capacity(MAX_DELIVER_HEADERS as usize);
 
@@ -788,14 +798,14 @@ impl BFTSyncResponder {
                         let sig = bft_state.get_block_signature(round, block_id, sig_id).expect("Block signature not found even though we added it.");
                         match sig {
                             Ok(aggregate) => BFTSyncResponse::CertificateSignature(block_id, aggregate),
-                            Err(partial) => BFTSyncResponse::CertificatePartialSignature(block_id, partial),
+                            Err((device_id, partial)) => BFTSyncResponse::CertificatePartialSignature(block_id, device_id, partial),
                         }
                     }
                     BFTSyncResponseType::RoundSignature(sig_id) => {
                         let sig = bft_state.get_round_signature(round, sig_id).expect("Round signature not found even though we added it.");
                         match sig {
                             Ok(aggregate) => BFTSyncResponse::RoundCompleteSignature(round, aggregate),
-                            Err(partial) => BFTSyncResponse::RoundCompletePartialSignature(round, partial),
+                            Err((device_id, partial)) => BFTSyncResponse::RoundCompletePartialSignature(round, device_id, partial),
                         }
                     }
                 };
@@ -819,7 +829,7 @@ impl BFTSyncResponder {
         }
     }
 
-    fn queue_block_sig(&mut self, their_round: Round, their_block_id: BlockId, sig_id: Sha256Hash) {
+    fn queue_block_sig(&mut self, their_round: Round, their_block_id: BlockId, sig_id: SignatureId) {
         let sig = BFTSyncResponseType::BlockSignature(their_block_id, sig_id);
         if !self.they_know(their_round, &sig) {
             self.send_queue.push(Reverse((their_round, sig)));
@@ -828,7 +838,7 @@ impl BFTSyncResponder {
 }
 
 /// Retrieve round complete signatures for this round.
-fn get_round_complete_signatures<SHeaderId>(bft_state: &watch::Ref<'_, BFTState<SHeaderId>>, round: u64) -> Vec<Sha256Hash> {
+fn get_round_complete_signatures<StoreId, SHeaderId>(bft_state: &watch::Ref<'_, BFTState<StoreId, SHeaderId>>, round: u64) -> Vec<SignatureId> {
     let round_state = &bft_state.round_states()[round as usize];
     let mut sig_ids = round_state.commit_round().signature_ids();
     sig_ids.sort();
@@ -836,13 +846,13 @@ fn get_round_complete_signatures<SHeaderId>(bft_state: &watch::Ref<'_, BFTState<
 }
 
 struct StreamableBlocks {
-    stream: Peekable<IntoIter<(u64, BlockId, Vec<Sha256Hash>)>>,
-    current_element: Option<(u64, BlockId, Vec<Sha256Hash>)>,
+    stream: Peekable<IntoIter<(u64, BlockId, Vec<SignatureId>)>>,
+    current_element: Option<(u64, BlockId, Vec<SignatureId>)>,
     current_sig_pos: usize,
 }
 
 impl StreamableBlocks {
-    fn new(mut stream: Peekable<IntoIter<(u64, BlockId, Vec<Sha256Hash>)>>) -> Self {
+    fn new(mut stream: Peekable<IntoIter<(u64, BlockId, Vec<SignatureId>)>>) -> Self {
         let current_element = stream.next();
         StreamableBlocks {
             stream,
@@ -851,7 +861,7 @@ impl StreamableBlocks {
         }
     }
 
-    fn stream(&mut self) -> &mut Peekable<IntoIter<(u64, BlockId, Vec<Sha256Hash>)>> {
+    fn stream(&mut self) -> &mut Peekable<IntoIter<(u64, BlockId, Vec<SignatureId>)>> {
         if let Some(current_element) = &self.current_element {
             assert!(self.current_sig_pos >= current_element.2.len(), "Invariant violated: Cannot mutate stream while currently processing signature stream.")
         }

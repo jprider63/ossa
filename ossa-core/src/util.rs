@@ -8,6 +8,7 @@ use rand::{rngs::OsRng, TryRngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fmt::{self, Debug, Display};
+use std::io::Write;
 use std::marker::PhantomData;
 use std::ops::{Add, Range};
 use std::pin::Pin;
@@ -68,6 +69,16 @@ impl Display for Sha256Hash {
 impl AsRef<[u8]> for Sha256Hash {
     fn as_ref(&self) -> &[u8] {
         self.0.as_ref()
+    }
+}
+
+impl Write for Sha256Hash {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        todo!()
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        todo!()
     }
 }
 

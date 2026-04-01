@@ -109,7 +109,7 @@ pub struct State<StoreId, SHeader: dag::DAGHeader, THeader: dag::DAGHeader, S, T
         BTreeMap<DeviceId, oneshot::Sender<dag::UntypedState<SHeader::HeaderId, SHeader>>>,
     // listeners: Vec<UnboundedSender<StateUpdate<Header, T>>>,
     /// State for BFT sync / consensus.
-    pub(crate) bft_state: watch::Sender<BFTState<SHeader::HeaderId>>,
+    pub(crate) bft_state: watch::Sender<BFTState<StoreId, SHeader::HeaderId>>,
 }
 
 // States are:
@@ -277,6 +277,7 @@ impl<
         let init_body = MetadataBody::new(&initial_sc_state, &initial_ec_state);
         debug!("Initialized body: {:?}", init_body);
         let store_header = MetadataHeader::generate::<S, T>(&init_body);
+        let store_id = store_header.store_id();
         let decrypted_state = DecryptedState {
             latest_ec_state: initial_ec_state,
             latest_headers: BTreeSet::new(),
@@ -301,7 +302,7 @@ impl<
             block_subscribers: BTreeMap::new(),
             ecg_subscribers: BTreeMap::new(),
             scg_subscribers: BTreeMap::new(),
-            bft_state: watch::Sender::new(BFTState::new()),
+            bft_state: watch::Sender::new(BFTState::new(store_id)),
         }
     }
 
@@ -317,7 +318,7 @@ impl<
             block_subscribers: BTreeMap::new(),
             ecg_subscribers: BTreeMap::new(),
             scg_subscribers: BTreeMap::new(),
-            bft_state: watch::Sender::new(BFTState::new()),
+            bft_state: watch::Sender::new(BFTState::new(store_id)),
         }
     }
 

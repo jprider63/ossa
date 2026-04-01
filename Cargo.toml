@@ -10,6 +10,8 @@ members = [ "ossa",
 ]
 
 [workspace.dependencies]
+ark-ec = "0.4.2"
+ark-serialize = "0.4.2"
 async-recursion = "1.1.1"
 async-session-types = "0.1.2"
 bitvec = {version="1.0.1", features = ["serde"]}

@@ -3,8 +3,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 use hints_bls12381;
+use ark_serialize::CanonicalSerialize;
 
-use crate::{auth::DeviceId, protocol::store_bft_sync::v0::{SignatureId, ThresholdSignatureId}, store::dag::{self, Frontier}, util::Sha256Hash};
+use crate::{auth::DeviceId, protocol::store_bft_sync::v0::SignatureId, store::dag::{self, Frontier}, util::{Hash as _, Sha256Hash}};
 
 /// A round in the BFT strong consistency protocol.
 pub type Round = u64;
@@ -25,22 +26,23 @@ pub(crate) struct State<SHeader: dag::DAGHeader, S> {
     pub(crate) committed_frontier: Frontier<SHeader::HeaderId>,
 }
 
-pub(crate) struct BFTState<SHeaderId> {
+pub(crate) struct BFTState<StoreId, SHeaderId> {
     // Current round. Starts at 0.
     current_round: Round,
     /// Round states of BFT sync.
-    round_states: Vec<RoundState<SHeaderId>>,
+    round_states: Vec<RoundState<StoreId, SHeaderId>>,
     /// Tips that are blocks from old rounds (more than 2 old?).
     /// These should all have fully aggregated signatures?
     // JP: Are they all from the previous round?
     previous_tips: Vec<(Round, BlockId)>,
 }
 
-impl<SHeaderId> BFTState<SHeaderId> {
-    pub(crate) fn new() -> Self {
+impl<StoreId, SHeaderId> BFTState<StoreId, SHeaderId> {
+    pub(crate) fn new(store_id: StoreId) -> Self {
+        let round0 = RoundState::new(store_id, 0);
         Self {
             current_round: 0,
-            round_states: vec![],
+            round_states: vec![round0],
             previous_tips: vec![],
         }
     }
@@ -49,7 +51,7 @@ impl<SHeaderId> BFTState<SHeaderId> {
         self.current_round
     }
 
-    pub(crate) fn round_states(&self) -> &[RoundState<SHeaderId>] {
+    pub(crate) fn round_states(&self) -> &[RoundState<StoreId, SHeaderId>] {
         &self.round_states
     }
 
@@ -76,11 +78,11 @@ impl<SHeaderId> BFTState<SHeaderId> {
         round_state.blocks.get(block_id)
     }
 
-    pub(crate) fn get_block_signature(&self, round: Round, block_id: BlockId, sig_id: SignatureId) -> Option<Result<ThresholdSignature, PartialSignature>> {
+    pub(crate) fn get_block_signature(&self, round: Round, block_id: BlockId, sig_id: SignatureId) -> Option<Result<ThresholdSignature, (DeviceId, PartialSignature)>> {
         todo!()
     }
 
-    pub(crate) fn get_round_signature(&self, round: Round, sig_id: SignatureId) -> Option<Result<ThresholdSignature, PartialSignature>> {
+    pub(crate) fn get_round_signature(&self, round: Round, sig_id: SignatureId) -> Option<Result<ThresholdSignature, (DeviceId, PartialSignature)>> {
         todo!()
     }
 }
@@ -109,7 +111,7 @@ impl<A> Signed<A> {
     }
 }
 
-pub(crate) struct RoundState<SHeaderId> {
+pub(crate) struct RoundState<StoreId, SHeaderId> {
     // Blocks in this round for each validator.
     // A validator can only sign a single block in each round (otherwise, they are detected to be malicious).
     blocks: BTreeMap<BlockId, Signed<Block<SHeaderId>>>,
@@ -119,11 +121,27 @@ pub(crate) struct RoundState<SHeaderId> {
     // 2/3 (?) of (weighted) validators promise to make the block available and validated/approve of operations.
     certificates: BTreeMap<BlockId, ThresholdSigned<Certificate>>,
     // 2/3 (1/3?) of (weighted) validators have seen 2/3 (?) of the certificates.
-    commit_round: ThresholdSigned<RoundComplete>,
+    commit_round: ThresholdSigned<RoundComplete<StoreId>>,
 }
 
-impl<SHeaderId> RoundState<SHeaderId> {
-    pub(crate) fn commit_round(&self) -> &ThresholdSigned<RoundComplete> {
+impl<StoreId, SHeaderId> RoundState<StoreId, SHeaderId> {
+    pub(crate) fn new(store_id: StoreId, round: Round) -> Self {
+        let blocks = BTreeMap::new();
+        let block_for_validator = BTreeMap::new();
+        let certificates = BTreeMap::new();
+        let commit_round = ThresholdSigned::new(RoundComplete {
+            store_id,
+            round,
+        });
+        Self {
+            blocks,
+            block_for_validator,
+            certificates,
+            commit_round
+        }
+    }
+
+    pub(crate) fn commit_round(&self) -> &ThresholdSigned<RoundComplete<StoreId>> {
         &self.commit_round
     }
 
@@ -166,9 +184,24 @@ impl<'de, SHeaderId> Deserialize<'de> for Block<SHeaderId> {
 }
 
 #[derive(Debug)]
-pub(crate) struct ThresholdSignature(hints_bls12381::hints::ThresholdSignature); // TODO
-#[derive(Debug)]
-pub(crate) struct PartialSignature(hints_bls12381::hints::PartialSignature); // TODO
+pub(crate) struct ThresholdSignature(hints_bls12381::hints::ThresholdSignature);
+impl ThresholdSignature {
+    fn signature_id(&self) -> SignatureId {
+        todo!()
+    }
+} // TODO
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct PartialSignature(hints_bls12381::hints::PartialSignature);
+impl PartialSignature {
+    fn signature_id(&self, signer: &DeviceId) -> SignatureId {
+        type H = Sha256Hash;
+
+        let mut h = H::new();
+        H::update(&mut h, signer);
+        self.0.serialize_compressed(&mut h).expect("Failed to hash partial signature");
+        SignatureId(H::finalize(h))
+    }
+}
 
 impl<'de> Deserialize<'de> for ThresholdSignature {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -234,13 +267,48 @@ pub(crate) enum ThresholdSigned<A> {
 impl<A> ThresholdSigned<A> {
     // pub fn signature_ids(&self) -> ThresholdSignatureId {
     pub fn signature_ids(&self) -> Vec<SignatureId> {
-        todo!()
+        match self {
+            ThresholdSigned::ThresholdSignature { value: _, signature } => vec![signature.signature_id()],
+            ThresholdSigned::PartialSignatures { value: _, signatures } => signatures.iter().map(|s| s.1.signature_id(s.0)).collect()
+        }
+    }
+
+    fn new(value: A) -> Self {
+        ThresholdSigned::PartialSignatures {
+            value,
+            signatures: BTreeMap::new(),
+        }
     }
 }
 
-pub(crate) struct RoundComplete {
-    store_id: Sha256Hash, // StoreId,
+pub(crate) struct RoundComplete<StoreId> {
+    store_id: StoreId,
     round: Round,
 }
 // JP: Could include hash of previous round's leader block?? Probably not helpful
 
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_hash_of_partial_sig_distinct() {
+        use ark_ec::AffineRepr;
+        let i = hints_bls12381::hints::PartialSignature::generator();
+        let i_ = (i + i).into();
+        let public_key_bytes = [
+           215,  90, 152,   1, 130, 177,  10, 183, 213,  75, 254, 211, 201, 100,   7,  58,
+            14, 225, 114, 243, 218, 166,  35,  37, 175,   2,  26, 104, 247,   7,   81, 26];
+        let auth_key = ed25519_dalek::VerifyingKey::from_bytes(&public_key_bytes).unwrap();
+        let peer = DeviceId::new(auth_key);
+        // println!("{}", i);
+        // println!("{}", i_);
+        let s0 = PartialSignature(i);
+        let s1 = PartialSignature(i_);
+        let sid0 = s0.signature_id(&peer);
+        let sid1 = s1.signature_id(&peer);
+        // println!("{}", s0.signature_id(&peer));
+        // println!("{}", s1.signature_id(&peer));
+        assert!(sid0 != sid1);
+    }
+}

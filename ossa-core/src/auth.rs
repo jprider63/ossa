@@ -14,6 +14,12 @@ pub(crate) struct DeviceId {
     auth_key: ed25519_dalek::VerifyingKey,
 }
 
+impl AsRef<[u8]> for DeviceId {
+    fn as_ref(&self) -> &[u8] {
+        self.auth_key.as_ref()
+    }
+}
+
 impl PartialOrd for DeviceId {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
