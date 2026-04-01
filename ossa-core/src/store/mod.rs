@@ -517,9 +517,9 @@ impl<
 
     /// Send sync requests to peers.
     fn send_sync_requests(&mut self) {
-        fn send_command<T>(i: &mut PeerProtocolStatus<T>, message: T) {
+        fn send_command<T: Debug>(i: &mut PeerProtocolStatus<T>, message: T) {
             let PeerStatus::Syncing(ref mut s) = i.outgoing_status else {
-                unreachable!("Already checked that the peer is ready.");
+                unreachable!("Already checked that the peer is ready. Status: {:?}", i.outgoing_status);
             };
 
             // Mark as outstanding.

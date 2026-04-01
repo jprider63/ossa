@@ -144,7 +144,7 @@ impl<
                 (have, operations)
             }
         };
-        warn!("TODO: Check response sizes.");
+        warn!("TODO: Check response sizes during parsing.");
 
         (have, operations)
     }

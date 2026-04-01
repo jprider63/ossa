@@ -62,7 +62,7 @@ impl<Hash, StoreId, SHeaderId, SHeader, THeaderId, THeader> MiniProtocol for Sto
 where
     Hash: Send,
     StoreId: Clone + Send + Sync,
-    SHeaderId: Clone + for<'a> Deserialize<'a> + Serialize + Send + Sync,
+    SHeaderId: Clone + std::fmt::Debug + for<'a> Deserialize<'a> + Serialize + Send + Sync,
     SHeader: Send,
     THeaderId: Send,
     THeader: Send,
@@ -289,9 +289,9 @@ pub struct BFTSyncInitiator<SHeaderId> {
     todo: PhantomData<SHeaderId>, // JP: Is SHeaderId needed?
 }
 
-impl<SHeaderId> BFTSyncInitiator<SHeaderId> {
-    /// Create a new ECGSyncInitiator and run the first round.
-    async fn run_new<S: Stream<MsgStoreBFTSync<SHeaderId>>, StoreId>(stream: &mut S, bft_state: &mut watch::Receiver<BFTState<StoreId, SHeaderId>>) -> (Self, Vec<()>) {
+impl<SHeaderId: std::fmt::Debug> BFTSyncInitiator<SHeaderId> {
+    /// Create a new BFTSyncInitiator and run the first round.
+    async fn run_new<S: Stream<MsgStoreBFTSync<SHeaderId>>, StoreId>(stream: &mut S, bft_state: &mut watch::Receiver<BFTState<StoreId, SHeaderId>>) -> (Self, Vec<BFTSyncResponse<SHeaderId>>) {
         let req = {
             // Acquire read lock on state.
             let bft_state = bft_state.borrow_and_update();
@@ -338,7 +338,8 @@ impl<SHeaderId> BFTSyncInitiator<SHeaderId> {
             // Send round complete signatures.
             let mut round_complete = current_round.commit_round().signature_ids().into_iter().map(RoundCompleteStreamElement::RoundSignatures).collect::<Vec<_>>();
             round_complete.push(RoundCompleteStreamElement::End);
-            let remaining_round_complete = round_complete.split_off(MAX_HAVE_HEADERS.into());
+            round_complete.truncate(MAX_HAVE_HEADERS.into());
+            // let remaining_round_complete = round_complete.split_off(usize::min(round_complete.len(), MAX_HAVE_HEADERS.into()));
 
             // TODO: Store remaining_round_complete and other state.
 
@@ -350,7 +351,35 @@ impl<SHeaderId> BFTSyncInitiator<SHeaderId> {
         };
         send(stream, req).await.expect("TODO");
 
-        todo!()
+        // Receive response.
+        let operations = Self::receive_response_helper(stream).await;
+
+        let bft_sync = BFTSyncInitiator {
+            // TODO: Save what we've sent, etc...
+            todo: PhantomData,
+        };
+
+        (bft_sync, operations)
+    }
+
+    async fn receive_response_helper<S: Stream<MsgStoreBFTSync<SHeaderId>>>(stream: &mut S) -> Vec<BFTSyncResponse<SHeaderId>> {
+        let response = receive(stream).await.expect("TODO");
+        let operations = match response {
+            MsgBFTSyncResponse::Response { response } => {
+                response
+            }
+            MsgBFTSyncResponse::Wait => {
+                let MsgBFTSyncResponse::Response { response } =
+                    receive(stream).await.expect("TODO")
+                else {
+                    todo!("TODO: Prevent this with session types.");
+                };
+                response
+            }
+        };
+        warn!("TODO: Check response sizes during parsing.");
+
+        operations
     }
 }
 
@@ -462,6 +491,7 @@ impl BFTSyncResponder {
                     }
 
                     // Acquire read lock on state once we've caught up.
+                    // TODO: We only want to run this when state has changed.
                     let bft_state = bft_state.wait_for(|s| s.current_round() >= their_round).await.expect("TODO: channel closed");
 
                     resp_e = new.build_response(bft_state, their_round, their_block_tips, their_round_complete)
