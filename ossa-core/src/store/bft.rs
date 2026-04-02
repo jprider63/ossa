@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use ossa_typeable::Typeable;
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 use hints_bls12381;
@@ -131,7 +132,6 @@ impl<StoreId, SHeaderId: std::fmt::Debug> BFTState<StoreId, SHeaderId> {
                     todo!("TODO: Properly handle this.");
                 }
 
-                // TODO:
                 // Validate block.
                 let is_valid_block = self.validate_block(&signed.value); // Likely check that we have all parents (if not the first round)?
                 if !is_valid_block {
@@ -148,7 +148,7 @@ impl<StoreId, SHeaderId: std::fmt::Debug> BFTState<StoreId, SHeaderId> {
                 // If we're authorized:
                 if active_state.is_peer_validator(&our_peer_id) {
                     // Sign block.
-                    let certificate = Certificate {
+                    let certificate = BlockCertificate {
                         store_id,
                         block_id,
                         // block: todo!(),
@@ -161,9 +161,12 @@ impl<StoreId, SHeaderId: std::fmt::Debug> BFTState<StoreId, SHeaderId> {
                     let res = state.certificates.insert(block_id, signed_block);
                     assert!(res.is_none(), "We haven't received any other certificate sigs yet.");
 
-                    // If round is now complete (and it wasn't before), sign round complete.
-                    if state.is_round_complete() {
-                        state.commit_round.sign(&our_threshold_secret_key)
+                    // If signature is now aggregated, check if round is now complete, sign round complete.
+                    if is_aggregated && state.is_round_block_threshold_met() {
+                        let is_aggregated = state.commit_round.sign(&our_threshold_secret_key); // TODO: Include type_id in signature
+
+                        // If round is fully signed, move on to next round.
+                        self.commit_round()
                     }
                 }
             }
@@ -199,9 +202,28 @@ pub struct Signed<A> {
     signature: ed25519_dalek::Signature,
 }
 
+// Compute message digest for a value being signed.
+fn compute_message_digest<A: Typeable + CanonicalSerialize>(value: &A) -> Sha256Hash {
+    type H = Sha256Hash;
+    let mut h = H::new();
+    H::update(&mut h, A::type_ident());
+    value.serialize_compressed(&mut h).expect("Failed to hash value for signature.");
+    H::finalize(h)
+}
+
 impl<A> Signed<A> {
     pub fn value(&self) -> &A {
         &self.value
+    }
+
+    fn verify(&self, signer_key: &_) -> Result<bool, ()>
+    where
+        A: Typeable + CanonicalSerialize,
+    {
+        let msg = compute_message_digest(&self.value);
+
+        signer_key.verify(msg.as_ref(), self.signature)
+        todo!()
     }
 }
 
@@ -213,7 +235,7 @@ pub(crate) struct RoundState<StoreId, SHeaderId> {
     // JP: Maybe this should be transient?
     block_for_validator: BTreeMap<DeviceId, BlockId>,
     // 2/3 (?) of (weighted) validators promise to make the block available and validated/approve of operations.
-    certificates: BTreeMap<BlockId, ThresholdSigned<Certificate>>,
+    certificates: BTreeMap<BlockId, ThresholdSigned<BlockCertificate>>,
     // 2/3 (1/3?) of (weighted) validators have seen 2/3 (?) of the certificates.
     commit_round: ThresholdSigned<RoundComplete<StoreId>>,
 }
@@ -243,7 +265,7 @@ impl<StoreId, SHeaderId> RoundState<StoreId, SHeaderId> {
         &self.blocks
     }
 
-    pub(crate) fn certificates(&self) -> &BTreeMap<BlockId, ThresholdSigned<Certificate>> {
+    pub(crate) fn certificates(&self) -> &BTreeMap<BlockId, ThresholdSigned<BlockCertificate>> {
         &self.certificates
     }
 }
@@ -258,7 +280,7 @@ pub(crate) struct Block<SHeaderId> {
     // Tips of SC DAG operations
     dag_frontier: Frontier<SHeaderId>,
     // Must contain 2/3 of previous round's certificates (or be round 0).
-    parents: Vec<CertificateId>, // Only strong edges, don't need weak edges since blocks point to head of DAG operations anyways
+    parents: Vec<BlockCertificateId>, // Only strong edges, don't need weak edges since blocks point to head of DAG operations anyways
     // Who proposed the block.
     proposer: DeviceId,
 }
@@ -282,6 +304,7 @@ pub(crate) struct ThresholdSignature(hints_bls12381::hints::ThresholdSignature);
 impl ThresholdSignature {
     fn signature_id(&self) -> SignatureId {
         type H = Sha256Hash;
+        todo!("Include type_id here or somewhere else?");
 
         let mut h = H::new();
         // JP: Should we use HashMarshaller here (CanonicalSerializeHashExt)?
@@ -295,6 +318,7 @@ pub(crate) struct PartialSignature(hints_bls12381::hints::PartialSignature);
 impl PartialSignature {
     fn signature_id(&self, signer: &DeviceId) -> SignatureId {
         type H = Sha256Hash;
+        todo!("Include type_id here or somewhere else?");
 
         let mut h = H::new();
         H::update(&mut h, signer);
@@ -336,10 +360,10 @@ impl Serialize for ThresholdSignature {
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub(crate) struct CertificateId(Sha256Hash);
+pub(crate) struct BlockCertificateId(Sha256Hash);
 
 // JP: Do we need this type? Just use the block id?
-pub(crate) struct Certificate {
+pub(crate) struct BlockCertificate {
     /// The block's id (hash).
     block_id: BlockId,
     /// The block's round.
@@ -364,6 +388,18 @@ pub(crate) enum ThresholdSigned<A> {
     },
 }
 
+enum SignatureError {
+    SignatureError(hints_bls12381::errors::HinTSError),
+    AlreadySigned,
+}
+
+impl From<hints_bls12381::errors::HinTSError> for SignatureError {
+    fn from(e: hints_bls12381::errors::HinTSError) -> Self {
+        SignatureError::SignatureError(e)
+    }
+}
+
+// TODO: Pull out separate crypto module.
 impl<A> ThresholdSigned<A> {
     // pub fn signature_ids(&self) -> ThresholdSignatureId {
     pub fn signature_ids(&self) -> Vec<SignatureId> {
@@ -377,6 +413,54 @@ impl<A> ThresholdSigned<A> {
         ThresholdSigned::PartialSignatures {
             value,
             signatures: BTreeMap::new(),
+        }
+    }
+
+    fn sign(&mut self, required_threshold: hints_bls12381::hints::Weight, our_peer_id: &DeviceId, our_threshold_secret_key: &hints_bls12381::hints::SecretKey) -> Result<bool, SignatureError>
+    where
+        A: Typeable + CanonicalSerialize,
+    {
+        let aggregate_m = match self {
+            ThresholdSigned::ThresholdSignature { .. } => {
+                // Or just return true?
+                return Err(SignatureError::AlreadySigned);
+            }
+            ThresholdSigned::PartialSignatures { value, ref mut signatures } => {
+                let msg = compute_message_digest(value);
+
+                let sig = hints_bls12381::hints::HinTS::sign(msg.as_ref(), our_threshold_secret_key)?;
+                signatures.insert(*our_peer_id, PartialSignature(sig));
+
+                // Check if threshold has been met.
+                let total_weight = signatures.iter().map(|_| {
+                    todo!();
+                    hints_bls12381::hints::Weight::from(0)
+                }).sum::<hints_bls12381::hints::Weight>();
+                if total_weight >= required_threshold {
+                    let crs = todo!();
+                    let ak = todo!();
+                    let vk = todo!();
+                    let partial_signatures = todo!();
+                    let aggregate_sig = hints_bls12381::hints::HinTS::aggregate(crs, ak, vk, partial_signatures)?;
+                    Some(aggregate_sig)
+                } else {
+                    None
+                }
+            }
+        };
+
+        if let Some(aggregate_sig) = aggregate_m {
+            take_mut::take(self, |s| {
+                let ThresholdSigned::PartialSignatures { value, .. } = s else {
+                    unreachable!("");
+                };
+
+                ThresholdSigned::ThresholdSignature { value, signature: ThresholdSignature(aggregate_sig) }
+            });
+
+            Ok(true)
+        } else {
+            Ok(false)
         }
     }
 }

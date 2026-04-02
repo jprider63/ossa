@@ -31,6 +31,7 @@ replace_with = { workspace = true }
 serde = { workspace = true }
 serde_cbor = { workspace = true }
 sha2 = { workspace = true }
+take_mut = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tokio-stream = { workspace = true }

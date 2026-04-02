@@ -43,6 +43,7 @@ serde = {version="1.0.219", features=["derive"]}
 serde_cbor = {version="0.11.2", features=[]}
 sha2 = "0.10.9"
 syn = { version = "2", features = ["extra-traits"] }
+take_mut = "0.2.2"
 tokio = {version="1.43.0", features=["io-util","rt","rt-multi-thread","net"]}
 tokio-util = {version="0.7.15", features=["codec"]}
 tokio-stream = "0.1.17"
