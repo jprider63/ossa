@@ -166,14 +166,61 @@ impl<StoreId, SHeaderId: std::fmt::Debug> BFTState<StoreId, SHeaderId> {
                         let is_aggregated = state.commit_round.sign(&our_threshold_secret_key); // TODO: Include type_id in signature
 
                         // If round is fully signed, move on to next round.
-                        self.commit_round()
+                        if is_aggregated {
+                            self.commit_round(round)
+                        }
                     }
                 }
             }
-            BFTSyncResponse::CertificateSignature(block_id, threshold_signature) => todo!(),
-            BFTSyncResponse::CertificatePartialSignature(block_id, device_id, partial_signature) => todo!(),
-            BFTSyncResponse::RoundCompleteSignature(round, threshold_signature) => todo!(),
-            BFTSyncResponse::RoundCompletePartialSignature(round, device_id, partial_signature) => todo!(),
+            BFTSyncResponse::CertificatePartialSignature(block_id, device_id, partial_signature) => {
+                // TODO:
+                // Check if we already know this block certificate (or we're done).
+                // Validate signer.
+                // Validate signature???
+                // Verify signature for signer.
+                // Add block certificate to state.
+                // Check if the peer has already signed a certificate for this block???
+                // If block is now complete:
+                    // Aggregate signature. (JP: Anyone can do this or only validators???)
+                    // Update state.
+                    // If we're authorized:
+                        // Check if round is now complete, sign round complete.
+                        // If round is fully signed, move on to next round.
+                todo!()
+            }
+            BFTSyncResponse::CertificateSignature(block_id, threshold_signature) => {
+                // TODO:
+                // Check if we already know this block certificate (or we're done?).
+                // Validate signature???
+                // Verify threshold signature.
+                // Add block certificate to state (and remove existing).
+                // If we're authorized:
+                    // Check if round is now complete, sign round complete.
+                    // If round is fully signed, move on to next round.
+            }
+            BFTSyncResponse::RoundCompletePartialSignature(round, device_id, partial_signature) => {
+                // TODO:
+                // Check if we already know this round certificate (or we're done?).
+                // Validate signer.
+                // Validate signature???
+                // Verify signature for signer.
+                // Add round certificate to state.
+                // Check if the peer has already signed a certificate for this round???
+                // If round is now complete:
+                    // Aggregate signature. (JP: Anyone can do this or only validators???)
+                    // Update state.
+                    // Move on to next round.
+                todo!();
+            }
+            BFTSyncResponse::RoundCompleteSignature(round, threshold_signature) => {
+                // TODO:
+                // Check if we already know this aggregate round certificate.
+                // Validate signature???
+                // Verify threshold signature.
+                // Add round certificate to state (and remove existing).
+                // Move on to next round.
+                todo!();
+            }
         }
 
         true
