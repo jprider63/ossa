@@ -89,6 +89,7 @@ impl<StoreId, SHeaderId: std::fmt::Debug> BFTState<StoreId, SHeaderId> {
     }
 
     pub(crate) fn handle_update<S>(&mut self, our_peer_id: &DeviceId, update: BFTSyncResponse<SHeaderId>) -> bool {
+        todo!("Stop signing depending on the protocol's state");
         match update {
             BFTSyncResponse::Block(signed) => {
                 let frontier = signed.value.dag_frontier;
@@ -167,7 +168,7 @@ impl<StoreId, SHeaderId: std::fmt::Debug> BFTState<StoreId, SHeaderId> {
 
                         // If round is fully signed, move on to next round.
                         if is_aggregated {
-                            self.commit_round(round)
+                            self.complete_round(round)
                         }
                     }
                 }
