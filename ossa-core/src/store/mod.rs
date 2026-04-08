@@ -1040,7 +1040,7 @@ impl<
 
         self.bft_state.send_modify(|bft_state| {
             for update in updates {
-                let _success = bft_state.handle_update(update);
+                let _success = bft_state.handle_update(todo!(), update);
 
                 warn!("TODO: record whether successful or not for peer.");
             }

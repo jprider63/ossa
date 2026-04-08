@@ -39,7 +39,7 @@ pub(crate) struct BFTState<StoreId, SHeaderId> {
     previous_tips: Vec<(Round, BlockId)>,
 }
 
-impl<StoreId, SHeaderId: std::fmt::Debug> BFTState<StoreId, SHeaderId> {
+impl<StoreId, SHeaderId> BFTState<StoreId, SHeaderId> {
     pub(crate) fn new(store_id: StoreId) -> Self {
         let round0 = RoundState::new(store_id, 0);
         Self {
@@ -88,8 +88,9 @@ impl<StoreId, SHeaderId: std::fmt::Debug> BFTState<StoreId, SHeaderId> {
         todo!()
     }
 
-    pub(crate) fn handle_update<S>(&mut self, our_peer_id: &DeviceId, update: BFTSyncResponse<SHeaderId>) -> bool {
+    pub(crate) fn handle_update(&mut self, our_peer_id: &DeviceId, update: BFTSyncResponse<SHeaderId>) -> bool {
         todo!("Stop signing depending on the protocol's state");
+        /*
         match update {
             BFTSyncResponse::Block(signed) => {
                 let frontier = signed.value.dag_frontier;
@@ -223,8 +224,9 @@ impl<StoreId, SHeaderId: std::fmt::Debug> BFTState<StoreId, SHeaderId> {
                 todo!();
             }
         }
-
+        
         true
+        */
     }
 
     fn get_active_state_for_round<S>(&self, round: Round) -> S {
@@ -264,6 +266,7 @@ impl<A> Signed<A> {
         &self.value
     }
 
+    /*
     fn verify(&self, signer_key: &_) -> Result<bool, ()>
     where
         A: Typeable + CanonicalSerialize,
@@ -273,6 +276,7 @@ impl<A> Signed<A> {
         signer_key.verify(msg.as_ref(), self.signature)
         todo!()
     }
+    */
 }
 
 pub(crate) struct RoundState<StoreId, SHeaderId> {
