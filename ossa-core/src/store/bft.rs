@@ -330,8 +330,8 @@ pub(crate) struct BlockId(Sha256Hash);
 pub(crate) struct Block<StoreId, SHeaderId> {
     store_id: StoreId,
     round: Round,
-    // Tips of SC DAG operations
-    dag_frontier: Frontier<SHeaderId>,
+    // Tips of SC DAG operations, or point to another validator's block in this round.
+    content: Result<Frontier<SHeaderId>, BlockId>,
     // Must contain 2/3 of previous round's certificates (or be round 0).
     parents: Vec<BlockCertificateId>, // Only strong edges, don't need weak edges since blocks point to head of DAG operations anyways
     // Who proposed the block.
