@@ -75,7 +75,7 @@ impl<StoreId, SHeaderId> BFTState<StoreId, SHeaderId> {
         latest
     }
 
-    pub(crate) fn get_block(&self, round: Round, block_id: &BlockId) -> Option<&Signed<Block<SHeaderId>>> {
+    pub(crate) fn get_block(&self, round: Round, block_id: &BlockId) -> Option<&Signed<Block<StoreId, SHeaderId>>> {
         let round_state = self.round_states().get(round as usize)?;
         round_state.blocks.get(block_id)
     }
@@ -88,7 +88,7 @@ impl<StoreId, SHeaderId> BFTState<StoreId, SHeaderId> {
         todo!()
     }
 
-    pub(crate) fn handle_update(&mut self, our_peer_id: &DeviceId, update: BFTSyncResponse<SHeaderId>) -> bool {
+    pub(crate) fn handle_update(&mut self, our_peer_id: &DeviceId, update: BFTSyncResponse<StoreId, SHeaderId>) -> bool {
         todo!("Stop signing depending on the protocol's state");
         /*
         match update {
@@ -282,7 +282,7 @@ impl<A> Signed<A> {
 pub(crate) struct RoundState<StoreId, SHeaderId> {
     // Blocks in this round for each validator.
     // A validator can only sign a single block in each round (otherwise, they are detected to be malicious).
-    blocks: BTreeMap<BlockId, Signed<Block<SHeaderId>>>,
+    blocks: BTreeMap<BlockId, Signed<Block<StoreId, SHeaderId>>>,
     // Used to quickly check if a peer already signed a block. 
     // JP: Maybe this should be transient?
     block_for_validator: BTreeMap<DeviceId, BlockId>,
@@ -313,7 +313,7 @@ impl<StoreId, SHeaderId> RoundState<StoreId, SHeaderId> {
         &self.commit_round
     }
 
-    pub(crate) fn blocks(&self) -> &BTreeMap<BlockId, Signed<Block<SHeaderId>>> {
+    pub(crate) fn blocks(&self) -> &BTreeMap<BlockId, Signed<Block<StoreId, SHeaderId>>> {
         &self.blocks
     }
 
@@ -327,7 +327,8 @@ pub(crate) struct BlockId(Sha256Hash);
 
 // A BFT block points to the tips of the DAG and the previous round's certificates.
 #[derive(Clone, Debug, Serialize)]
-pub(crate) struct Block<SHeaderId> {
+pub(crate) struct Block<StoreId, SHeaderId> {
+    store_id: StoreId,
     round: Round,
     // Tips of SC DAG operations
     dag_frontier: Frontier<SHeaderId>,
@@ -337,13 +338,13 @@ pub(crate) struct Block<SHeaderId> {
     proposer: DeviceId,
 }
 
-impl<SHeaderId> Block<SHeaderId> {
+impl<StoreId, SHeaderId> Block<StoreId, SHeaderId> {
     pub fn block_id(&self) -> BlockId {
         todo!()
     }
 }
 
-impl<'de, SHeaderId> Deserialize<'de> for Block<SHeaderId> {
+impl<'de, StoreId, SHeaderId> Deserialize<'de> for Block<StoreId, SHeaderId> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de> {

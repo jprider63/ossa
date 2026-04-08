@@ -1025,7 +1025,7 @@ impl<
     fn handle_received_bft_operations<OT>(
         &mut self,
         peer: DeviceId,
-        updates: Vec<BFTSyncResponse<SHeader::HeaderId>>,
+        updates: Vec<BFTSyncResponse<StoreId, SHeader::HeaderId>>,
         // listeners: &[UnboundedSender<StateUpdate<SHeader, S, THeader, T>>],
     )
     {
@@ -1339,6 +1339,7 @@ async fn manage_peers<OT: OssaType, S: Clone, T: CRDT<Time = OT::Time> + Clone +
     shared_state: &SharedState<OT::StoreId>,
     send_commands: &UnboundedSender<
         UntypedStoreCommand<
+            OT::StoreId,
             OT::Hash,
             <OT::SCGHeader as DAGHeader>::HeaderId,
             OT::SCGHeader,
@@ -1396,7 +1397,7 @@ async fn manage_peers<OT: OssaType, S: Clone, T: CRDT<Time = OT::Time> + Clone +
                 send_commands_.send(register_cmd).expect("TODO");
 
                 // Start miniprotocol as server.
-                let mp = StoreSync::<OT::Hash, _, _, _, _>::new_server(
+                let mp = StoreSync::<_, OT::Hash, _, _, _, _>::new_server(
                     peer_id,
                     recv_peer,
                     send_commands_,
@@ -1432,7 +1433,7 @@ async fn manage_peers<OT: OssaType, S: Clone, T: CRDT<Time = OT::Time> + Clone +
                 send_commands_.send(register_cmd).expect("TODO");
 
                 // Run SC miniprotocol as server
-                let mp = StoreDAGSync::<OT::Hash, _, _, _, _>::new_server(
+                let mp = StoreDAGSync::<_, OT::Hash, _, _, _, _>::new_server(
                     peer_id,
                     recv_peer,
                     send_commands_,
@@ -1505,6 +1506,7 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
     mut recv_commands: UnboundedReceiver<StoreCommand<OT::SCGHeader, OT::SCGBody<S>, S, OT::ECGHeader, OT::ECGBody<T>, T>>,
     send_commands_untyped: UnboundedSender<
         UntypedStoreCommand<
+            OT::StoreId,
             OT::Hash,
             <OT::SCGHeader as DAGHeader>::HeaderId,
             OT::SCGHeader,
@@ -1514,6 +1516,7 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
     >,
     mut recv_commands_untyped: UnboundedReceiver<
         UntypedStoreCommand<
+            OT::StoreId,
             OT::Hash,
             <OT::SCGHeader as DAGHeader>::HeaderId,
             OT::SCGHeader,
@@ -1718,7 +1721,7 @@ pub(crate) async fn run_handler<OT: OssaType, S, T>(
                                             send_commands_untyped_.send(register_cmd).expect("TODO");
 
                                             // Start miniprotocol as client.
-                                            let mp = StoreSync::<OT::Hash, _, _, _, _>::new_client(peer, send_commands_untyped_);
+                                            let mp = StoreSync::<_, OT::Hash, _, _, _, _>::new_client(peer, send_commands_untyped_);
                                             run_miniprotocol_async(mp, true, stream_id, sender, receiver).await;
                                             debug!("Store ECG sync with peer (without initiative) exited.")
                                         })
@@ -1945,7 +1948,7 @@ type HandlePeerResponse<Response> = Result<Response, oneshot::Receiver<Option<Re
 
 /// Untyped variant of `StoreCommand` since existentials don't work.
 // #[derive(Debug)]
-pub(crate) enum UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader> {
+pub(crate) enum UntypedStoreCommand<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader> {
     /// Register the discovered peers.
     RegisterPeers {
         peers: Vec<DeviceId>,
@@ -1996,7 +1999,7 @@ pub(crate) enum UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader
     },
     ReceivedBFTOperations {
         peer: DeviceId,
-        updates: Vec<BFTSyncResponse<SHeaderId>>,
+        updates: Vec<BFTSyncResponse<StoreId, SHeaderId>>,
     },
     SubscribeSCG {
         peer: DeviceId,

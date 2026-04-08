@@ -6,7 +6,7 @@
 //
 // Goal: Only send a node when they have all the parents of that node.
 
-use std::{cmp::Reverse, collections::{BTreeSet, BinaryHeap}, fmt::Display, future::Future, iter::Peekable, marker::PhantomData, vec::IntoIter};
+use std::{cmp::Reverse, collections::{BTreeSet, BinaryHeap}, fmt::{self, Display}, future::Future, iter::Peekable, marker::PhantomData, vec::IntoIter};
 
 use polonius_the_crab::{prelude::*, PoloniusResult};
 use serde::{Deserialize, Serialize};
@@ -15,22 +15,22 @@ use tracing::{debug, error, warn};
 
 use crate::{auth::DeviceId, network::protocol::{receive, send, MiniProtocol}, protocol::store_peer::dag_sync::{MAX_DELIVER_HEADERS, MAX_HAVE_HEADERS}, store::{bft::{BFTState, Block, BlockId, PartialSignature, Round, Signed, ThresholdSignature}, dag, UntypedStoreCommand}, util::{Sha256Hash, Stream}};
 
-pub(crate) struct StoreBFTSync<Hash, StoreId, SHeaderId, SHeader, THeaderId, THeader> {
+pub(crate) struct StoreBFTSync<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader> {
     peer: DeviceId,
     // Receive commands from store if we have initiative or send commands to store if we're the responder.
     recv_chan: Option<UnboundedReceiver<StoreBFTSyncCommand>>,
     // Send commands to store if we're the responder and send results back to store if we're the initiator.
-    send_chan: UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>, // JP: Make this a stream?
+    send_chan: UnboundedSender<UntypedStoreCommand<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>>, // JP: Make this a stream?
     // BFT state
     bft_state: watch::Receiver<BFTState<StoreId, SHeaderId>>,
 }
 
-impl<Hash, StoreId, SHeaderId, SHeader, THeaderId, THeader> StoreBFTSync<Hash, StoreId, SHeaderId, SHeader, THeaderId, THeader> {
+impl<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader> StoreBFTSync<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader> {
     pub(crate) fn new_server(
         peer: DeviceId,
         recv_chan: UnboundedReceiver<StoreBFTSyncCommand>,
         send_chan: UnboundedSender<
-            UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>,
+            UntypedStoreCommand<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>,
         >,
         bft_state: watch::Receiver<BFTState<StoreId, SHeaderId>>,
     ) -> Self {
@@ -46,7 +46,7 @@ impl<Hash, StoreId, SHeaderId, SHeader, THeaderId, THeader> StoreBFTSync<Hash, S
     pub(crate) fn new_client(
         peer: DeviceId,
         send_chan: UnboundedSender<
-            UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>,
+            UntypedStoreCommand<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>,
         >,
         bft_state: watch::Receiver<BFTState<StoreId, SHeaderId>>,
     ) -> Self {
@@ -59,16 +59,16 @@ impl<Hash, StoreId, SHeaderId, SHeader, THeaderId, THeader> StoreBFTSync<Hash, S
     }
 }
 
-impl<Hash, StoreId, SHeaderId, SHeader, THeaderId, THeader> MiniProtocol for StoreBFTSync<Hash, StoreId, SHeaderId, SHeader, THeaderId, THeader>
+impl<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader> MiniProtocol for StoreBFTSync<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>
 where
     Hash: Send,
-    StoreId: Clone + Send + Sync + 'static,
-    SHeaderId: Clone + std::fmt::Debug + for<'a> Deserialize<'a> + Serialize + Send + Sync + 'static,
+    StoreId: Clone + fmt::Debug + for<'a> Deserialize<'a> + Serialize + Send + Sync + 'static,
+    SHeaderId: Clone + fmt::Debug + for<'a> Deserialize<'a> + Serialize + Send + Sync + 'static,
     SHeader: Send,
     THeaderId: Send,
     THeader: Send,
 {
-    type Message = MsgStoreBFTSync<SHeaderId>;
+    type Message = MsgStoreBFTSync<StoreId, SHeaderId>;
 
     // Has initiative
     // JP: Why does this have initiative again?
@@ -157,9 +157,9 @@ where
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub(crate) enum MsgStoreBFTSync<SHeaderId> {
+pub(crate) enum MsgStoreBFTSync<StoreId, SHeaderId> {
     Request(MsgBFTSyncRequest),
-    BFTResponse(MsgBFTSyncResponse<SHeaderId>),
+    BFTResponse(MsgBFTSyncResponse<StoreId, SHeaderId>),
 }
 
 /// Identifier of either a partial or aggregate threshold signature.
@@ -216,13 +216,13 @@ pub(crate) enum MsgBFTSyncRequest {
     },
 }
 
-impl<SHeaderId> From<MsgBFTSyncRequest> for MsgStoreBFTSync<SHeaderId> {
+impl<StoreId, SHeaderId> From<MsgBFTSyncRequest> for MsgStoreBFTSync<StoreId, SHeaderId> {
     fn from(msg: MsgBFTSyncRequest) -> Self {
         MsgStoreBFTSync::Request(msg)
     }
 }
 
-impl<SHeaderId> TryInto<MsgBFTSyncRequest> for MsgStoreBFTSync<SHeaderId> {
+impl<StoreId, SHeaderId> TryInto<MsgBFTSyncRequest> for MsgStoreBFTSync<StoreId, SHeaderId> {
     type Error = ();
 
     fn try_into(self) -> Result<MsgBFTSyncRequest, Self::Error> {
@@ -235,8 +235,8 @@ impl<SHeaderId> TryInto<MsgBFTSyncRequest> for MsgStoreBFTSync<SHeaderId> {
 
 
 #[derive(Debug, Serialize, Deserialize)]
-pub(crate) enum BFTSyncResponse<SHeaderId> {
-    Block(Signed<Block<SHeaderId>>),
+pub(crate) enum BFTSyncResponse<StoreId, SHeaderId> {
+    Block(Signed<Block<StoreId, SHeaderId>>),
     CertificateSignature(BlockId, ThresholdSignature),
     CertificatePartialSignature(BlockId, DeviceId, PartialSignature),
     RoundCompleteSignature(Round, ThresholdSignature),
@@ -244,9 +244,9 @@ pub(crate) enum BFTSyncResponse<SHeaderId> {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub(crate) enum MsgBFTSyncResponse<SHeaderId> {
+pub(crate) enum MsgBFTSyncResponse<StoreId, SHeaderId> {
     Response {
-        response: Vec<BFTSyncResponse<SHeaderId>>,
+        response: Vec<BFTSyncResponse<StoreId, SHeaderId>>,
         // blocks: Vec<Block<SHeaderId>>,
         // certificate_signatures: Vec<(BlockId, ThresholdSignature)>,
         // certificate_partial_signatures: Vec<(BlockId, PartialSignature)>,
@@ -260,16 +260,16 @@ pub(crate) enum MsgBFTSyncResponse<SHeaderId> {
     Wait,
 }
 
-impl<SHeaderId> From<MsgBFTSyncResponse<SHeaderId>> for MsgStoreBFTSync<SHeaderId> {
-    fn from(msg: MsgBFTSyncResponse<SHeaderId>) -> Self {
+impl<StoreId, SHeaderId> From<MsgBFTSyncResponse<StoreId, SHeaderId>> for MsgStoreBFTSync<StoreId, SHeaderId> {
+    fn from(msg: MsgBFTSyncResponse<StoreId, SHeaderId>) -> Self {
         MsgStoreBFTSync::BFTResponse(msg)
     }
 }
 
-impl<SHeaderId> TryInto<MsgBFTSyncResponse<SHeaderId>> for MsgStoreBFTSync<SHeaderId> {
+impl<StoreId, SHeaderId> TryInto<MsgBFTSyncResponse<StoreId, SHeaderId>> for MsgStoreBFTSync<StoreId, SHeaderId> {
     type Error = ();
 
-    fn try_into(self) -> Result<MsgBFTSyncResponse<SHeaderId>, Self::Error> {
+    fn try_into(self) -> Result<MsgBFTSyncResponse<StoreId, SHeaderId>, Self::Error> {
         match self {
             MsgStoreBFTSync::Request(_msg_bftsync_request) => Err(()),
             MsgStoreBFTSync::BFTResponse(msg_bftsync_response) => Ok(msg_bftsync_response),
@@ -291,9 +291,9 @@ pub struct BFTSyncInitiator<SHeaderId> {
     todo: PhantomData<SHeaderId>, // JP: Is SHeaderId needed?
 }
 
-impl<SHeaderId: std::fmt::Debug> BFTSyncInitiator<SHeaderId> {
+impl<SHeaderId: fmt::Debug> BFTSyncInitiator<SHeaderId> {
     /// Create a new BFTSyncInitiator and run the first round.
-    async fn run_new<S: Stream<MsgStoreBFTSync<SHeaderId>>, StoreId>(stream: &mut S, bft_state: &mut watch::Receiver<BFTState<StoreId, SHeaderId>>) -> (Self, Vec<BFTSyncResponse<SHeaderId>>) {
+    async fn run_new<S: Stream<MsgStoreBFTSync<StoreId, SHeaderId>>, StoreId: fmt::Debug>(stream: &mut S, bft_state: &mut watch::Receiver<BFTState<StoreId, SHeaderId>>) -> (Self, Vec<BFTSyncResponse<StoreId, SHeaderId>>) {
         let req = {
             // Acquire read lock on state.
             let bft_state = bft_state.borrow_and_update();
@@ -364,7 +364,7 @@ impl<SHeaderId: std::fmt::Debug> BFTSyncInitiator<SHeaderId> {
         (bft_sync, operations)
     }
 
-    async fn receive_response_helper<S: Stream<MsgStoreBFTSync<SHeaderId>>>(stream: &mut S) -> Vec<BFTSyncResponse<SHeaderId>> {
+    async fn receive_response_helper<S: Stream<MsgStoreBFTSync<StoreId, SHeaderId>>, StoreId: fmt::Debug>(stream: &mut S) -> Vec<BFTSyncResponse<StoreId, SHeaderId>> {
         let response = receive(stream).await.expect("TODO");
         let operations = match response {
             MsgBFTSyncResponse::Response { response } => {
@@ -450,7 +450,7 @@ pub struct BFTSyncResponder {
 
 impl BFTSyncResponder {
 
-    async fn run_initial<S: Stream<MsgStoreBFTSync<SHeaderId>>, StoreId: Clone + 'static, SHeaderId: Clone + 'static>(
+    async fn run_initial<S: Stream<MsgStoreBFTSync<StoreId, SHeaderId>>, StoreId: Clone + 'static, SHeaderId: Clone + 'static>(
         stream: &mut S,
         bft_state: &mut watch::Receiver<BFTState<StoreId, SHeaderId>>,
         their_round: Round,
@@ -489,7 +489,7 @@ impl BFTSyncResponder {
                 Err((their_block_tips, their_round_complete)) => {
                     if is_first_run {
                         is_first_run = false;
-                        send(stream, MsgBFTSyncResponse::Wait::<SHeaderId>).await.expect("TODO");
+                        send(stream, MsgBFTSyncResponse::Wait::<StoreId, SHeaderId>).await.expect("TODO");
                     }
 
                     // Acquire read lock on state once we've caught up.
@@ -566,13 +566,13 @@ impl BFTSyncResponder {
 
     /// Returns None if we don't have anything to share so they should wait.
     /// Precondition: our_round >= their_round
-    fn build_response<StoreId, SHeaderId: Clone>(
+    fn build_response<StoreId: Clone, SHeaderId: Clone>(
         &mut self,
         bft_state: watch::Ref<'_, BFTState<StoreId, SHeaderId>>,
         their_round: Round,
         their_block_tips: Vec<BlockStreamElement>,
         their_round_complete: Vec<RoundCompleteStreamElement>,
-    ) -> Option<MsgBFTSyncResponse<SHeaderId>> {
+    ) -> Option<MsgBFTSyncResponse<StoreId, SHeaderId>> {
         let done = self.handle_their_latest(&bft_state, their_round, their_block_tips, their_round_complete);
 
         let response = self.prepare_response(&bft_state);
@@ -809,10 +809,10 @@ impl BFTSyncResponder {
         self.send_queue.extend(sigs);
     }
 
-    fn prepare_response<StoreId, SHeaderId: Clone>(
+    fn prepare_response<StoreId: Clone, SHeaderId: Clone>(
         &mut self,
         bft_state: &watch::Ref<'_, BFTState<StoreId, SHeaderId>>,
-    ) -> Vec<BFTSyncResponse<SHeaderId>> {
+    ) -> Vec<BFTSyncResponse<StoreId, SHeaderId>> {
         let mut operations = Vec::with_capacity(MAX_DELIVER_HEADERS as usize);
 
         while let Some(Reverse((round, response))) = self.send_queue.pop() {

@@ -54,12 +54,12 @@ pub struct Ossa<OT: OssaType> {
     identity_store: Option<StoreHandle<OT, Identity, Const<OT::Time, ()>>>,
 }
 pub type StoreStatuses<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader> =
-    BTreeMap<StoreId, StoreStatus<Hash, SHeaderId, SHeader, THeaderId, THeader>>; // Rename this MiniProtocolArgs?
+    BTreeMap<StoreId, StoreStatus<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>>; // Rename this MiniProtocolArgs?
 
 // pub enum StoreStatus<O: OssaType, T: CRDT<Time = O::Time>>
 // where
 //     T::Op: Serialize,
-pub enum StoreStatus<Hash, SHeaderId, SHeader, THeaderId, THeader> {
+pub enum StoreStatus<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader> {
     // Store is initializing and async handler is being created.
     Initializing,
     // Store's async handler is running.
@@ -72,7 +72,7 @@ pub enum StoreStatus<Hash, SHeaderId, SHeader, THeaderId, THeader> {
         // send_command_chan: UnboundedSender<StoreCommand<store::ecg::v0::Header<dyn Hash, dyn CRDT>, dyn CRDT>>,
         // send_command_chan: UnboundedSender<UntypedStoreCommand>,
         send_command_chan:
-            UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>,
+            UnboundedSender<UntypedStoreCommand<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>>,
     },
 }
 
@@ -83,8 +83,8 @@ pub(crate) struct SharedState<StoreId> {
         Arc<RwLock<BTreeMap<DeviceId, UnboundedSender<PeerManagerCommand<StoreId>>>>>,
 }
 
-impl<Hash, SHeaderId, SHeader, THeaderId, THeader>
-    StoreStatus<Hash, SHeaderId, SHeader, THeaderId, THeader>
+impl<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>
+    StoreStatus<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>
 {
     pub(crate) fn is_initializing(&self) -> bool {
         match self {
@@ -99,7 +99,7 @@ impl<Hash, SHeaderId, SHeader, THeaderId, THeader>
 
     pub(crate) fn command_channel(
         &self,
-    ) -> Option<&UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>>
+    ) -> Option<&UnboundedSender<UntypedStoreCommand<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>>>
     {
         match self {
             StoreStatus::Initializing => None,
@@ -489,6 +489,7 @@ impl<OT: OssaType> Ossa<OT> {
         >();
         let (send_commands_untyped, recv_commands_untyped) = tokio::sync::mpsc::unbounded_channel::<
             store::UntypedStoreCommand<
+                OT::StoreId,
                 OT::Hash,
                 <OT::SCGHeader as DAGHeader>::HeaderId,
                 OT::SCGHeader,

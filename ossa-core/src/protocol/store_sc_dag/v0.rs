@@ -19,22 +19,22 @@ use crate::{
 };
 
 /// Miniprotocol to sync the DAG in the strongly consistent BFT consensus protocol.
-pub(crate) struct StoreDAGSync<Hash, SHeaderId, SHeader, THeaderId, THeader> {
+pub(crate) struct StoreDAGSync<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader> {
     peer: DeviceId,
     // Receive commands from store if we have initiative or send commands to store if we're the responder.
     recv_chan: Option<UnboundedReceiver<StoreSCGSyncCommand<SHeaderId, SHeader>>>,
     // Send commands to store if we're the responder and send results back to store if we're the initiator.
-    send_chan: UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>, // JP: Make this a stream?
+    send_chan: UnboundedSender<UntypedStoreCommand<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>>, // JP: Make this a stream?
 }
 
-impl<Hash, SHeaderId, SHeader, THeaderId, THeader>
-    StoreDAGSync<Hash, SHeaderId, SHeader, THeaderId, THeader>
+impl<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>
+    StoreDAGSync<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>
 {
     pub(crate) fn new_server(
         peer: DeviceId,
         recv_chan: UnboundedReceiver<StoreSCGSyncCommand<SHeaderId, SHeader>>,
         send_chan: UnboundedSender<
-            UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>,
+            UntypedStoreCommand<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>,
         >,
     ) -> Self {
         let recv_chan = Some(recv_chan);
@@ -48,7 +48,7 @@ impl<Hash, SHeaderId, SHeader, THeaderId, THeader>
     pub(crate) fn new_client(
         peer: DeviceId,
         send_chan: UnboundedSender<
-            UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>,
+            UntypedStoreCommand<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>,
         >,
     ) -> Self {
         StoreDAGSync {
@@ -64,7 +64,7 @@ impl<Hash, SHeaderId, SHeader, THeaderId, THeader>
 
     pub(crate) fn send_chan(
         &self,
-    ) -> &UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>> {
+    ) -> &UnboundedSender<UntypedStoreCommand<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>> {
         &self.send_chan
     }
 }
@@ -121,9 +121,10 @@ impl<HeaderId, Header> TryInto<MsgDAGSyncResponse<HeaderId, Header>>
     }
 }
 
-impl<Hash, SHeaderId, SHeader, THeaderId, THeader> MiniProtocol
-    for StoreDAGSync<Hash, SHeaderId, SHeader, THeaderId, THeader>
+impl<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader> MiniProtocol
+    for StoreDAGSync<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>
 where
+    StoreId: Send + Sync,
     Hash: Send + Sync + for<'a> Deserialize<'a> + Serialize,
     SHeaderId: Copy + Ord + Debug + Send + Sync + for<'a> Deserialize<'a> + Serialize,
     SHeader: Clone + Debug + Send + Sync + for<'a> Deserialize<'a> + Serialize,
@@ -233,8 +234,8 @@ where
     }
 }
 
-impl<Hash, SHeaderId, SHeader, THeaderId, THeader> DAGStateSubscriber<Hash, SHeaderId, SHeader>
-    for StoreDAGSync<Hash, SHeaderId, SHeader, THeaderId, THeader>
+impl<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader> DAGStateSubscriber<Hash, SHeaderId, SHeader>
+    for StoreDAGSync<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>
 where
     SHeaderId: Ord + Copy,
 {

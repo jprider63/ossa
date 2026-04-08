@@ -418,7 +418,7 @@ fn handle_shared_stores<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>(
     peer_id: DeviceId,
     shared_stores: Vec<(
         StoreId,
-        UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>,
+        UnboundedSender<UntypedStoreCommand<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>>,
     )>,
 ) {
     // Register the peer for this store.
@@ -460,7 +460,7 @@ async fn run_advertise_stores_server<
     >,
 ) -> Vec<(
     StoreId,
-    UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>,
+    UnboundedSender<UntypedStoreCommand<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>>,
 )>
 where
     StoreId: Copy + AsRef<[u8]>,
@@ -522,7 +522,7 @@ async fn run_advertise_stores_client<
     >,
 ) -> Vec<(
     StoreId,
-    UnboundedSender<UntypedStoreCommand<Hash, SHeaderId, SHeader, THeaderId, THeader>>,
+    UnboundedSender<UntypedStoreCommand<StoreId, Hash, SHeaderId, SHeader, THeaderId, THeader>>,
 )> {
     let mut our_store_ids: BTreeMap<Sha256Hash, (StoreId, UnboundedSender<_>)> = our_store_ids
         .borrow_and_update()
