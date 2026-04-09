@@ -1,4 +1,4 @@
-use std::{collections::{BTreeMap, BTreeSet}, marker::PhantomData};
+use std::{collections::{BTreeMap, BTreeSet}, marker::PhantomData, ops::AddAssign};
 
 use ossa_typeable::Typeable;
 use serde::{Deserialize, Serialize};
@@ -10,7 +10,15 @@ use tracing::{info, warn};
 use crate::{auth::DeviceId, protocol::store_bft_sync::v0::{BFTSyncResponse, SignatureId}, store::dag::{self, Frontier}, util::{Hash as _, Sha256Hash}};
 
 /// A round in the BFT strong consistency protocol.
-pub type Round = u64;
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Typeable)]
+pub struct Round(pub u64);
+
+impl AddAssign<u64> for Round {
+    fn add_assign(&mut self, rhs: u64) {
+        self.0 += rhs;
+    }
+}
+
 pub type Phase = u64;
 
 /// Trait that abstracts over strongly consistent data types that require linearizability.
@@ -42,9 +50,9 @@ pub(crate) struct BFTState<StoreId, SHeaderId> {
 
 impl<StoreId, SHeaderId> BFTState<StoreId, SHeaderId> {
     pub(crate) fn new(store_id: StoreId) -> Self {
-        let round0 = RoundState::new(store_id, 0);
+        let round0 = RoundState::new(store_id, Round(0));
         Self {
-            current_round: 0,
+            current_round: Round(0),
             round_states: vec![round0],
             previous_tips: vec![],
         }

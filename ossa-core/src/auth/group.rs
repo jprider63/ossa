@@ -48,7 +48,7 @@ impl Group {
     pub fn new(owner: IdentityId, public_permissions: Option<Role>) -> Self {
         let permissions = MemberInfo {
             permissions: Role::Admin,
-            round: 0
+            round: Round(0)
         };
         Group {
             members: BTreeMap::from([(owner, permissions)]),

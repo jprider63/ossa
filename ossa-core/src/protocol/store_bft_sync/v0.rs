@@ -298,7 +298,7 @@ impl<SHeaderId: fmt::Debug> BFTSyncInitiator<SHeaderId> {
             // Acquire read lock on state.
             let bft_state = bft_state.borrow_and_update();
             let round = bft_state.current_round();
-            let current_round = &bft_state.round_states()[round as usize];
+            let current_round = &bft_state.round_states()[round.0 as usize];
 
             // Get the current block and signature tips (sorted).
             let sorted_blocks = get_latest_block_and_signature_tips(&bft_state, None);
@@ -396,7 +396,7 @@ fn get_latest_block_and_signature_tips<StoreId, SHeaderId>(bft_state: &watch::Re
 
     // Sort by (Round, BlockId)
     let mut sorted_blocks = latest.map(|(round, block_id)| {
-        let round_state = &bft_state.round_states()[*round as usize];
+        let round_state = &bft_state.round_states()[round.0 as usize];
 
         // Return signatures on block, sorted.
         let signatures = round_state.certificates().get(&block_id).map_or_else(|| vec![], |ts| {
@@ -413,8 +413,8 @@ fn get_latest_block_and_signature_tips<StoreId, SHeaderId>(bft_state: &watch::Re
 
 
 /// Get the blocks and signatures for this round (sorted by block id).
-fn get_round_blocks_and_signatures<StoreId, SHeaderId>(bft_state: &watch::Ref<'_, BFTState<StoreId, SHeaderId>>, round: u64) -> Vec<(u64, BlockId, Vec<SignatureId>)> {
-    let round_state = &bft_state.round_states()[round as usize];
+fn get_round_blocks_and_signatures<StoreId, SHeaderId>(bft_state: &watch::Ref<'_, BFTState<StoreId, SHeaderId>>, round: Round) -> Vec<(Round, BlockId, Vec<SignatureId>)> {
+    let round_state = &bft_state.round_states()[round.0 as usize];
     let mut blocks = round_state.blocks().values().map(|signed_block| {
         let block_id = signed_block.value().block_id();
 
@@ -753,7 +753,7 @@ impl BFTSyncResponder {
     // }
 
     /// Queue a block and its signatures.
-    fn queue_block_and_sigs(&mut self, (our_round, our_block_id, our_sigs): (u64, BlockId, Vec<SignatureId>)) {
+    fn queue_block_and_sigs(&mut self, (our_round, our_block_id, our_sigs): (Round, BlockId, Vec<SignatureId>)) {
             let block = BFTSyncResponseType::Block(our_block_id);
             if !self.they_know(our_round, &block) {
                 self.send_queue.push(Reverse((our_round, block)));
@@ -765,7 +765,7 @@ impl BFTSyncResponder {
     }
 
     // Queue blocks and their sigs less than the given block ID (if provided). Otherwise sends them all.
-    fn queue_blocks(&mut self, blocks_and_sigs: &mut Peekable<IntoIter<(u64, BlockId, Vec<SignatureId>)>>, upper_block_m: Option<(Round, BlockId)>) {
+    fn queue_blocks(&mut self, blocks_and_sigs: &mut Peekable<IntoIter<(Round, BlockId, Vec<SignatureId>)>>, upper_block_m: Option<(Round, BlockId)>) {
         while let Some(block_and_sigs) = blocks_and_sigs.next_if( |our_block|
             upper_block_m.is_none_or(|upper_block| (our_block.0, our_block.1) < upper_block)
         ) {
@@ -779,7 +779,7 @@ impl BFTSyncResponder {
     }
 
     /// Returns true if we've queued everything to complete the round.
-    fn process_their_round_completes(&mut self, round: u64, their_round_complete: Vec<RoundCompleteStreamElement>, our_round_complete_signatures: Vec<SignatureId>) -> bool {
+    fn process_their_round_completes(&mut self, round: Round, their_round_complete: Vec<RoundCompleteStreamElement>, our_round_complete_signatures: Vec<SignatureId>) -> bool {
         let mut their_round_complete = their_round_complete.into_iter();
         let mut our_round_complete_signatures = our_round_complete_signatures.into_iter().peekable();
         while let Some(their_element) = their_round_complete.next() {
@@ -804,7 +804,7 @@ impl BFTSyncResponder {
         false
     }
 
-    fn queue_round_completes(&mut self, round: u64, our_sig_ids: &[SignatureId]) {
+    fn queue_round_completes(&mut self, round: Round, our_sig_ids: &[SignatureId]) {
         let sigs = our_sig_ids.iter().map(|sig_id| Reverse((round, BFTSyncResponseType::RoundSignature(*sig_id)))).filter(|s| !self.they_know(s.0.0, &s.0.1)).collect::<Vec<_>>();
         self.send_queue.extend(sigs);
     }
@@ -869,21 +869,21 @@ impl BFTSyncResponder {
 }
 
 /// Retrieve round complete signatures for this round.
-fn get_round_complete_signatures<StoreId, SHeaderId>(bft_state: &watch::Ref<'_, BFTState<StoreId, SHeaderId>>, round: u64) -> Vec<SignatureId> {
-    let round_state = &bft_state.round_states()[round as usize];
+fn get_round_complete_signatures<StoreId, SHeaderId>(bft_state: &watch::Ref<'_, BFTState<StoreId, SHeaderId>>, round: Round) -> Vec<SignatureId> {
+    let round_state = &bft_state.round_states()[round.0 as usize];
     let mut sig_ids = round_state.commit_round().signature_ids();
     sig_ids.sort();
     sig_ids
 }
 
 struct StreamableBlocks {
-    stream: Peekable<IntoIter<(u64, BlockId, Vec<SignatureId>)>>,
-    current_element: Option<(u64, BlockId, Vec<SignatureId>)>,
+    stream: Peekable<IntoIter<(Round, BlockId, Vec<SignatureId>)>>,
+    current_element: Option<(Round, BlockId, Vec<SignatureId>)>,
     current_sig_pos: usize,
 }
 
 impl StreamableBlocks {
-    fn new(mut stream: Peekable<IntoIter<(u64, BlockId, Vec<SignatureId>)>>) -> Self {
+    fn new(mut stream: Peekable<IntoIter<(Round, BlockId, Vec<SignatureId>)>>) -> Self {
         let current_element = stream.next();
         StreamableBlocks {
             stream,
@@ -892,7 +892,7 @@ impl StreamableBlocks {
         }
     }
 
-    fn stream(&mut self) -> &mut Peekable<IntoIter<(u64, BlockId, Vec<SignatureId>)>> {
+    fn stream(&mut self) -> &mut Peekable<IntoIter<(Round, BlockId, Vec<SignatureId>)>> {
         if let Some(current_element) = &self.current_element {
             assert!(self.current_sig_pos >= current_element.2.len(), "Invariant violated: Cannot mutate stream while currently processing signature stream.")
         }
