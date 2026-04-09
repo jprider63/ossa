@@ -237,10 +237,10 @@ impl<StoreId, SHeaderId> TryInto<MsgBFTSyncRequest> for MsgStoreBFTSync<StoreId,
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) enum BFTSyncResponse<StoreId, SHeaderId> {
     Block(Signed<Block<StoreId, SHeaderId>>),
-    CertificateSignature(BlockId, ThresholdSignature),
-    CertificatePartialSignature(BlockId, DeviceId, PartialSignature),
-    RoundCompleteSignature(Round, ThresholdSignature),
-    RoundCompletePartialSignature(Round, DeviceId, PartialSignature),
+    CertificateSignature(BlockId, ThresholdSignature<()>),
+    CertificatePartialSignature(BlockId, DeviceId, PartialSignature<()>),
+    RoundCompleteSignature(Round, ThresholdSignature<()>),
+    RoundCompletePartialSignature(Round, DeviceId, PartialSignature<()>),
 }
 
 #[derive(Debug, Serialize, Deserialize)]

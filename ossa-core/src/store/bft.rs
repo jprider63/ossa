@@ -60,6 +60,8 @@ impl<StoreId, SHeaderId> BFTState<StoreId, SHeaderId> {
 
     /// Get the blocks from the last two rounds and any tips from before that.
     pub(crate) fn get_latest(&self) -> Vec<(Round, BlockId)> {
+        todo!();
+        /*
         let mut latest = self.previous_tips.clone();
         
         if self.current_round >= 1 {
@@ -74,18 +76,22 @@ impl<StoreId, SHeaderId> BFTState<StoreId, SHeaderId> {
         latest.extend(blocks);
 
         latest
+        */
     }
 
     pub(crate) fn get_block(&self, round: Round, block_id: &BlockId) -> Option<&Signed<Block<StoreId, SHeaderId>>> {
+        todo!();
+        /*
         let round_state = self.round_states().get(round as usize)?;
         round_state.blocks.get(block_id)
+        */
     }
 
-    pub(crate) fn get_block_signature(&self, round: Round, block_id: BlockId, sig_id: SignatureId) -> Option<Result<ThresholdSignature, (DeviceId, PartialSignature)>> {
+    pub(crate) fn get_block_signature(&self, round: Round, block_id: BlockId, sig_id: SignatureId) -> Option<Result<ThresholdSignature<()>, (DeviceId, PartialSignature<()>)>> {
         todo!()
     }
 
-    pub(crate) fn get_round_signature(&self, round: Round, sig_id: SignatureId) -> Option<Result<ThresholdSignature, (DeviceId, PartialSignature)>> {
+    pub(crate) fn get_round_signature(&self, round: Round, sig_id: SignatureId) -> Option<Result<ThresholdSignature<()>, (DeviceId, PartialSignature<()>)>> {
         todo!()
     }
 
@@ -344,6 +350,8 @@ pub(crate) struct RoundState<StoreId, SHeaderId> {
 
 // TODO: Do we need to add the phase to these fields?
 pub(crate) struct SMVBAPhase<StoreId, SHeaderId> {
+    // JP: Does it make sense to pull `blocks` out front of this vec?
+
     // Blocks in this round for each validator.
     // A validator can only sign a single block in each round (otherwise, they are detected to be malicious).
     blocks: BTreeMap<BlockId, Signed<Block<StoreId, SHeaderId>>>,
@@ -376,6 +384,8 @@ pub(crate) struct SMVBAPhase<StoreId, SHeaderId> {
 
 impl<StoreId, SHeaderId> RoundState<StoreId, SHeaderId> {
     pub(crate) fn new(store_id: StoreId, round: Round) -> Self {
+        todo!();
+        /*
         let blocks = BTreeMap::new();
         let block_for_validator = BTreeMap::new();
         let certificates = BTreeMap::new();
@@ -389,18 +399,22 @@ impl<StoreId, SHeaderId> RoundState<StoreId, SHeaderId> {
             certificates,
             commit_round
         }
+        */
     }
 
     pub(crate) fn commit_round(&self) -> &ThresholdSigned<RoundComplete<StoreId>> {
-        &self.commit_round
+        todo!();
+        // &self.commit_round
     }
 
     pub(crate) fn blocks(&self) -> &BTreeMap<BlockId, Signed<Block<StoreId, SHeaderId>>> {
-        &self.blocks
+        todo!();
+        // &self.blocks
     }
 
     pub(crate) fn certificates(&self) -> &BTreeMap<BlockId, ThresholdSigned<BlockLock>> {
-        &self.certificates
+        todo!();
+        // &self.certificates
     }
 }
 
