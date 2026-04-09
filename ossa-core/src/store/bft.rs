@@ -19,7 +19,14 @@ impl AddAssign<u64> for Round {
     }
 }
 
-pub type Phase = u64;
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Typeable)]
+pub struct Phase(pub u64);
+
+impl AddAssign<u64> for Phase {
+    fn add_assign(&mut self, rhs: u64) {
+        self.0 += rhs;
+    }
+}
 
 /// Trait that abstracts over strongly consistent data types that require linearizability.
 pub trait SCDT {
@@ -382,7 +389,7 @@ pub(crate) struct SMVBAPhase<StoreId, SHeaderId> {
     // block. As a result, we can short circuit and exit.
     halt: Option<Halt>,
 
-    // Otherwise, continue with the remaining.
+    // Otherwise, continue with the remaining prevote and vote.
 
     prevote: BTreeMap<DeviceId, Prevote<StoreId>>,
     prevote_no: Option<ThresholdSignature<PrevoteNo<StoreId>>>,
