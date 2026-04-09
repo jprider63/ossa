@@ -369,6 +369,7 @@ pub(crate) struct SMVBAPhase<StoreId, SHeaderId> {
     // Otherwise, continue with the remaining.
 
     prevote: BTreeMap<DeviceId, Prevote<StoreId>>,
+    prevote_no: Option<ThresholdSignature<PrevoteNo<StoreId>>>,
 
     vote: BTreeMap<DeviceId, Vote<StoreId>>,
 }
