@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{collections::{BTreeMap, BTreeSet}, marker::PhantomData};
 
 use ossa_typeable::Typeable;
 use serde::{Deserialize, Serialize};
@@ -11,6 +11,7 @@ use crate::{auth::DeviceId, protocol::store_bft_sync::v0::{BFTSyncResponse, Sign
 
 /// A round in the BFT strong consistency protocol.
 pub type Round = u64;
+pub type Phase = u64;
 
 /// Trait that abstracts over strongly consistent data types that require linearizability.
 pub trait SCDT {
@@ -249,7 +250,15 @@ impl<Header: dag::DAGHeader, S> State<Header, S> {
 pub struct Signed<A> {
     value: A,
     // JP: Generalize this eventually.
-    signature: ed25519_dalek::Signature,
+    signature: Signature<A>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum Signature<A> {
+    Ed25519 {
+        signature: ed25519_dalek::Signature,
+        _phantom: PhantomData<fn(A)>,
+    }
 }
 
 // Compute message digest for a value being signed.
@@ -279,17 +288,89 @@ impl<A> Signed<A> {
     */
 }
 
+/// (Threshold) signatures corresponding to some provable broadcasted data.
+pub(crate) struct ProvableBroadcast<A> {
+    signatures: BTreeMap<BlockId, ThresholdSigned<A>>,
+}
+
+pub(crate) struct CoinFlip<A> {
+    signatures: ThresholdSigned<A>,
+}
+
+pub(crate) struct PrevoteNo<StoreId> {
+    store_id: StoreId,
+    round: Round,
+    phase: Phase,
+}
+
+pub(crate) struct PrevoteYes<StoreId> {
+    store_id: StoreId,
+    round: Round,
+    phase: Phase,
+    voter: DeviceId,
+    winner: BlockId,
+    // JP: We don't need the winning block's lock since it's stored previously.
+}
+
+pub(crate) enum Prevote<StoreId> {
+    // Prevote yes if we've at least received a lock for the block (We only need to do this for a finish if other blocks have entered the voting phase).
+    Yes(Signed<PrevoteYes<StoreId>>),
+
+    // Prevote no if we don't have the lock for the block (or don't have the block at all? JP: Should this be impossible due to ordering guarantees of anti-entropy?).
+    No(PartialSignature<PrevoteNo<StoreId>>),
+}
+
+pub(crate) struct Yes<StoreId> {
+    store_id: StoreId,
+    round: Round,
+    phase: Phase,
+    voter: DeviceId,
+    winner: BlockId,
+    // JP: We don't need the winning block's lock since it's stored previously.
+}
+
+pub(crate) enum Vote<StoreId> {
+    Yes(Signed<Yes<StoreId>>),
+    No()
+}
+
+pub(crate) struct Halt {
+    winner: BlockId,
+}
+
 pub(crate) struct RoundState<StoreId, SHeaderId> {
+    smvba: SMVBAPhase<StoreId, SHeaderId>,
+}
+
+// TODO: Do we need to add the phase to these fields?
+pub(crate) struct SMVBAPhase<StoreId, SHeaderId> {
     // Blocks in this round for each validator.
     // A validator can only sign a single block in each round (otherwise, they are detected to be malicious).
     blocks: BTreeMap<BlockId, Signed<Block<StoreId, SHeaderId>>>,
     // Used to quickly check if a peer already signed a block. 
-    // JP: Maybe this should be transient?
+    // JP: Maybe this should be transient? Or is it needed? Maybe not? If a malicious node
+    // broadcasts multiple blocks, they risk one of their blocks not being signed? But we need this
+    // state to efficiently determine whether or not to sign.
     block_for_validator: BTreeMap<DeviceId, BlockId>,
+
     // 2/3 (?) of (weighted) validators promise to make the block available and validated/approve of operations.
-    certificates: BTreeMap<BlockId, ThresholdSigned<BlockCertificate>>,
-    // 2/3 (1/3?) of (weighted) validators have seen 2/3 (?) of the certificates.
-    commit_round: ThresholdSigned<RoundComplete<StoreId>>,
+    locks: ProvableBroadcast<BlockLock>,
+
+    // 2/3 (?) of (weighted) validators lock on this block for this peer. Shows that 2f + 1 nodes have locked on the value. This guarantees that at least f + 1 nodes will PreVote-Yes.
+    finishes: ProvableBroadcast<BlockFinish>,
+
+    // 2/3 (1/3?) of (weighted) validators have seen 2/3 (?) of the finishes.
+    leader_election: CoinFlip<RoundComplete<StoreId>>,
+
+    // We have a finish for the winning block, so it is guaranteed that everyone will output this
+    // block. As a result, we can short circuit and exit.
+    halt: Option<Halt>,
+
+    // Otherwise, continue with the remaining.
+
+    prevote: BTreeMap<DeviceId, Prevote<StoreId>>,
+
+    vote: BTreeMap<DeviceId, Vote<StoreId>>,
 }
 
 impl<StoreId, SHeaderId> RoundState<StoreId, SHeaderId> {
@@ -317,7 +398,7 @@ impl<StoreId, SHeaderId> RoundState<StoreId, SHeaderId> {
         &self.blocks
     }
 
-    pub(crate) fn certificates(&self) -> &BTreeMap<BlockId, ThresholdSigned<BlockCertificate>> {
+    pub(crate) fn certificates(&self) -> &BTreeMap<BlockId, ThresholdSigned<BlockLock>> {
         &self.certificates
     }
 }
@@ -333,7 +414,7 @@ pub(crate) struct Block<StoreId, SHeaderId> {
     // Tips of SC DAG operations, or point to another validator's block in this round.
     content: Result<Frontier<SHeaderId>, BlockId>,
     // Must contain 2/3 of previous round's certificates (or be round 0).
-    parents: Vec<BlockCertificateId>, // Only strong edges, don't need weak edges since blocks point to head of DAG operations anyways
+    parents: Vec<BlockLockId>, // Only strong edges, don't need weak edges since blocks point to head of DAG operations anyways
     // Who proposed the block.
     proposer: DeviceId,
 }
@@ -353,34 +434,40 @@ impl<'de, StoreId, SHeaderId> Deserialize<'de> for Block<StoreId, SHeaderId> {
 }
 
 #[derive(Debug)]
-pub(crate) struct ThresholdSignature(hints_bls12381::hints::ThresholdSignature);
-impl ThresholdSignature {
+pub(crate) struct ThresholdSignature<A> {
+    signature: hints_bls12381::hints::ThresholdSignature,
+    _phantom: PhantomData<A>,
+}
+impl<A> ThresholdSignature<A> {
     fn signature_id(&self) -> SignatureId {
         type H = Sha256Hash;
         todo!("Include type_id here or somewhere else?");
 
         let mut h = H::new();
         // JP: Should we use HashMarshaller here (CanonicalSerializeHashExt)?
-        self.0.serialize_compressed(&mut h).expect("Failed to hash threshold signature");
+        self.signature.serialize_compressed(&mut h).expect("Failed to hash threshold signature");
         SignatureId(H::finalize(h))
     }
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct PartialSignature(hints_bls12381::hints::PartialSignature);
-impl PartialSignature {
+pub(crate) struct PartialSignature<A> {
+    signature: hints_bls12381::hints::PartialSignature,
+    _phantom: PhantomData<A>,
+}
+impl<A> PartialSignature<A> {
     fn signature_id(&self, signer: &DeviceId) -> SignatureId {
         type H = Sha256Hash;
         todo!("Include type_id here or somewhere else?");
 
         let mut h = H::new();
         H::update(&mut h, signer);
-        self.0.serialize_compressed(&mut h).expect("Failed to hash partial signature");
+        self.signature.serialize_compressed(&mut h).expect("Failed to hash partial signature");
         SignatureId(H::finalize(h))
     }
 }
 
-impl<'de> Deserialize<'de> for ThresholdSignature {
+impl<'de, A> Deserialize<'de> for ThresholdSignature<A> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de> {
@@ -388,7 +475,7 @@ impl<'de> Deserialize<'de> for ThresholdSignature {
     }
 }
 
-impl Serialize for PartialSignature {
+impl<A> Serialize for PartialSignature<A> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer {
@@ -396,7 +483,7 @@ impl Serialize for PartialSignature {
     }
 }
 
-impl<'de> Deserialize<'de> for PartialSignature {
+impl<'de, A> Deserialize<'de> for PartialSignature<A> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de> {
@@ -404,7 +491,7 @@ impl<'de> Deserialize<'de> for PartialSignature {
     }
 }
 
-impl Serialize for ThresholdSignature {
+impl<A> Serialize for ThresholdSignature<A> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer {
@@ -413,10 +500,10 @@ impl Serialize for ThresholdSignature {
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub(crate) struct BlockCertificateId(Sha256Hash);
+pub(crate) struct BlockLockId(Sha256Hash);
 
 // JP: Do we need this type? Just use the block id?
-pub(crate) struct BlockCertificate {
+pub(crate) struct BlockLock {
     /// The block's id (hash).
     block_id: BlockId,
     /// The block's round.
@@ -427,17 +514,24 @@ pub(crate) struct BlockCertificate {
     proposer: DeviceId,
 }
 
+pub(crate) struct BlockFinish {
+    /// The block's id (hash).
+    block_id: BlockId,
+    /// The block's certificate (hash).
+    certificate_id: BlockLockId,
+}
+
 // A threshold signed value (or being signed).
 pub(crate) enum ThresholdSigned<A> {
     // Weighted threshold of validators have signed the value.
     ThresholdSignature {
         value: A,
-        signature: ThresholdSignature, 
+        signature: ThresholdSignature<A>, 
     },
     // Weighted threshold hasn't been met yet.
     PartialSignatures {
         value: A,
-        signatures: BTreeMap<DeviceId, PartialSignature>,
+        signatures: BTreeMap<DeviceId, PartialSignature<A>>,
     },
 }
 
@@ -481,8 +575,11 @@ impl<A> ThresholdSigned<A> {
             ThresholdSigned::PartialSignatures { value, ref mut signatures } => {
                 let msg = compute_message_digest(value);
 
-                let sig = hints_bls12381::hints::HinTS::sign(msg.as_ref(), our_threshold_secret_key)?;
-                signatures.insert(*our_peer_id, PartialSignature(sig));
+                let signature = hints_bls12381::hints::HinTS::sign(msg.as_ref(), our_threshold_secret_key)?;
+                signatures.insert(*our_peer_id, PartialSignature {
+                    signature,
+                    _phantom: PhantomData,
+                });
 
                 // Check if threshold has been met.
                 let total_weight = signatures.iter().map(|_| {
@@ -508,7 +605,13 @@ impl<A> ThresholdSigned<A> {
                     unreachable!("");
                 };
 
-                ThresholdSigned::ThresholdSignature { value, signature: ThresholdSignature(aggregate_sig) }
+                ThresholdSigned::ThresholdSignature {
+                    value,
+                    signature: ThresholdSignature {
+                        signature: aggregate_sig,
+                        _phantom: PhantomData,
+                    }
+                }
             });
 
             Ok(true)
@@ -540,8 +643,14 @@ mod test {
         let peer = DeviceId::new(auth_key);
         // println!("{}", i);
         // println!("{}", i_);
-        let s0 = PartialSignature(i);
-        let s1 = PartialSignature(i_);
+        let s0 = PartialSignature{
+            signature: i,
+            _phantom: PhantomData::<()>,
+        };
+        let s1 = PartialSignature{
+            signature: i_,
+            _phantom: PhantomData::<()>,
+        };
         let sid0 = s0.signature_id(&peer);
         let sid1 = s1.signature_id(&peer);
         // println!("{}", s0.signature_id(&peer));
