@@ -4,7 +4,53 @@ resolver = "2"
 members = [ "ossa",
     "ossa-core",
     "ossa-crdt",
+    "ossa-crdt-derive",
     "ossa-dioxus",
     "ossa-typeable",
     "ossa-typeable-derive",
 ]
+
+[workspace.dependencies]
+ark-ec = "0.4.2"
+ark-serialize = "0.4.2"
+async-recursion = "1.1.1"
+async-session-types = "0.1.2"
+bitvec = {version="1.0.1", features = ["serde"]}
+bs58 = "0.5.1"
+bytes = "1.10.1"
+chrono = "0.4.44"
+ed25519-dalek = {version="2.2.0", features = ["rand_core", "serde"]}
+daggy = {version="0.9.0", features=["stable_dag"]}
+# dioxus = {version = "0.6.0", git = "https://github.com/jprider63/dioxus.git", rev="cd3ff6d3644347163c249da8293a76db02044d03"}
+dioxus = { version = "0.7.1", features = ["web"] }
+# dioxus-desktop = {version = "0.6.0", git = "https://github.com/jprider63/dioxus.git", rev="cd3ff6d3644347163c249da8293a76db02044d03"}
+dioxus-desktop = { version = "0.7.1" }
+futures = "0.3.31"
+hex = "0.4.3"
+hints-bls12381 = { git = "https://github.com/rsinha/wtss.git", rev="088e7e9c1cf30db211d49f9b17150b16468c5454" }
+im = {version = "15.1.0", features = ["serde"]}
+itertools = "0.14.0"
+lazy_static = "1.5.0"
+ossa-crdt = {path = "ossa-crdt"}
+ossa-core = {path = "ossa-core"}
+ossa-typeable = {path = "ossa-typeable"}
+ossa-typeable-derive = {path = "ossa-typeable-derive"}
+polonius-the-crab = "0.5.0"
+proc-macro2 = "1.0.95"
+quote = "1.0.40"
+rand = "0.9.2"
+rand_core = {version="^0.6.4", features=["std"]}
+replace_with = "0.1.8"
+serde = {version="1.0.219", features=["derive"]}
+serde_cbor = {version="0.11.2", features=[]}
+sha2 = "0.10.9"
+syn = { version = "2", features = ["extra-traits"] }
+take_mut = "0.2.2"
+tokio = {version="1.43.0", features=["io-util","rt","rt-multi-thread","net"]}
+tokio-util = {version="0.7.15", features=["codec"]}
+tokio-stream = "0.1.17"
+tracing = "0.1.41"
+heck = "0.5"
+void = { git = "https://github.com/jprider63/rust-void.git", version = "1.0.4", features=["serde"]}
+# portmapper = "0.8.0"
+portmapper = { git = "https://github.com/jprider63/net-tools.git", rev = "e84c5ae9dd97d88d06fa1b808405bddb8960a94b" }

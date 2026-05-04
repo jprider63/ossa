@@ -2,7 +2,11 @@ pub mod lamport;
 
 use std::cmp::Ordering;
 
+use void::{unreachable, Void};
+
 pub use lamport::LamportTimestamp;
+
+use crate::{map::twopmap::TwoPMapOp, register::LWW};
 
 // TODO: Vector clock
 // TODO: hashes from DAG history
@@ -37,5 +41,66 @@ pub fn compare_with_tiebreak<CS: CausalState<Time: Ord>>(
     } else {
         // For concurrent operations, fall back to total order on time.
         t1.cmp(t2)
+    }
+}
+
+pub trait ConcretizeTime<HeaderId> {
+    type Serialized;
+
+    fn concretize_time(src: Self::Serialized, current_header: HeaderId) -> Self;
+}
+
+impl<HeaderId> ConcretizeTime<HeaderId> for Void {
+    type Serialized = Void;
+
+    fn concretize_time(src: Self::Serialized, _current_header: HeaderId) -> Self {
+        unreachable(src)
+    }
+}
+
+impl<HeaderId, T: ConcretizeTime<HeaderId>, V> ConcretizeTime<HeaderId> for LWW<T, V> {
+    type Serialized = LWW<T::Serialized, V>;
+
+    fn concretize_time(src: Self::Serialized, current_header: HeaderId) -> Self {
+        LWW {
+            time: T::concretize_time(src.time, current_header),
+            value: src.value,
+        }
+    }
+}
+
+/*
+impl<HeaderId, T: ConcretizeTime<HeaderId>, A> ConcretizeTime<HeaderId> for Const<T, A> {
+    type Serialized = Const<T::Serialized, A>;
+
+    fn concretize_time(src: Self::Serialized, current_header: HeaderId) -> Self {
+        Self::new(src.into_part())
+    }
+}
+*/
+
+impl<
+        HeaderId: Clone,
+        K: ConcretizeTime<HeaderId>,
+        V: ConcretizeTime<HeaderId>,
+        Op: ConcretizeTime<HeaderId>,
+    > ConcretizeTime<HeaderId> for TwoPMapOp<K, V, Op>
+{
+    type Serialized = TwoPMapOp<K::Serialized, V::Serialized, Op::Serialized>;
+
+    fn concretize_time(src: Self::Serialized, current_header: HeaderId) -> Self {
+        match src {
+            TwoPMapOp::Insert { key, value } => TwoPMapOp::Insert {
+                key: K::concretize_time(key, current_header.clone()),
+                value: V::concretize_time(value, current_header),
+            },
+            TwoPMapOp::Apply { key, operation } => TwoPMapOp::Apply {
+                key: K::concretize_time(key, current_header.clone()),
+                operation: Op::concretize_time(operation, current_header),
+            },
+            TwoPMapOp::Delete { key } => TwoPMapOp::Delete {
+                key: K::concretize_time(key, current_header),
+            },
+        }
     }
 }
