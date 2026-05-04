@@ -1,0 +1,17 @@
+[package]
+name = "ossa-crdt-derive"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { workspace = true, features = ["derive", "parsing", "full"] }
+proc-macro2 = { workspace = true }
+quote = { workspace = true }
+heck = { workspace = true }
+
+[dev-dependencies]
+ossa-crdt = { workspace = true }
+serde = { workspace = true }

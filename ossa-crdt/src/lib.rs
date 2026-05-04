@@ -6,6 +6,8 @@ pub mod set;
 pub mod text;
 pub mod time;
 
+pub use ossa_crdt_derive::CRDT;
+
 use crate::time::CausalState;
 
 // // JP: What should this be called? LogicalOp? MetaOp?
