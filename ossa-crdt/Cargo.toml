@@ -2,7 +2,7 @@
 name = "ossa-crdt"
 version = "0.0.1"
 edition = "2021"
-license = "MPL-2.0"
+license = "AGPL-3.0-only"
 description = "CRDTs for the Ossa Protocol."
 homepage = "https://github.com/jprider63/ossa"
 repository = "https://github.com/jprider63/ossa"
